@@ -49,7 +49,6 @@ struct HiDPIToggleRow: View {
         }
         .toggleStyle(.switch)
         .controlSize(.small)
-        .disabled(isLoading || presetService.isApplying)
         .padding(.horizontal, 12)
         .onAppear { isOn = matchedOn }
         .onChange(of: matchedOn) { _, newValue in
