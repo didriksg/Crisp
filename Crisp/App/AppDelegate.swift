@@ -228,10 +228,24 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // use (no NSVisualEffectView grade matches it). Its materialize bloom
         // plays only when the view first comes on screen, which happens once
         // during hidden warm-up; the panel never orders out afterwards.
-        let glass = NSGlassEffectView(frame: container.bounds)
-        glass.cornerRadius = 16
-        glass.autoresizingMask = [.width, .height]
-        container.addSubview(glass)
+        let backdrop: NSView
+        if #available(macOS 26.0, *) {
+            let glass = NSGlassEffectView(frame: container.bounds)
+            glass.cornerRadius = 16
+            backdrop = glass
+        } else {
+            // Pre-Tahoe: .popover is the translucent grade native menus and
+            // Control Center panels show on macOS 15.
+            let material = NSVisualEffectView(frame: container.bounds)
+            material.material = .popover
+            material.state = .active
+            material.wantsLayer = true
+            material.layer?.cornerRadius = 16
+            material.layer?.masksToBounds = true
+            backdrop = material
+        }
+        backdrop.autoresizingMask = [.width, .height]
+        container.addSubview(backdrop)
         // The hosting view is a fixed, oversized canvas glued to the window
         // top and extending far past the bottom edge; the window edge simply
         // reveals or clips it. Because it NEVER resizes with the window,

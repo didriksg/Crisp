@@ -19,7 +19,7 @@ A native macOS menu bar app for managing external displays: HiDPI resolutions, b
 
 ## Requirements
 
-- macOS 26 (Tahoe) or later
+- macOS 15 (Sequoia) or later; on macOS 26 the panel uses the native Liquid Glass backdrop
 
 ## Permissions
 

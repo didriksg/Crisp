@@ -2,13 +2,13 @@ name: Crisp
 options:
   bundleIdPrefix: com.crisp
   deploymentTarget:
-    macOS: "14.0"
+    macOS: "15.0"
 
 targets:
   Crisp:
     type: application
     platform: macOS
-    deploymentTarget: "14.0"
+    deploymentTarget: "15.0"
     sources:
       - path: Crisp
         excludes:
