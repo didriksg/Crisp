@@ -45,7 +45,6 @@ struct BrightnessSliderView: View {
                     .onTapGesture { step(-brightnessStep) }
 
                 // Native macOS slider, exactly as in the system Display panel.
-                // Apple tints the built-in display's fill accent blue, externals white.
                 Slider(value: $localBrightness, in: 0...100) { editing in
                     isDragging = editing
                     if !editing {
@@ -56,7 +55,7 @@ struct BrightnessSliderView: View {
                         }
                     }
                 }
-                .tint(display.isBuiltin ? Color.accentColor : .white)
+                .tint(Color.accentColor)
                 .controlSize(.small)
                 .accessibilityLabel("Display brightness")
                 .accessibilityValue("\(Int(localBrightness))%")
