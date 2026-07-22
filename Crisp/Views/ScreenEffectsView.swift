@@ -44,6 +44,18 @@ struct ScreenEffectsView: View {
     }
 }
 
+/// Press feedback with no animation in either direction: the dark mode
+/// crossfade freezes the screen ~120ms after the click, and any in-flight
+/// release spring (like .plain's) gets captured mid-shrink and held there
+/// for the whole fade. Instant dim down, instant restore.
+private struct InstantPressStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .opacity(configuration.isPressed ? 0.65 : 1.0)
+            .transaction { $0.animation = nil }
+    }
+}
+
 /// Same circular toggle style as the system panel: on = white circle + black icon, off = translucent dark circle.
 private struct EffectCircleButton: View {
     let icon: String
@@ -75,7 +87,7 @@ private struct EffectCircleButton: View {
             }
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(InstantPressStyle())
         .scaleEffect(isHovered ? 1.03 : 1.0)
         .onHover { isHovered = $0 }
         .accessibilityLabel("\(label), \(isOn ? "on" : "off")")
