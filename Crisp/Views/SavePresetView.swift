@@ -12,7 +12,7 @@ struct SavePresetView: View {
             Button(action: { isShowingSaveForm.toggle() }) {
                 HStack {
                     MenuItemIcon(systemName: isShowingSaveForm ? "minus" : "plus", color: .indigo)
-                    Text(isShowingSaveForm ? "Cancel" : "Save Preset")
+                    Text(isShowingSaveForm ? "Cancel" : "Create Preset")
                         .font(.body)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
