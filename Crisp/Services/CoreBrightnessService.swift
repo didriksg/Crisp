@@ -79,13 +79,21 @@ final class CoreBrightnessService: ObservableObject {
             DispatchQueue.main.async {
                 if let nightShift { self.nightShiftEnabled = nightShift }
                 if let trueTone { self.trueToneEnabled = trueTone }
-                if let dark { self.darkModeEnabled = dark }
+                // Don't clobber an optimistic toggle: the async theme change
+                // may still be in flight, and a stale read here snaps the
+                // button back for a beat (the native control never does).
+                if let dark, Date().timeIntervalSince(self.lastDarkModeSetAt) > 3.0 {
+                    self.darkModeEnabled = dark
+                }
             }
         }
     }
 
+    private var lastDarkModeSetAt = Date.distantPast
+
     func setDarkMode(_ on: Bool) {
         darkModeEnabled = on
+        lastDarkModeSetAt = Date()
         // The eased color crossfade is AppKit's private NSGlobalPreferenceTransition:
         // grab a transition, flip the theme silently, then post the change through
         // the transition so every app animates. Same path System Settings and
