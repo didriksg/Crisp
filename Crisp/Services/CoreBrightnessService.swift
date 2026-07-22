@@ -102,11 +102,11 @@ final class CoreBrightnessService: ObservableObject {
         // every display, so the whole dance runs off the main thread; the toggle
         // above renders instantly, like the native control.
         Task.detached(priority: .userInitiated) {
-            // Let the flipped control finish rendering first: the transition
+            // Let the flipped control reach the screen first: the transition
             // freezes a snapshot of the display for the crossfade, and it must
-            // capture the button fully released and re-tinted (its own press
-            // and fill animations run ~150ms), not a mid-animation frame.
-            try? await Task.sleep(nanoseconds: 300_000_000)
+            // capture the button already released and re-tinted (the button
+            // flips instantly, so one frame-commit beat suffices).
+            try? await Task.sleep(nanoseconds: 120_000_000)
             let transition = (NSClassFromString("NSGlobalPreferenceTransition") as? NSObject.Type)?
                 .perform(NSSelectorFromString("transition"))?.takeUnretainedValue() as? NSObject
             if let setNotifying = _SLSSetAppearanceThemeNotifying {

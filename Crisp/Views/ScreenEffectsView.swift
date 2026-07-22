@@ -54,7 +54,8 @@ private struct EffectCircleButton: View {
 
     var body: some View {
         Button {
-            withAnimation(.easeOut(duration: 0.15)) { action() }
+            // Instant state flip, like the native Control Center circles.
+            action()
         } label: {
             VStack(spacing: 5) {
                 ZStack {
@@ -76,7 +77,6 @@ private struct EffectCircleButton: View {
         }
         .buttonStyle(.plain)
         .scaleEffect(isHovered ? 1.03 : 1.0)
-        .animation(.easeOut(duration: 0.15), value: isOn)
         .onHover { isHovered = $0 }
         .accessibilityLabel("\(label), \(isOn ? "on" : "off")")
         .accessibilityAddTraits(.isButton)
