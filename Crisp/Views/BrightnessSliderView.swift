@@ -1,5 +1,43 @@
 import SwiftUI
 
+/// Sun step icon flanking a brightness slider: brightens while pressed, steps
+/// once on click, and keeps stepping while held (initial delay, then repeat),
+/// like holding a hardware brightness key.
+struct BrightnessStepButton: View {
+    let systemName: String
+    let action: () -> Void
+    @State private var isPressed = false
+    @State private var repeatTask: Task<Void, Never>? = nil
+
+    var body: some View {
+        Image(systemName: systemName)
+            .font(.system(size: 15))
+            .foregroundColor(isPressed ? .primary : .secondary)
+            .contentShape(Rectangle())
+            .accessibilityHidden(true)
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { _ in
+                        guard !isPressed else { return }
+                        isPressed = true
+                        action()
+                        repeatTask = Task { @MainActor in
+                            try? await Task.sleep(nanoseconds: 400_000_000)
+                            while !Task.isCancelled {
+                                action()
+                                try? await Task.sleep(nanoseconds: 150_000_000)
+                            }
+                        }
+                    }
+                    .onEnded { _ in
+                        isPressed = false
+                        repeatTask?.cancel()
+                        repeatTask = nil
+                    }
+            )
+    }
+}
+
 struct BrightnessSliderView: View {
     @ObservedObject var display: DisplayInfo
     var compact: Bool = false  // Compact mode: hides the mode label row (used for top-level inline sliders)
@@ -37,12 +75,7 @@ struct BrightnessSliderView: View {
             }
 
             HStack(spacing: 8) {
-                Image(systemName: "sun.min.fill")
-                    .font(.system(size: 15))
-                    .foregroundColor(.secondary)
-                    .accessibilityHidden(true)
-                    .contentShape(Rectangle())
-                    .onTapGesture { step(-brightnessStep) }
+                BrightnessStepButton(systemName: "sun.min.fill") { step(-brightnessStep) }
 
                 // Native macOS slider, exactly as in the system Display panel.
                 Slider(value: $localBrightness, in: 0...100) { editing in
@@ -69,12 +102,7 @@ struct BrightnessSliderView: View {
                     }
                 }
 
-                Image(systemName: "sun.max.fill")
-                    .font(.system(size: 15))
-                    .foregroundColor(.secondary)
-                    .accessibilityHidden(true)
-                    .contentShape(Rectangle())
-                    .onTapGesture { step(brightnessStep) }
+                BrightnessStepButton(systemName: "sun.max.fill") { step(brightnessStep) }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 4)
@@ -137,12 +165,7 @@ struct CombinedBrightnessView: View {
             }
 
             HStack(spacing: 8) {
-                Image(systemName: "sun.min.fill")
-                    .font(.system(size: 15))
-                    .foregroundColor(.secondary)
-                    .accessibilityHidden(true)
-                    .contentShape(Rectangle())
-                    .onTapGesture { stepAll(-100.0 / 16.0) }
+                BrightnessStepButton(systemName: "sun.min.fill") { stepAll(-100.0 / 16.0) }
 
                 Slider(value: $combinedBrightness, in: 0...100) { editing in
                     isDragging = editing
@@ -168,12 +191,7 @@ struct CombinedBrightnessView: View {
                     }
                 }
 
-                Image(systemName: "sun.max.fill")
-                    .font(.system(size: 15))
-                    .foregroundColor(.secondary)
-                    .accessibilityHidden(true)
-                    .contentShape(Rectangle())
-                    .onTapGesture { stepAll(100.0 / 16.0) }
+                BrightnessStepButton(systemName: "sun.max.fill") { stepAll(100.0 / 16.0) }
             }
         }
         .padding(.horizontal, 12)
