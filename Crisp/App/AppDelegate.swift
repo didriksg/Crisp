@@ -17,8 +17,11 @@ final class MenuPanel: NSPanel {
     /// Last content size reported by SwiftUI layout (source of truth for
     /// the panel's natural size when showing).
     var lastContentSize: NSSize?
-    private var resizeTimer: Timer?
+    private var resizeLink: CADisplayLink?
     private var resizeTarget: NSSize?
+    private var resizeFrom: NSSize = .zero
+    private var resizeStart: CFTimeInterval = 0
+    private var resizeOmega: Double = 0
 
     override var canBecomeKey: Bool { true }
     override func cancelOperation(_ sender: Any?) { onCancel?() }
@@ -32,10 +35,11 @@ final class MenuPanel: NSPanel {
     func applyContentSize(_ size: NSSize) {
         lastContentSize = size
         // Already animating toward this exact size: let the spring finish.
-        if let t = resizeTarget, resizeTimer?.isValid == true,
+        if let t = resizeTarget, resizeLink != nil,
            abs(t.height - size.height) < 0.5, abs(t.width - size.width) < 0.5 { return }
         guard abs(frame.height - size.height) > 0.5 || abs(frame.width - size.width) > 0.5 else { return }
-        resizeTimer?.invalidate()
+        resizeLink?.invalidate()
+        resizeLink = nil
         resizeTarget = nil
 
         // Hidden (alpha 0) means warm-up layout: snap so the panel opens at
@@ -54,30 +58,46 @@ final class MenuPanel: NSPanel {
         // damped spring, x(t) = T + (x0-T)(1 + wt)e^(-wt) with w = 2*pi/d.
         // Same curve, same duration, started in the same runloop turn ->
         // window edge and curtain land on the same value every frame.
-        // Main-thread timer, not animator(): NSWindow's frame animator runs on
-        // a background thread and tears reads of pinnedTopY.
-        let duration = Animation.panelResizeDuration
-        let omega = 2 * Double.pi / duration
-        let from = frame.size
-        let start = CACurrentMediaTime()
-        resizeTarget = size
-        let timer = Timer(timeInterval: 1.0 / 120.0, repeats: true) { [weak self] t in
-            guard let self else { t.invalidate(); return }
-            let dt = CACurrentMediaTime() - start
-            let decay = (1 + omega * dt) * exp(-omega * dt)
-            var f = self.frame
-            if decay < 0.005 {
-                t.invalidate()
-                self.resizeTarget = nil
-                f.size = size
-            } else {
-                f.size = NSSize(width: size.width + (from.width - size.width) * decay,
-                                height: size.height + (from.height - size.height) * decay)
-            }
-            self.setFrame(f, display: false)
+        // CADisplayLink, not a Timer: an unsynced timer beats against vsync,
+        // and the tick that lands late forces its full layout pass past the
+        // frame deadline (visible as a stutter). The link ticks once per
+        // refresh of the display the panel is on, right after vsync.
+        // Not animator(): NSWindow's frame animator runs on a background
+        // thread and tears reads of pinnedTopY.
+        guard let view = contentView ?? hostingView else {
+            var f = frame
+            f.size = size
+            setFrame(f, display: false)
+            return
         }
-        RunLoop.main.add(timer, forMode: .common)
-        resizeTimer = timer
+        resizeOmega = 2 * Double.pi / Animation.panelResizeDuration
+        resizeFrom = frame.size
+        resizeStart = CACurrentMediaTime()
+        resizeTarget = size
+        let link = view.displayLink(target: self, selector: #selector(resizeTick(_:)))
+        link.add(to: .main, forMode: .common)
+        resizeLink = link
+    }
+
+    @objc private func resizeTick(_ link: CADisplayLink) {
+        guard let target = resizeTarget else {
+            link.invalidate()
+            resizeLink = nil
+            return
+        }
+        let dt = CACurrentMediaTime() - resizeStart
+        let decay = (1 + resizeOmega * dt) * exp(-resizeOmega * dt)
+        var f = frame
+        if decay < 0.005 {
+            link.invalidate()
+            resizeLink = nil
+            resizeTarget = nil
+            f.size = target
+        } else {
+            f.size = NSSize(width: target.width + (resizeFrom.width - target.width) * decay,
+                            height: target.height + (resizeFrom.height - target.height) * decay)
+        }
+        setFrame(f, display: false)
     }
 }
 
