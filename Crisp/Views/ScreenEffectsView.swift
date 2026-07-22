@@ -21,7 +21,9 @@ struct ScreenEffectsView: View {
                 EffectCircleButton(
                     icon: "moon.fill",
                     label: "Night Shift",
-                    isOn: effects.nightShiftEnabled
+                    isOn: effects.nightShiftEnabled,
+                    onFill: .orange,
+                    onIcon: .white
                 ) {
                     effects.setNightShift(!effects.nightShiftEnabled)
                 }
@@ -31,7 +33,9 @@ struct ScreenEffectsView: View {
                 EffectCircleButton(
                     icon: "sun.max.fill",
                     label: "True Tone",
-                    isOn: effects.trueToneEnabled
+                    isOn: effects.trueToneEnabled,
+                    onFill: .blue,
+                    onIcon: .white
                 ) {
                     effects.setTrueTone(!effects.trueToneEnabled)
                 }
@@ -54,11 +58,15 @@ private struct InstantPressStyle: ButtonStyle {
     }
 }
 
-/// Same circular toggle style as the system panel: on = white circle + black icon, off = translucent dark circle.
+/// Same circular toggle style as the system panel: off = translucent dark
+/// circle; on = the effect's own tint (white for Dark Mode, orange for Night
+/// Shift, blue for True Tone), matching the native panel.
 private struct EffectCircleButton: View {
     let icon: String
     let label: String
     let isOn: Bool
+    var onFill: Color = .white
+    var onIcon: Color = .black
     let action: () -> Void
 
     var body: some View {
@@ -66,14 +74,14 @@ private struct EffectCircleButton: View {
             // Instant state flip, like the native Control Center circles.
             action()
         } label: {
-            VStack(spacing: 5) {
+            VStack(spacing: 8) {
                 ZStack {
                     Circle()
-                        .fill(isOn ? AnyShapeStyle(Color.white) : AnyShapeStyle(Color.primary.opacity(0.12)))
+                        .fill(isOn ? AnyShapeStyle(onFill) : AnyShapeStyle(Color.primary.opacity(0.12)))
                         .frame(width: 42, height: 42)
                     Image(systemName: icon)
                         .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(isOn ? .black : .primary.opacity(0.85))
+                        .foregroundColor(isOn ? onIcon : .primary.opacity(0.85))
                 }
                 Text(label)
                     .font(.caption)
