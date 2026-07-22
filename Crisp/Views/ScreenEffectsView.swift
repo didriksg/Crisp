@@ -60,7 +60,6 @@ private struct EffectCircleButton: View {
     let label: String
     let isOn: Bool
     let action: () -> Void
-    @State private var isHovered = false
 
     var body: some View {
         Button {
@@ -70,7 +69,7 @@ private struct EffectCircleButton: View {
             VStack(spacing: 5) {
                 ZStack {
                     Circle()
-                        .fill(isOn ? AnyShapeStyle(Color.white) : AnyShapeStyle(Color.primary.opacity(isHovered ? 0.18 : 0.12)))
+                        .fill(isOn ? AnyShapeStyle(Color.white) : AnyShapeStyle(Color.primary.opacity(0.12)))
                         .frame(width: 42, height: 42)
                     Image(systemName: icon)
                         .font(.system(size: 16, weight: .medium))
@@ -86,7 +85,6 @@ private struct EffectCircleButton: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(InstantPressStyle())
-        .onHover { isHovered = $0 }
         .accessibilityLabel("\(label), \(isOn ? "on" : "off")")
         .accessibilityAddTraits(.isButton)
     }
