@@ -88,7 +88,6 @@ private struct EffectCircleButton: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(InstantPressStyle())
-        .scaleEffect(isHovered ? 1.03 : 1.0)
         .onHover { isHovered = $0 }
         .accessibilityLabel("\(label), \(isOn ? "on" : "off")")
         .accessibilityAddTraits(.isButton)
