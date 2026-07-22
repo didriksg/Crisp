@@ -476,32 +476,15 @@ struct SettingsView: View {
                     .foregroundColor(.secondary)
                     .padding(.horizontal, 12)
 
-                // The two builtin presets (Native / HiDPI) are one boolean;
-                // present it as a switch row like every other setting.
-                if let native = builtinPresets.first(where: { $0.name == "Native Mode" }),
-                   let hidpi = builtinPresets.first(where: { $0.name == "HiDPI Mode" }) {
-                    Toggle(isOn: Binding(
-                        get: { presetService.currentPresetMatch() == hidpi.id },
-                        set: { on in
-                            Task { await PresetService.shared.applyPreset(on ? hidpi : native) }
-                        }
-                    )) {
-                        HStack(spacing: 6) {
-                            MenuItemIcon(systemName: "sparkles", color: .purple)
-                                .accessibilityHidden(true)
-                            Text("HiDPI")
-                                .font(.body)
-                            Spacer()
-                        }
-                    }
-                    .toggleStyle(.switch)
-                    .controlSize(.small)
-                    .disabled(presetService.isApplying)
-                    .padding(.horizontal, 12)
-                }
-
-                ForEach(externalDisplays) { display in
-                    HiDPIRowView(display: display)
+                // One switch for the whole HiDPI story: flips the Native/HiDPI
+                // presets, and the first enable also installs the per-monitor
+                // override (admin prompt) when it's missing.
+                if !externalDisplays.isEmpty {
+                    HiDPIToggleRow(
+                        displays: externalDisplays,
+                        nativePreset: builtinPresets.first(where: { $0.name == "Native Mode" }),
+                        hidpiPreset: builtinPresets.first(where: { $0.name == "HiDPI Mode" })
+                    )
                 }
             }
 
