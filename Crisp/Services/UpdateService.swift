@@ -7,8 +7,8 @@ final class UpdateService: ObservableObject, @unchecked Sendable {
     static let shared = UpdateService()
 
     // Set these when the repo is published. Placeholder values disable the update check.
-    private let repoOwner = "OWNER"
-    private let repoName  = "FreeDisplay"
+    private let repoOwner = "didriksg"
+    private let repoName  = "Crisp"
 
     // Current app bundle version (CFBundleShortVersionString)
     let currentVersion: String = {
