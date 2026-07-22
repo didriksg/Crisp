@@ -50,11 +50,12 @@ struct ScreenEffectsView: View {
 
 /// No press feedback at all: the only visible change on click is the state
 /// itself (fill + On/Off text). Anything else gets frozen mid-flight by the
-/// dark mode crossfade snapshot and reads as a stuck button.
+/// dark mode crossfade snapshot and reads as a stuck button. No transaction
+/// tampering here: that would also strip the panel's layout spring and make
+/// the row jump instead of riding section expansions.
 private struct InstantPressStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .transaction { $0.animation = nil }
     }
 }
 
