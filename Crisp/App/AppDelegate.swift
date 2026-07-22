@@ -333,7 +333,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         if clickMonitor == nil {
             clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
-                Task { @MainActor in self?.closePanel() }
+                Task { @MainActor in
+                    guard let self, let p = self.panel else { return }
+                    // Global monitors normally fire only for clicks landing in
+                    // OTHER apps (= outside the panel). But during the dark
+                    // mode crossfade the system's snapshot overlay intercepts
+                    // every click, so an inside click arrives here too; close
+                    // only when the cursor is genuinely outside the panel.
+                    if p.frame.contains(NSEvent.mouseLocation) { return }
+                    self.closePanel()
+                }
             }
         }
     }
@@ -381,6 +390,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func windowDidResignKey(_ notification: Notification) {
         if (notification.object as? MenuPanel) === panel {
+            // Same overlay caveat as the click monitor: during the crossfade
+            // the snapshot window can steal key while the user is clicking
+            // INSIDE the panel; don't treat that as clicking away.
+            if let p = panel, p.frame.contains(NSEvent.mouseLocation) { return }
             closePanel()
         }
     }
