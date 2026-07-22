@@ -41,6 +41,8 @@ struct BrightnessSliderView: View {
                     .font(.system(size: 15))
                     .foregroundColor(.secondary)
                     .accessibilityHidden(true)
+                    .contentShape(Rectangle())
+                    .onTapGesture { step(-brightnessStep) }
 
                 // Native macOS slider, exactly as in the system Display panel.
                 // Apple tints the built-in display's fill accent blue, externals white.
@@ -72,6 +74,8 @@ struct BrightnessSliderView: View {
                     .font(.system(size: 15))
                     .foregroundColor(.secondary)
                     .accessibilityHidden(true)
+                    .contentShape(Rectangle())
+                    .onTapGesture { step(brightnessStep) }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 4)
@@ -93,6 +97,16 @@ struct BrightnessSliderView: View {
 
     private func updateDDCStatus() {
         ddcStatus = BrightnessService.shared.isDDCAvailable(for: display.displayID)
+    }
+
+    /// One brightness-key increment (16 steps across the range), same as native.
+    private var brightnessStep: Double { 100.0 / 16.0 }
+
+    private func step(_ delta: Double) {
+        let target = max(0, min(100, display.brightness + delta))
+        // The smooth fade updates display.brightness per frame; localBrightness
+        // follows through the existing onChange sync.
+        BrightnessService.shared.setBrightnessSmooth(target, for: display)
     }
 }
 
@@ -128,6 +142,8 @@ struct CombinedBrightnessView: View {
                     .font(.system(size: 15))
                     .foregroundColor(.secondary)
                     .accessibilityHidden(true)
+                    .contentShape(Rectangle())
+                    .onTapGesture { stepAll(-100.0 / 16.0) }
 
                 Slider(value: $combinedBrightness, in: 0...100) { editing in
                     isDragging = editing
@@ -157,12 +173,22 @@ struct CombinedBrightnessView: View {
                     .font(.system(size: 15))
                     .foregroundColor(.secondary)
                     .accessibilityHidden(true)
+                    .contentShape(Rectangle())
+                    .onTapGesture { stepAll(100.0 / 16.0) }
             }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
         .onAppear {
             combinedBrightness = averageBrightness
+        }
+    }
+
+    private func stepAll(_ delta: Double) {
+        let target = max(0, min(100, combinedBrightness + delta))
+        combinedBrightness = target
+        for display in displays {
+            BrightnessService.shared.setBrightnessSmooth(target, for: display)
         }
     }
 }
