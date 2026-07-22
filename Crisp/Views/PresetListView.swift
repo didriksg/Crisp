@@ -38,38 +38,6 @@ struct PresetListView: View {
     }
 }
 
-// MARK: - Segmented Control for built-in presets (embedded in SettingsView)
-
-struct PresetSegmentedControl: View {
-    let presets: [DisplayPreset]
-    let matchID: UUID?
-    let applyingID: UUID?
-    let isApplying: Bool
-
-    @State private var selection: UUID? = nil
-
-    var body: some View {
-        Picker("", selection: $selection) {
-            ForEach(presets) { preset in
-                Text(preset.name).tag(Optional(preset.id))
-            }
-        }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .controlSize(.small)
-        .disabled(isApplying)
-        .onAppear { selection = matchID }
-        .onChange(of: matchID) { _, newValue in
-            selection = newValue
-        }
-        .onChange(of: selection) { _, newValue in
-            guard let id = newValue, id != matchID,
-                  let preset = presets.first(where: { $0.id == id }) else { return }
-            Task { await PresetService.shared.applyPreset(preset) }
-        }
-    }
-}
-
 // MARK: - PresetRow (for user-created presets)
 
 struct PresetRow: View {

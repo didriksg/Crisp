@@ -476,15 +476,28 @@ struct SettingsView: View {
                     .foregroundColor(.secondary)
                     .padding(.horizontal, 12)
 
-                if !builtinPresets.isEmpty {
-                    PresetSegmentedControl(
-                        presets: builtinPresets,
-                        matchID: presetService.currentPresetMatch(),
-                        applyingID: presetService.applyingPresetID,
-                        isApplying: presetService.isApplying
-                    )
+                // The two builtin presets (Native / HiDPI) are one boolean;
+                // present it as a switch row like every other setting.
+                if let native = builtinPresets.first(where: { $0.name == "Native Mode" }),
+                   let hidpi = builtinPresets.first(where: { $0.name == "HiDPI Mode" }) {
+                    Toggle(isOn: Binding(
+                        get: { presetService.currentPresetMatch() == hidpi.id },
+                        set: { on in
+                            Task { await PresetService.shared.applyPreset(on ? hidpi : native) }
+                        }
+                    )) {
+                        HStack(spacing: 6) {
+                            MenuItemIcon(systemName: "sparkles", color: .purple)
+                                .accessibilityHidden(true)
+                            Text("HiDPI")
+                                .font(.body)
+                            Spacer()
+                        }
+                    }
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                    .disabled(presetService.isApplying)
                     .padding(.horizontal, 12)
-                    .padding(.vertical, 4)
                 }
 
                 ForEach(externalDisplays) { display in
