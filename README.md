@@ -43,6 +43,7 @@ Or grab `Crisp.dmg` from the [latest release](https://github.com/didriksg/Crisp/
 ## Permissions
 
 - **Accessibility** (System Settings > Privacy & Security > Accessibility): needed only for routing the keyboard brightness keys to the display under the cursor. Without it, everything else still works; the brightness keys just control the built-in display as usual.
+- **Administrator password** (one time, per monitor): the first time you enable HiDPI for a display, Crisp installs a display override file into `/Library/Displays/Contents/Resources/Overrides`, which macOS protects. Every later toggle is password-free.
 
 ## Building
 
