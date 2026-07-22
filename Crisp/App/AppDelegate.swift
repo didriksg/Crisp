@@ -291,9 +291,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         let topY = btnFrame.minY - 4
         if let vis = screen?.visibleFrame {
-            // The panel may grow to just short of the screen bottom before
-            // its content starts scrolling.
-            PanelMetrics.maxContentHeight = max(400, topY - vis.minY - 40)
+            // Cap like the native Wi-Fi panel: grow to ~80% of the drop below
+            // the status item, then scroll, leaving real breathing room at
+            // the screen bottom instead of touching it.
+            PanelMetrics.maxContentHeight = max(400, (topY - vis.minY) * 0.8)
         }
         p.pinnedTopY = nil
         p.setFrame(NSRect(x: x, y: topY - size.height, width: size.width, height: size.height),
