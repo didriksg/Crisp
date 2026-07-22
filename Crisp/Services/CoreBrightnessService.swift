@@ -90,18 +90,23 @@ final class CoreBrightnessService: ObservableObject {
         // grab a transition, flip the theme silently, then post the change through
         // the transition so every app animates. Same path System Settings and
         // Control Center use; plain SLS notify (and System Events) flip instantly.
-        let transition = (NSClassFromString("NSGlobalPreferenceTransition") as? NSObject.Type)?
-            .perform(NSSelectorFromString("transition"))?.takeUnretainedValue() as? NSObject
-        if let setNotifying = _SLSSetAppearanceThemeNotifying {
-            setNotifying(on, transition == nil)
-        } else {
-            _SLSSetAppearanceTheme?(on)
-        }
-        if let transition {
-            let sel = NSSelectorFromString("postChangeNotification:completionHandler:")
-            typealias Post = @convention(c) (NSObject, Selector, Int, @escaping @convention(block) () -> Void) -> Void
-            // Completion keeps the transition alive until the crossfade finishes.
-            unsafeBitCast(transition.method(for: sel), to: Post.self)(transition, sel, 0, { _ = transition })
+        // Acquiring the transition BLOCKS in the window server while it snapshots
+        // every display, so the whole dance runs off the main thread; the toggle
+        // above renders instantly, like the native control.
+        Task.detached(priority: .userInitiated) {
+            let transition = (NSClassFromString("NSGlobalPreferenceTransition") as? NSObject.Type)?
+                .perform(NSSelectorFromString("transition"))?.takeUnretainedValue() as? NSObject
+            if let setNotifying = _SLSSetAppearanceThemeNotifying {
+                setNotifying(on, transition == nil)
+            } else {
+                _SLSSetAppearanceTheme?(on)
+            }
+            if let transition {
+                let sel = NSSelectorFromString("postChangeNotification:completionHandler:")
+                typealias Post = @convention(c) (NSObject, Selector, Int, @escaping @convention(block) () -> Void) -> Void
+                // Completion keeps the transition alive until the crossfade finishes.
+                unsafeBitCast(transition.method(for: sel), to: Post.self)(transition, sel, 0, { _ = transition })
+            }
         }
     }
 
