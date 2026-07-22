@@ -17,6 +17,14 @@ A native macOS menu bar app for managing external displays: HiDPI resolutions, b
 - **Virtual displays**: create HiDPI virtual screens
 - **Extras**: combined brightness slider, auto brightness following the built-in display, notch hiding, launch at login
 
+## Install
+
+```sh
+brew install --cask didriksg/tap/crisp
+```
+
+Or grab `Crisp.dmg` from the [latest release](https://github.com/didriksg/Crisp/releases) and drag Crisp to Applications. The app is unsigned; on first launch, right-click Crisp.app and choose Open.
+
 ## Requirements
 
 - macOS 15 (Sequoia) or later; on macOS 26 the panel uses the native Liquid Glass backdrop
