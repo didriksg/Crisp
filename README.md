@@ -19,14 +19,8 @@ A native macOS menu bar app for managing external displays: HiDPI resolutions, b
 
 ## Demo
 
-<p align="center">
-  <img src="docs/demo-tour.gif" width="380" alt="Panel tour: per-display controls, tools, and virtual displays">
-  <img src="docs/demo-darkmode.gif" width="380" alt="Dark Mode toggle with the system's animated transition">
-</p>
+https://github.com/user-attachments/assets/90a62808-84d2-40d6-8563-0b282b9b4b6d
 
-<p align="center">
-  <img src="docs/demo-hidpi.gif" width="600" alt="HiDPI toggle switching an external display between native and Retina-style scaled resolution">
-</p>
 
 ## Install
 
