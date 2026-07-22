@@ -38,7 +38,7 @@ struct BrightnessSliderView: View {
 
             HStack(spacing: 8) {
                 Image(systemName: "sun.min.fill")
-                    .font(.system(size: 11))
+                    .font(.system(size: 13))
                     .foregroundColor(.secondary.opacity(0.7))
                     .accessibilityHidden(true)
 
@@ -69,7 +69,7 @@ struct BrightnessSliderView: View {
                 }
 
                 Image(systemName: "sun.max.fill")
-                    .font(.system(size: 11))
+                    .font(.system(size: 13))
                     .foregroundColor(.secondary.opacity(0.7))
                     .accessibilityHidden(true)
             }
@@ -125,7 +125,7 @@ struct CombinedBrightnessView: View {
 
             HStack(spacing: 8) {
                 Image(systemName: "sun.min.fill")
-                    .font(.system(size: 11))
+                    .font(.system(size: 13))
                     .foregroundColor(.secondary.opacity(0.7))
                     .accessibilityHidden(true)
 
@@ -154,7 +154,7 @@ struct CombinedBrightnessView: View {
                 }
 
                 Image(systemName: "sun.max.fill")
-                    .font(.system(size: 11))
+                    .font(.system(size: 13))
                     .foregroundColor(.secondary.opacity(0.7))
                     .accessibilityHidden(true)
             }

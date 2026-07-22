@@ -83,12 +83,14 @@ private struct EffectCircleButton: View {
                         .font(.system(size: 16, weight: .medium))
                         .foregroundColor(isOn ? onIcon : .primary.opacity(0.85))
                 }
-                Text(label)
-                    .font(.caption)
-                    .foregroundColor(.primary)
-                Text(isOn ? "On" : "Off")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
+                VStack(spacing: 1) {
+                    Text(label)
+                        .font(.caption)
+                        .foregroundColor(.primary)
+                    Text(isOn ? "On" : "Off")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
             }
             .contentShape(Rectangle())
         }
