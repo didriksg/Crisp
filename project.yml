@@ -1,0 +1,30 @@
+name: Crisp
+options:
+  bundleIdPrefix: com.crisp
+  deploymentTarget:
+    macOS: "14.0"
+
+targets:
+  Crisp:
+    type: application
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: Crisp
+        excludes:
+          - "**/*.md"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.crisp.app
+        INFOPLIST_KEY_LSUIElement: true
+        INFOPLIST_KEY_NSHumanReadableCopyright: "Crisp - Free & Open Source"
+        INFOPLIST_KEY_NSAppleEventsUsageDescription: "Crisp uses System Events to switch Dark Mode with the system's animated transition."
+        SWIFT_VERSION: "6.0"
+        CODE_SIGN_ENTITLEMENTS: Crisp/Crisp.entitlements
+        ENABLE_HARDENED_RUNTIME: YES
+        CODE_SIGNING_REQUIRED: YES
+        CODE_SIGN_IDENTITY: "Apple Development"
+        SWIFT_STRICT_CONCURRENCY: minimal
+        SWIFT_OBJC_BRIDGING_HEADER: Crisp/Crisp-Bridging-Header.h
+        GENERATE_INFOPLIST_FILE: YES
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
