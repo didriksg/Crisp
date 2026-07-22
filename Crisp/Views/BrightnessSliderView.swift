@@ -38,8 +38,8 @@ struct BrightnessSliderView: View {
 
             HStack(spacing: 8) {
                 Image(systemName: "sun.min.fill")
-                    .font(.system(size: 13))
-                    .foregroundColor(.secondary.opacity(0.7))
+                    .font(.system(size: 15))
+                    .foregroundColor(.secondary)
                     .accessibilityHidden(true)
 
                 // Native macOS slider, exactly as in the system Display panel.
@@ -69,8 +69,8 @@ struct BrightnessSliderView: View {
                 }
 
                 Image(systemName: "sun.max.fill")
-                    .font(.system(size: 13))
-                    .foregroundColor(.secondary.opacity(0.7))
+                    .font(.system(size: 15))
+                    .foregroundColor(.secondary)
                     .accessibilityHidden(true)
             }
             .padding(.horizontal, 12)
@@ -125,8 +125,8 @@ struct CombinedBrightnessView: View {
 
             HStack(spacing: 8) {
                 Image(systemName: "sun.min.fill")
-                    .font(.system(size: 13))
-                    .foregroundColor(.secondary.opacity(0.7))
+                    .font(.system(size: 15))
+                    .foregroundColor(.secondary)
                     .accessibilityHidden(true)
 
                 Slider(value: $combinedBrightness, in: 0...100) { editing in
@@ -154,8 +154,8 @@ struct CombinedBrightnessView: View {
                 }
 
                 Image(systemName: "sun.max.fill")
-                    .font(.system(size: 13))
-                    .foregroundColor(.secondary.opacity(0.7))
+                    .font(.system(size: 15))
+                    .foregroundColor(.secondary)
                     .accessibilityHidden(true)
             }
         }
