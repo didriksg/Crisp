@@ -44,14 +44,12 @@ struct ScreenEffectsView: View {
     }
 }
 
-/// Press feedback with no animation in either direction: the dark mode
-/// crossfade freezes the screen ~120ms after the click, and any in-flight
-/// release spring (like .plain's) gets captured mid-shrink and held there
-/// for the whole fade. Instant dim down, instant restore.
+/// No press feedback at all: the only visible change on click is the state
+/// itself (fill + On/Off text). Anything else gets frozen mid-flight by the
+/// dark mode crossfade snapshot and reads as a stuck button.
 private struct InstantPressStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .opacity(configuration.isPressed ? 0.65 : 1.0)
             .transaction { $0.animation = nil }
     }
 }
