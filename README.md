@@ -17,6 +17,13 @@ A native macOS menu bar app for managing external displays: HiDPI resolutions, b
 - **Virtual displays**: create HiDPI virtual screens
 - **Extras**: combined brightness slider, auto brightness following the built-in display, notch hiding, launch at login
 
+## Demo
+
+<p align="center">
+  <img src="docs/demo-tour.gif" width="380" alt="Panel tour: per-display controls, tools, and virtual displays">
+  <img src="docs/demo-darkmode.gif" width="380" alt="Dark Mode toggle with the system's animated transition">
+</p>
+
 ## Install
 
 ```sh
