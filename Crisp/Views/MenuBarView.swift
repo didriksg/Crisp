@@ -143,6 +143,43 @@ struct ExpandableRow: View {
     }
 }
 
+// MARK: - UpdateRow
+
+/// Update notice styled like every other menu row (icon badge + label + hover),
+/// instead of a tinted banner, matching the native panel look.
+struct UpdateRow: View {
+    let version: String
+    let action: () -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        HStack {
+            MenuItemIcon(systemName: "arrow.down.to.line", color: .green)
+            Text("Update Available").font(.body)
+            Spacer()
+            Text("v\(version)")
+                .font(.caption)
+                .foregroundColor(.secondary)
+            Image(systemName: "arrow.up.forward")
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .accessibilityHidden(true)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .menuRowHover(isHovered)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            guard PanelOpenGuard.allowsActivation else { return }
+            action()
+        }
+        .onHover { isHovered = $0 }
+        .accessibilityLabel("Update available, version \(version)")
+        .accessibilityHint("Click to open the release page")
+        .accessibilityAddTraits(.isButton)
+    }
+}
+
 struct MenuBarView: View {
     @EnvironmentObject var displayManager: DisplayManager
     @ObservedObject private var updateService = UpdateService.shared
@@ -280,25 +317,7 @@ struct MenuBarView: View {
 
                 // Update notice (Phase 12)
                 if updateService.hasUpdate, let ver = updateService.latestVersion {
-                    HStack {
-                        Image(systemName: "arrow.down.circle.fill")
-                            .foregroundColor(.green)
-                            .frame(width: 20)
-                            .accessibilityHidden(true)
-                        Text("New version v\(ver) available")
-                            .font(.caption)
-                            .foregroundColor(.green)
-                        Spacer()
-                        Button("View") { updateService.openReleasePage() }
-                            .buttonStyle(.plain)
-                            .font(.caption)
-                            .foregroundColor(.blue)
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 5)
-                    .background(Color.green.opacity(0.08))
-                    .cornerRadius(8)
-                    .padding(.horizontal, 8)
+                    UpdateRow(version: ver) { updateService.openReleasePage() }
                 }
 
             }
