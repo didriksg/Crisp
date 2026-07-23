@@ -347,6 +347,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         p.orderFrontRegardless()
         p.makeKey()
         isPanelShown = true
+        // Native items keep the menu bar button highlighted while their panel is open.
+        statusItem?.button?.highlight(true)
 
         PanelOpenGuard.openedAt = Date()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
@@ -376,6 +378,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func closePanel() {
         guard let p = panel, isPanelShown else { return }
         isPanelShown = false
+        statusItem?.button?.highlight(false)
         // Hide with a quick fade, like native menus; never order out (see
         // isPanelShown comment). Click-through is immediate.
         p.ignoresMouseEvents = true
