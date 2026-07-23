@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Crisp, a display manager for macOS</title>
+<meta name="description" content="Every display control macOS hides, in one menu bar panel: DDC brightness, HiDPI scaling, presets, virtual displays. Free and source-available.">
+<meta property="og:title" content="Crisp, a display manager for macOS">
+<meta property="og:description" content="DDC brightness, HiDPI scaling, presets, virtual displays. Free and source-available.">
+<meta property="og:image" content="https://didriksg.github.io/Crisp/screenshot.png">
+<link rel="icon" href="icon.png">
+<style>
+  :root {
+    --bg: #0d0d10;
+    --panel: #17171c;
+    --border: #2a2a32;
+    --text: #f0f0f2;
+    --muted: #9a9aa5;
+    --accent: #3b82f6;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  main { max-width: 880px; margin: 0 auto; padding: 0 24px 64px; }
+  .hero { text-align: center; padding: 72px 0 40px; }
+  .hero img.icon { width: 128px; height: 128px; }
+  h1 { font-size: 44px; font-weight: 700; letter-spacing: -0.02em; margin-top: 16px; }
+  .tagline { color: var(--muted); font-size: 20px; margin-top: 8px; }
+  .actions { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-top: 28px; }
+  .btn {
+    display: inline-block; padding: 10px 20px; border-radius: 10px;
+    text-decoration: none; font-weight: 600; font-size: 15px;
+    border: 1px solid var(--border); color: var(--text); background: var(--panel);
+  }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn:hover { filter: brightness(1.15); }
+  .brew {
+    margin-top: 20px; display: inline-flex; align-items: center; gap: 10px;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    padding: 10px 14px; font: 14px ui-monospace, "SF Mono", Menlo, monospace; color: var(--muted);
+    cursor: pointer;
+  }
+  .brew:hover { color: var(--text); }
+  .brew .prompt { color: var(--accent); }
+  .shot { display: block; margin: 32px auto 0; max-width: 406px; width: 100%; border-radius: 12px; }
+  h2 { font-size: 24px; margin: 64px 0 20px; letter-spacing: -0.01em; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 18px; }
+  .card h3 { font-size: 16px; margin-bottom: 6px; }
+  .card p { color: var(--muted); font-size: 14.5px; }
+  .demo { width: 100%; border-radius: 12px; border: 1px solid var(--border); }
+  footer {
+    border-top: 1px solid var(--border); margin-top: 72px; padding-top: 28px;
+    color: var(--muted); font-size: 14.5px; text-align: center;
+  }
+  footer a { color: var(--muted); }
+  @media (max-width: 520px) { h1 { font-size: 34px; } .tagline { font-size: 17px; } }
+</style>
+</head>
+<body>
+<main>
+  <section class="hero">
+    <img class="icon" src="icon.png" alt="Crisp icon">
+    <h1>Crisp</h1>
+    <p class="tagline">Every display control macOS hides, in one menu bar panel.</p>
+    <div class="actions">
+      <a class="btn primary" href="https://github.com/didriksg/Crisp/releases/latest/download/Crisp.dmg">Download for macOS</a>
+      <a class="btn" href="https://github.com/didriksg/Crisp">View on GitHub</a>
+    </div>
+    <div class="brew" onclick="navigator.clipboard.writeText('brew install --cask didriksg/tap/crisp');this.querySelector('.hint').textContent='copied'">
+      <span class="prompt">$</span> brew install --cask didriksg/tap/crisp
+      <span class="hint" style="font-size:12px">click to copy</span>
+    </div>
+    <img class="shot" src="screenshot.png" alt="Crisp menu bar panel">
+  </section>
+
+  <h2>Features</h2>
+  <div class="grid">
+    <div class="card"><h3>HiDPI on any display</h3><p>Retina-style scaled resolutions on external monitors, with automatic setup for 2K+ displays.</p></div>
+    <div class="card"><h3>Brightness everywhere</h3><p>Hardware DDC control with software fallback, and brightness keys routed to the display under your cursor.</p></div>
+    <div class="card"><h3>Presets</h3><p>Save whole display setups, resolution, brightness, arrangement, and apply them in one click.</p></div>
+    <div class="card"><h3>Arrangement</h3><p>Drag-to-arrange canvas and one-click main display switching.</p></div>
+    <div class="card"><h3>Screen effects</h3><p>Dark Mode with the system's animated transition, Night Shift, and True Tone.</p></div>
+    <div class="card"><h3>Color</h3><p>ICC profile switching plus gamma, contrast, and gain adjustment.</p></div>
+    <div class="card"><h3>Virtual displays</h3><p>Create HiDPI virtual screens for streaming, sidecar setups, or headless Macs.</p></div>
+    <div class="card"><h3>Extras</h3><p>Combined brightness slider, auto brightness sync, notch hiding, launch at login.</p></div>
+  </div>
+
+  <h2>In action</h2>
+  <img class="demo" src="demo-tour.gif" alt="Crisp demo tour" loading="lazy">
+
+  <footer>
+    <p>Free and source-available, MIT with the Commons Clause. Requires macOS 15 or later.</p>
+    <p>The app is unsigned: right-click Crisp.app and choose Open on first launch.</p>
+    <p>Began as a fork of <a href="https://github.com/huberdf/FreeDisplay">FreeDisplay</a>, thanks for the spark.</p>
+  </footer>
+</main>
+</body>
+</html>
