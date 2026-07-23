@@ -305,6 +305,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         guard let btnWindow = statusItem?.button?.window else { return }
         let btnFrame = btnWindow.frame
         let screen = btnWindow.screen ?? NSScreen.main
+        displayManager.activePanelDisplayID = screen?.displayID
         var x = btnFrame.midX - size.width / 2
         if let vis = screen?.visibleFrame {
             x = min(max(x, vis.minX + 8), vis.maxX - size.width - 8)

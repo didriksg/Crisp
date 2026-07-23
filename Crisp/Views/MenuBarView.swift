@@ -157,10 +157,13 @@ struct MenuBarView: View {
     @State private var contentHeight: CGFloat = PanelMetrics.lastContentHeight
 
     private var visibleDisplays: [DisplayInfo] {
-        displayManager.displays
+        let active = displayManager.activePanelDisplayID
+        return displayManager.displays
             .filter { !virtualDisplayService.isVirtualDisplay($0.displayID) }
             .sorted {
-                // Builtin panel always first, then physical arrangement, topmost first
+                // Screen the panel was opened on first (native panel behavior),
+                // then builtin, then physical arrangement, topmost first
+                if ($0.displayID == active) != ($1.displayID == active) { return $0.displayID == active }
                 if $0.isBuiltin != $1.isBuiltin { return $0.isBuiltin }
                 let a = CGDisplayBounds($0.displayID), b = CGDisplayBounds($1.displayID)
                 return a.minY != b.minY ? a.minY < b.minY : a.minX < b.minX

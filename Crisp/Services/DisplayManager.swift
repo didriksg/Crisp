@@ -31,6 +31,8 @@ private func displayReconfigCallback(
 @MainActor
 class DisplayManager: ObservableObject {
     @Published var displays: [DisplayInfo] = []
+    /// Display whose menu bar the panel was opened on; listed first, like the native displays panel.
+    @Published var activePanelDisplayID: CGDirectDisplayID?
 
     // nonisolated(unsafe) allows deinit (which is nonisolated in Swift 6) to access this value.
     nonisolated(unsafe) private var callbackContext: UnsafeMutableRawPointer?
