@@ -106,6 +106,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var wakeObserver: NSObjectProtocol?
     private var screenObserver: NSObjectProtocol?
     private var clickMonitor: Any?
+    private var clickInterceptor: Any?
 
     let displayManager = DisplayManager()
     private var statusItem: NSStatusItem?
@@ -220,10 +221,25 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let icon = NSImage(systemSymbolName: "sparkles.tv", accessibilityDescription: "Crisp")
         icon?.isTemplate = true
         item.button?.image = icon
+        // Action stays wired for accessibility (AXPress); real clicks are
+        // intercepted below and never reach the button.
         item.button?.target = self
         item.button?.action = #selector(togglePanel)
-        // Default mask is left-click only; right-click should open the panel too.
-        item.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
+        // NSStatusBarButton's own click tracking force-clears its highlight at
+        // mouse-up, which fights a persistent while-panel-open highlight
+        // (flicker, or stuck off). Intercept clicks before the button sees
+        // them: toggle directly, swallow the event so the button never tracks,
+        // and showPanel/closePanel fully own the highlight. This also opens on
+        // press with either button, like native menus. Cmd-clicks pass through
+        // so the item can still be cmd-dragged.
+        clickInterceptor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+            guard let self,
+                  let button = self.statusItem?.button,
+                  event.window === button.window,
+                  !event.modifierFlags.contains(.command) else { return event }
+            self.togglePanel()
+            return nil
+        }
         statusItem = item
     }
 
@@ -347,7 +363,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         p.orderFrontRegardless()
         p.makeKey()
         isPanelShown = true
-        // Native items keep the menu bar button highlighted while their panel is open.
+        // Native items keep the menu bar button highlighted while their panel
+        // is open. Safe to set synchronously: the click never starts the
+        // button's own tracking (the interceptor swallowed it), so nothing
+        // resets this behind our back.
         statusItem?.button?.highlight(true)
 
         PanelOpenGuard.openedAt = Date()
