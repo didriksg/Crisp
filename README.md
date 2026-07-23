@@ -2,7 +2,7 @@
 
 A native macOS menu bar app for managing external displays: HiDPI resolutions, brightness, arrangement, color, and presets. A free, source-available alternative to BetterDisplay: all the core display management features, zero cost.
 
-<p align="center"><img src="Crisp/Assets.xcassets/AppIcon.appiconset/icon_256.png" width="128" alt="Crisp icon"></p>
+https://github.com/user-attachments/assets/90a62808-84d2-40d6-8563-0b282b9b4b6d
 
 <p align="center"><img src="screenshot.png?v=3" width="406" alt="Crisp menu bar panel"></p>
 
@@ -16,10 +16,6 @@ A native macOS menu bar app for managing external displays: HiDPI resolutions, b
 - **Color**: ICC profile switching, gamma/contrast/gain image adjustment
 - **Virtual displays**: create HiDPI virtual screens
 - **Extras**: combined brightness slider, auto brightness following the built-in display, notch hiding, launch at login
-
-## Demo
-
-https://github.com/user-attachments/assets/90a62808-84d2-40d6-8563-0b282b9b4b6d
 
 
 ## Install
