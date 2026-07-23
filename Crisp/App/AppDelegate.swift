@@ -215,7 +215,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     private func setupStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        let icon = NSImage(systemSymbolName: "display", accessibilityDescription: "Crisp")
+        // Not "display": that's the native Displays module icon, two identical
+        // icons in the menu bar is confusing. Screen-with-sparkles keeps the vibe.
+        let icon = NSImage(systemSymbolName: "sparkles.tv", accessibilityDescription: "Crisp")
         icon?.isTemplate = true
         item.button?.image = icon
         item.button?.target = self
