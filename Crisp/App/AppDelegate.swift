@@ -222,6 +222,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         item.button?.image = icon
         item.button?.target = self
         item.button?.action = #selector(togglePanel)
+        // Default mask is left-click only; right-click should open the panel too.
+        item.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
         statusItem = item
     }
 
