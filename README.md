@@ -1,6 +1,6 @@
 # Crisp
 
-A native macOS menu bar app for managing external displays: HiDPI resolutions, brightness, arrangement, color, and presets. A free, source-available alternative to BetterDisplay: all the core display management features, zero cost.
+A native macOS menu bar app for managing external displays: HiDPI resolutions, brightness, arrangement, color, and presets. A free, open-source alternative to BetterDisplay: all the core display management features, zero cost.
 
 https://github.com/user-attachments/assets/90a62808-84d2-40d6-8563-0b282b9b4b6d
 
@@ -51,4 +51,4 @@ Crisp began as a fork of [FreeDisplay](https://github.com/huberdf/FreeDisplay) a
 
 ## License
 
-[MIT with the Commons Clause](LICENSE): use it and modify it freely, at home or at work, and share your changes. The one thing you can't do is sell Crisp, or charge for a product or service whose value comes substantially from it. Portions derived from FreeDisplay remain available under its MIT terms, reproduced in [LICENSE](LICENSE).
+[MIT](LICENSE). Portions derived from FreeDisplay remain available under its MIT terms, reproduced in [ACKNOWLEDGMENTS.md](ACKNOWLEDGMENTS.md).
