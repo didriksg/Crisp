@@ -1,6 +1,6 @@
 # Crisp
 
-A native macOS menu bar app for managing external displays: HiDPI resolutions, brightness, arrangement, color, and presets. A free, open-source alternative to BetterDisplay: all the core display management features, zero cost.
+A native macOS menu bar app for managing external displays: HiDPI resolutions, brightness, arrangement, color, and presets. A free, source-available alternative to BetterDisplay: all the core display management features, zero cost.
 
 <p align="center"><img src="Crisp/Assets.xcassets/AppIcon.appiconset/icon_256.png" width="128" alt="Crisp icon"></p>
 
