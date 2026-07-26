@@ -118,6 +118,10 @@ class DisplayManager: ObservableObject {
             display.bounds = CGDisplayBounds(display.displayID)
             display.isMain = CGDisplayIsMain(display.displayID) != 0
         }
+
+        // Keep the physical-disconnect list honest: drop any record whose display came back
+        // online (re-plugged, or macOS re-enabled it).
+        PhysicalDisplayToggleService.shared.reconcile()
     }
 
     /// Auto-enables HiDPI plist override for external 2K+ displays that don't have it yet.
@@ -180,13 +184,14 @@ class DisplayManager: ObservableObject {
         }
     }
 
-    /// Toggle a display on/off.
-    /// NOTE: macOS has no public API for enabling/disabling individual displays
-    /// (CGConfigureDisplayEnabled is private). This function always returns false
-    /// to signal to callers that the operation is not supported.
+    /// Disconnects a physical display from the layout (Apple Silicon only) via
+    /// PhysicalDisplayToggleService. Returns false if unsupported or refused (e.g. it would
+    /// leave no active display). The display list refreshes via the reconfiguration callback.
     @discardableResult
-    func toggleDisplay(_ display: DisplayInfo) -> Bool {
-        // No-op: cannot enable/disable displays via public API
+    func disconnectDisplay(_ display: DisplayInfo) async -> Bool {
+        let result = await PhysicalDisplayToggleService.shared.disconnect(display)
+        refreshDisplays()
+        if case .success = result { return true }
         return false
     }
 

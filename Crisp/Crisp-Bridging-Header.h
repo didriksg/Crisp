@@ -64,6 +64,21 @@ typedef int CGSConnectionID_t;
 extern CGError CGSConfigureDisplayMode(CGSConnectionID_t connection, CGDirectDisplayID display, uint32_t modeID);
 extern CGSConnectionID_t CGSMainConnectionID(void);
 
+// MARK: - SkyLight Private API (physical display disconnect/reconnect, Apple Silicon)
+
+// Enable/disable an individual display inside a CGBeginDisplayConfiguration transaction.
+// On Apple Silicon (macOS 13+) disabling performs a true hardware disconnect (identical to
+// clamshell): the display is removed from CGGetOnlineDisplayList / CGGetActiveDisplayList.
+extern CGError SLSConfigureDisplayEnabled(CGDisplayConfigRef config,
+                                          CGDirectDisplayID display,
+                                          bool enabled);
+
+// Enumerates ALL displays including ones disabled via SLSConfigureDisplayEnabled. Required to
+// recover a disabled display's ID for reconnect, since CGGetOnlineDisplayList omits it.
+extern CGError SLSGetDisplayList(uint32_t maxDisplays,
+                                 CGDirectDisplayID *displays,
+                                 uint32_t *displayCount);
+
 // MARK: - IOAVService Private API (Apple Silicon DDC)
 
 typedef void * IOAVServiceRef;

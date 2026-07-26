@@ -22,7 +22,7 @@ xcodebuild \
     -configuration Release \
     archive \
     -archivePath "$ARCHIVE_PATH" \
-    | grep -E "error:|warning:|Build succeeded|** ARCHIVE"
+    | grep -E "error:|warning:|Build succeeded|ARCHIVE"
 
 echo "==> Exporting .app…"
 xcodebuild \

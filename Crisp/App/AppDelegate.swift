@@ -222,6 +222,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 // touching display state.
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
                 dm.refreshDisplays()
+                // Re-disconnect any physical displays macOS re-enabled on wake.
+                await PhysicalDisplayToggleService.shared.reapplyOnWake()
+                dm.refreshDisplays()
                 try? await Task.sleep(nanoseconds: 500_000_000)
                 for display in dm.displays {
                     // Apply software brightness factor first so GammaService

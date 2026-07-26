@@ -36,5 +36,10 @@ targets:
         CODE_SIGN_IDENTITY: "Apple Development"
         SWIFT_STRICT_CONCURRENCY: minimal
         SWIFT_OBJC_BRIDGING_HEADER: Crisp/Crisp-Bridging-Header.h
+        # SLSConfigureDisplayEnabled / SLSGetDisplayList live in the private
+        # SkyLight.framework (physical display disconnect). SkyLight is already
+        # loaded in-process via AppKit, so mark just these two symbols as
+        # resolved-at-runtime instead of hard-linking a private framework path.
+        OTHER_LDFLAGS: "-Wl,-U,_SLSConfigureDisplayEnabled -Wl,-U,_SLSGetDisplayList"
         GENERATE_INFOPLIST_FILE: YES
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon

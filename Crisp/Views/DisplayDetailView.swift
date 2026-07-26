@@ -108,6 +108,9 @@ struct DisplayDetailView: View {
             // Set as main display
             MainDisplayView(display: display)
 
+            // Disconnect this physical display (Apple Silicon only; hidden for the last screen)
+            DisconnectDisplayRow(display: display)
+
             // Notch management (built-in with notch only)
             NotchView(display: display)
 

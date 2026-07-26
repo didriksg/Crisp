@@ -338,6 +338,9 @@ struct MenuBarView: View {
                     }
                 }
 
+                // Displays the user disconnected (they no longer have their own row above).
+                ReconnectDisplaysSection()
+
                 // Combined brightness control (Phase 2)
                 if settings.showCombinedBrightness {
                     sectionDivider
