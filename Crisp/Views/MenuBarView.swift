@@ -96,6 +96,29 @@ extension View {
     }
 }
 
+/// 卡片样式：圆角背景 + 细边框，让每个板块视觉上独立、边界清晰。
+struct PanelCard: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color.primary.opacity(0.035))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(Color.primary.opacity(0.14), lineWidth: 1)
+            )
+            .padding(.horizontal, 8)
+            .padding(.vertical, 2)
+    }
+}
+
+extension View {
+    func panelCard() -> some View {
+        modifier(PanelCard())
+    }
+}
+
 // MARK: - ExpandableRow
 
 struct ExpandableRow: View {
@@ -227,100 +250,110 @@ struct MenuBarView: View {
         ScrollView(.vertical, showsIndicators: false) {
             VStack(alignment: .leading, spacing: 0) {
                 // Display list: name row + inline brightness slider (modeled on the system displays panel)
-                ForEach(visibleDisplays) { display in
-                    VStack(spacing: 0) {
-                        DisplayRowView(
-                            display: display,
-                            isExpanded: expandedDisplayIDs.contains(display.displayID),
-                            onToggleExpand: {
-                                withAnimation(.panelResize) {
-                                    if expandedDisplayIDs.contains(display.displayID) {
-                                        expandedDisplayIDs.remove(display.displayID)
-                                    } else {
-                                        expandedDisplayIDs.insert(display.displayID)
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(visibleDisplays) { display in
+                        VStack(spacing: 0) {
+                            DisplayRowView(
+                                display: display,
+                                isExpanded: expandedDisplayIDs.contains(display.displayID),
+                                onToggleExpand: {
+                                    withAnimation(.panelResize) {
+                                        if expandedDisplayIDs.contains(display.displayID) {
+                                            expandedDisplayIDs.remove(display.displayID)
+                                        } else {
+                                            expandedDisplayIDs.insert(display.displayID)
+                                        }
                                     }
                                 }
-                            }
-                        )
+                            )
 
-                        BrightnessSliderView(display: display, compact: true)
-                            .padding(.bottom, 4)
+                            BrightnessSliderView(display: display, compact: true)
+                                .padding(.bottom, 4)
 
-                        DisplayDetailView(display: display)
-                            .curtainReveal(expandedDisplayIDs.contains(display.displayID))
+                            DisplayDetailView(display: display)
+                                .curtainReveal(expandedDisplayIDs.contains(display.displayID))
+                        }
                     }
                 }
+                .panelCard()
 
                 // Combined brightness control (Phase 2)
                 if settings.showCombinedBrightness {
                     sectionDivider
                     CombinedBrightnessView(displays: displayManager.displays)
+                        .panelCard()
                 }
 
                 // Dark Mode / Night Shift / True Tone circular toggle row (modeled on the system displays panel)
                 if CoreBrightnessService.shared.darkModeAvailable || CoreBrightnessService.shared.nightShiftAvailable || CoreBrightnessService.shared.trueToneAvailable {
                     sectionDivider
                     ScreenEffectsView()
+                        .panelCard()
                 }
 
                 // Preset list (Phase 19): located below the effects toggles
                 sectionDivider
                 PresetListView()
+                    .panelCard()
 
                 sectionDivider
 
                 // Tools area (collapsible section, collapsed by default)
-                ExpandableRow(
-                    icon: "wrench.and.screwdriver.fill",
-                    iconColor: .gray,
-                    label: "Tools",
-                    isExpanded: $showTools
-                )
-
                 VStack(alignment: .leading, spacing: 0) {
-                    // Virtual Displays tool entry (Phase 10)
                     ExpandableRow(
-                        icon: "display.2",
-                        iconColor: .blue,
-                        label: "Virtual Displays",
-                        isExpanded: $showVirtualDisplays
+                        icon: "wrench.and.screwdriver.fill",
+                        iconColor: .gray,
+                        label: "Tools",
+                        isExpanded: $showTools
                     )
 
-                    VirtualDisplayView()
-                        .padding(.leading, 8)
-                        .curtainReveal(showVirtualDisplays)
-
-                    // Arrange Displays (Phase 4): only useful with multiple displays
-                    if visibleDisplays.count > 1 {
+                    VStack(alignment: .leading, spacing: 0) {
+                        // Virtual Displays tool entry (Phase 10)
                         ExpandableRow(
-                            icon: "rectangle.3.offgrid",
+                            icon: "display.2",
                             iconColor: .blue,
-                            label: "Arrange Displays",
-                            isExpanded: $showArrangement
+                            label: "Virtual Displays",
+                            isExpanded: $showVirtualDisplays
                         )
 
-                        ArrangementView()
-                            .padding(.leading, 8)
-                            .curtainReveal(showArrangement)
-                    }
+                        VirtualDisplayView()
+                            .curtainReveal(showVirtualDisplays)
 
-                    // Auto Brightness: a single toggle row, no nested section
-                    AutoBrightnessView()
+                        // Arrange Displays (Phase 4): only useful with multiple displays
+                        if visibleDisplays.count > 1 {
+                            ExpandableRow(
+                                icon: "rectangle.3.offgrid",
+                                iconColor: .blue,
+                                label: "Arrange Displays",
+                                isExpanded: $showArrangement
+                            )
+
+                            ArrangementView()
+                                .curtainReveal(showArrangement)
+                        }
+
+                        // Auto Brightness: a single toggle row, no nested section
+                        AutoBrightnessView()
+                    }
+                    .curtainReveal(showTools)
                 }
-                .padding(.leading, 8)
-                .curtainReveal(showTools)
+                .panelCard()
+
+                sectionDivider
 
                 // Settings area (Phase 12)
-                ExpandableRow(
-                    icon: "gearshape.fill",
-                    iconColor: .gray,
-                    label: "Settings",
-                    isExpanded: $showSettings
-                )
+                VStack(alignment: .leading, spacing: 0) {
+                    ExpandableRow(
+                        icon: "gearshape.fill",
+                        iconColor: .gray,
+                        label: "Settings",
+                        isExpanded: $showSettings
+                    )
 
-                SettingsView()
-                    .padding(.leading, 8)
-                    .curtainReveal(showSettings)
+                    SettingsView()
+                        .curtainReveal(showSettings)
+                }
+                .panelCard()
 
                 // Update notice (Phase 12)
                 if updateService.hasUpdate, let ver = updateService.latestVersion {
@@ -329,7 +362,7 @@ struct MenuBarView: View {
 
             }
             .padding(.vertical, 4)
-            .frame(width: 360)
+            .frame(width: 288)
             .onGeometryChange(for: CGFloat.self) { proxy in
                 proxy.size.height
             } action: { newHeight in
@@ -368,13 +401,20 @@ struct MenuBarView: View {
             Button(action: {
                 NSApplication.shared.terminate(nil)
             }) {
-                Text("Quit")
-                    .font(.body)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(quitHovered ? Color.primary.opacity(0.06) : .clear)
-                    .cornerRadius(6)
-                    .contentShape(Rectangle())
+                HStack(spacing: 4) {
+                    Image(systemName: "power")
+                        .font(.system(size: 11, weight: .semibold))
+                    Text("Quit")
+                        .font(.body)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 5)
+                .background(
+                    Capsule(style: .continuous)
+                        .fill(quitHovered ? Color.red.opacity(0.15) : Color.primary.opacity(0.06))
+                )
+                .foregroundColor(quitHovered ? .red : .primary)
+                .contentShape(Capsule())
             }
             .buttonStyle(.plain)
             .onHover { quitHovered = $0 }
@@ -383,7 +423,7 @@ struct MenuBarView: View {
         .padding(.top, 6)
 
         } // end VStack
-        .frame(width: 360)
+        .frame(width: 288)
         .padding(.vertical, 8)
         .onReceive(displayManager.$displays) { newDisplays in
             let validIDs = Set(newDisplays.map { $0.displayID })
@@ -497,7 +537,7 @@ struct SettingsView: View {
 
             // HiDPI / Scaling (moved here from the top-level segmented control and per-display panel)
             if !builtinPresets.isEmpty || !externalDisplays.isEmpty {
-                Divider().opacity(0.25).padding(.horizontal, 12).padding(.vertical, 2)
+                Divider().opacity(0.4).padding(.horizontal, 12).padding(.vertical, 4)
 
                 Text("HiDPI & Scaling")
                     .font(.caption2)

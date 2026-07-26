@@ -61,7 +61,7 @@ struct ArrangementView: View {
                 .buttonStyle(.plain)
             }
         }
-        .padding(.horizontal, 8)
+        .padding(.horizontal, 12)
         .padding(.vertical, 4)
     }
 

@@ -51,7 +51,7 @@ struct DisplayDetailView: View {
             VStack(spacing: 0) {
                 if showModeList {
                     DisplayModeListView(display: display)
-                        .padding(.leading, 8)
+                        .padding(.horizontal, 12)
                         .transition(.opacity)
                 }
             }
@@ -73,7 +73,7 @@ struct DisplayDetailView: View {
                 VStack(spacing: 0) {
                     if showPreset {
                         DisplayPresetView(displayID: display.displayID, activeName: $presetName)
-                            .padding(.leading, 8)
+                            .padding(.horizontal, 12)
                             .transition(.opacity)
                     }
                 }
@@ -94,7 +94,7 @@ struct DisplayDetailView: View {
                 VStack(spacing: 0) {
                     if showColorProfile {
                         ColorProfileView(display: display)
-                            .padding(.leading, 8)
+                            .padding(.horizontal, 12)
                             .transition(.opacity)
                     }
                 }
@@ -111,7 +111,7 @@ struct DisplayDetailView: View {
             VStack(spacing: 0) {
                 if showImageAdjustment {
                     ImageAdjustmentView(display: display)
-                        .padding(.leading, 8)
+                        .padding(.horizontal, 12)
                         .transition(.opacity)
                 }
             }
@@ -126,8 +126,6 @@ struct DisplayDetailView: View {
             NotchView(display: display)
 
         }
-        .padding(.leading, 32)
-        .background(Color(NSColor.controlBackgroundColor).opacity(0.4))
         .onAppear {
             showModeList = loadExpanded("modeList", default: false)
             showPreset = loadExpanded("preset", default: false)

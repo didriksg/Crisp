@@ -21,7 +21,7 @@ struct VirtualDisplayView: View {
             } else {
                 ForEach(service.configs) { config in
                     configRow(config: config)
-                        .padding(.horizontal, 8)
+                        .padding(.horizontal, 12)
                         .padding(.vertical, 3)
                 }
             }

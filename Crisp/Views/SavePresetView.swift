@@ -25,7 +25,7 @@ struct SavePresetView: View {
                 SavePresetForm(onSaved: { isShowingSaveForm = false })
                     .padding(.horizontal, 12)
                     .padding(.bottom, 8)
-                    .transition(.opacity)
+                    .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
     }
@@ -88,9 +88,7 @@ struct SavePresetForm: View {
                     .foregroundColor(.secondary)
                     .frame(width: 40, alignment: .leading)
                     .padding(.top, 2)
-                // Plain HStack, not LazyVGrid: lazy containers reposition their
-                // items mid-flight during animated panel resizes (icons "fly").
-                HStack(spacing: 4) {
+                LazyVGrid(columns: Array(repeating: GridItem(.fixed(28), spacing: 4), count: 4), spacing: 4) {
                     ForEach(iconOptions, id: \.symbol) { option in
                         IconOptionButton(
                             symbol: option.symbol,
@@ -110,14 +108,14 @@ struct SavePresetForm: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .frame(width: 40, alignment: .leading)
-                HStack(spacing: 7) {
+                HStack(spacing: 6) {
                     ForEach(DisplayPreset.colorOptions, id: \.name) { option in
                         Button {
                             selectedColor = option.name
                         } label: {
                             Circle()
                                 .fill(option.color)
-                                .frame(width: 16, height: 16)
+                                .frame(width: 14, height: 14)
                                 .overlay(
                                     Circle()
                                         .strokeBorder(.white.opacity(selectedColor == option.name ? 0.9 : 0), lineWidth: 2)

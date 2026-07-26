@@ -190,6 +190,8 @@ struct ImageAdjustmentView: View {
                     .font(.caption)
                 Text(title)
                     .font(.caption)
+                    .lineLimit(1)
+                    .fixedSize()
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
