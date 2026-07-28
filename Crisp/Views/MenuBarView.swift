@@ -382,6 +382,7 @@ struct MenuBarView: View {
                             .padding(.bottom, 4)
 
                         DisplayDetailView(display: display)
+                            .padding(.horizontal, 12)
                             .curtainReveal(expandedDisplayIDs.contains(display.displayID))
                     }
                 }
@@ -503,23 +504,33 @@ struct MenuBarView: View {
 
         Divider().opacity(0.25).padding(.horizontal, 12)
 
-        // Quit: a plain left-aligned menu row (like the Wi-Fi menu's
-        // "Wi-Fi Settings…" footer) — highlights on hover, not a button.
-        // Fixed at the bottom, does not scroll with content.
+        // Quit: a capsule-shaped button with a power icon, left-aligned.
+        // Tinted red on hover to signal a destructive/exit action.
         HStack {
-            Text("Quit Crisp")
-                .font(.body)
+            Button(action: {
+                NSApplication.shared.terminate(nil)
+            }) {
+                HStack(spacing: 4) {
+                    Image(systemName: "power")
+                        .font(.system(size: 11, weight: .semibold))
+                    Text("Quit Crisp")
+                        .font(.body)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 5)
+                .background(
+                    Capsule(style: .continuous)
+                        .fill(quitHovered ? Color.red.opacity(0.15) : Color.primary.opacity(0.06))
+                )
+                .foregroundColor(quitHovered ? .red : .primary)
+                .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .onHover { quitHovered = $0 }
             Spacer()
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 5)
-        .menuRowHover(quitHovered)
-        .contentShape(Rectangle())
-        .onTapGesture {
-            NSApplication.shared.terminate(nil)
-        }
-        .onHover { quitHovered = $0 }
         .padding(.top, 4)
+        .padding(.leading, 12)
 
         } // end VStack
         .frame(width: 308)

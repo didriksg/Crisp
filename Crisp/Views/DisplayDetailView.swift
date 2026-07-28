@@ -115,12 +115,18 @@ struct DisplayDetailView: View {
             NotchView(display: display)
 
         }
-        .padding(.leading, 4)
-        // Region background: a full-width shaded band behind the whole expanded
-        // detail so its start and end are obvious. Color.primary adapts to mode
-        // (darkens in light, lifts in dark); no rounded corners/inset, so it reads
-        // as a grouped band, not a floating card.
-        .background(Color.primary.opacity(0.08))
+        .padding(8)
+        // Card background matching SavePresetForm: rounded rect with a thin
+        // border stroke so the expanded display detail reads as a bounded
+        // card (same idiom as the "New Preset" form), not a full-width band.
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.primary.opacity(0.05))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(Color.primary.opacity(0.10), lineWidth: 1)
+                )
+        )
         .onReceive(NotificationCenter.default.publisher(for: .crispPanelDidClose)) { _ in
             // Reopen fresh, like a native menu (this view persists across opens, so
             // its sections stay expanded until reset).
