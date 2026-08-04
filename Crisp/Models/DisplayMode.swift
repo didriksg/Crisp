@@ -87,8 +87,10 @@ struct DisplayMode: Identifiable, Equatable {
         // clean scaled resolutions (1600x900, 2048x1152, full 2560x1440 refresh set, ...) that
         // CGS carries without any override, so we can offer and apply them directly like BetterDisplay.
         let knownIDs = Set(modes.map { $0.id })
-        let nativeAR = rawModes.max(by: { $0.pixelWidth * $0.pixelHeight < $1.pixelWidth * $1.pixelHeight })
-            .map { Double($0.pixelWidth) / Double($0.pixelHeight) } ?? 0
+        let nativeAR = DisplayModeGeometry.nativeAspect(from: rawModes.map {
+            DisplayModeGeometry(width: $0.width, height: $0.height,
+                                pixelWidth: $0.pixelWidth, pixelHeight: $0.pixelHeight)
+        })
         modes += cgsHiddenHiDPIModes(for: displayID, excludingIDs: knownIDs,
                                      maxPixelWidth: maxPixelWidth, nativeAspect: nativeAR)
 

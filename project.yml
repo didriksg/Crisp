@@ -43,3 +43,27 @@ targets:
         OTHER_LDFLAGS: "-Wl,-U,_SLSConfigureDisplayEnabled -Wl,-U,_SLSGetDisplayList"
         GENERATE_INFOPLIST_FILE: YES
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+  CrispTests:
+    type: bundle.unit-test
+    platform: macOS
+    deploymentTarget: "15.0"
+    sources:
+      - path: CrispTests
+      - path: Crisp/Models/DisplayModeGeometry.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.crisp.tests
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_VERSION: "6.0"
+        SWIFT_STRICT_CONCURRENCY: minimal
+        TEST_HOST: ""
+        BUNDLE_LOADER: ""
+
+schemes:
+  Crisp:
+    build:
+      targets:
+        Crisp: all
+    test:
+      targets:
+        - CrispTests

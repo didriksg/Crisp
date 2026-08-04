@@ -3,6 +3,7 @@
 # Fast dev loop (Command Line Tools only, no Xcode):
 #   make dev        compile, swap the binary into /Applications/Crisp.app, relaunch
 #   make compile    compile the binary only (./Crisp-bin), no swap — quick build check
+#   make test       generate the Xcode project and run unit tests
 #
 # Distributable DMG:
 #   make build      signed universal (arm64 + x86_64) DMG via scripts/release.sh (dry run)
@@ -27,12 +28,13 @@ SWIFTC_FLAGS := -O -swift-version 5 -strict-concurrency=minimal -parse-as-librar
                 -Xlinker -undefined -Xlinker dynamic_lookup
 
 .DEFAULT_GOAL := help
-.PHONY: help dev compile build dmg release clean
+.PHONY: help dev compile test build dmg release clean
 
 help:
 	@echo "Crisp — make targets:"
 	@echo "  make dev        compile + swap into /Applications/Crisp.app + relaunch (dev.sh)"
 	@echo "  make compile    compile ./Crisp-bin only, no swap (quick build check)"
+	@echo "  make test       generate the Xcode project and run unit tests"
 	@echo "  make build      signed universal DMG, no Xcode (scripts/release.sh v$(VERSION))"
 	@echo "  make dmg        DMG via Xcode (scripts/build-dmg.sh)"
 	@echo "  make release ARGS=\"vX.Y.Z notes.md --publish\"   full release (scripts/release.sh)"
@@ -45,6 +47,12 @@ compile:
 	@echo "==> Compiling Crisp $(VERSION) -> ./Crisp-bin"
 	swiftc $(SWIFTC_FLAGS) $(SWIFT_SOURCES) -o Crisp-bin
 	@echo "Done. ./Crisp-bin built (not swapped into the app; use 'make dev' for that)."
+
+test:
+	xcodegen generate
+	xcodebuild -quiet test -project Crisp.xcodeproj -scheme Crisp \
+		-destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO \
+		SWIFT_VERSION=5 SWIFT_STRICT_CONCURRENCY=minimal
 
 build:
 	./scripts/release.sh v$(VERSION)

@@ -27,7 +27,10 @@ struct DisplayModeSection: View {
         let (nativeW, nativeH) = display.nativeResolution
 
         let base = display.availableModes.filter {
-            $0.width >= 1280 && $0.height >= 720
+            DisplayModeGeometry.isResolutionMenuEligible(width: $0.width, height: $0.height)
+                && DisplayModeGeometry.hasSameOrientation(
+                    width: $0.width, height: $0.height, as: nativeW, nativeH
+                )
         }
 
         var grouped: [String: [DisplayMode]] = [:]
@@ -381,6 +384,9 @@ struct DisplayModeSection: View {
         var seen = Set<String>()
         return display.availableModes
             .filter {
+                guard DisplayModeGeometry.hasSameOrientation(
+                    width: $0.width, height: $0.height, as: nativeW, nativeH
+                ) else { return false }
                 if hasNativeDefault, $0.isHiDPI, $0.width == nativeW, $0.height == nativeH { return false }
                 return ($0.isHiDPI && $0.width >= minWidth) || ($0.width == nativeW && $0.height == nativeH)
             }
