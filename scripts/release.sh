@@ -40,7 +40,7 @@ rm -rf "$BUILD"; mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 echo "==> Compiling universal binary (arm64 + x86_64)…"
 SRC=$(find Crisp -name '*.swift')
 for a in arm64 x86_64; do
-  swiftc -O -parse-as-library -target "$a-apple-macos15.0" \
+  swiftc -O -parse-as-library -target "$a-apple-macos14.0" \
     -import-objc-header Crisp/Crisp-Bridging-Header.h \
     -Xlinker -U -Xlinker _SLSConfigureDisplayEnabled \
     -Xlinker -U -Xlinker _SLSGetDisplayList \
@@ -88,7 +88,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 	<key>CFBundleLocalizations</key><array>${LOC_XML}</array>
 	<key>CFBundleShortVersionString</key><string>${VERSION}</string>
 	<key>CFBundleVersion</key><string>${VERSION}</string>
-	<key>LSMinimumSystemVersion</key><string>15.0</string>
+	<key>LSMinimumSystemVersion</key><string>14.0</string>
 	<key>LSUIElement</key><true/>
 	<key>NSHumanReadableCopyright</key><string>Crisp - Free &amp; Open Source</string>
 	<key>NSAppleEventsUsageDescription</key><string>Crisp uses System Events to switch Dark Mode with the system's animated transition.</string>

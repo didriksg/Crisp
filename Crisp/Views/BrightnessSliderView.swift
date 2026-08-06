@@ -221,9 +221,19 @@ struct BrightnessSliderView: View {
             set { progress = newValue }
         }
         func body(content: Content) -> some View {
-            content.tint(progress <= 0
-                ? Color.accentColor
-                : Color.accentColor.mix(with: .yellow, by: min(1.0, progress)))
+            content.tint(boostTint)
+        }
+
+        private var boostTint: Color {
+            guard progress > 0 else { return .accentColor }
+            let fraction = min(1.0, progress)
+            if #available(macOS 15.0, *) {
+                return Color.accentColor.mix(with: .yellow, by: fraction)
+            }
+            // macOS 14: Color.mix is 15+; AppKit's blend interpolates in a
+            // slightly different space, indistinguishable across a tint ramp.
+            return Color(nsColor: NSColor.controlAccentColor
+                .blended(withFraction: fraction, of: .systemYellow) ?? .controlAccentColor)
         }
     }
 

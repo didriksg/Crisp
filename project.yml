@@ -2,7 +2,7 @@ name: Crisp
 options:
   bundleIdPrefix: com.crisp
   deploymentTarget:
-    macOS: "15.0"
+    macOS: "14.0"
   developmentLanguage: en
   knownRegions:
     - en
@@ -13,7 +13,7 @@ targets:
   Crisp:
     type: application
     platform: macOS
-    deploymentTarget: "15.0"
+    deploymentTarget: "14.0"
     sources:
       - path: Crisp
         excludes:
@@ -46,7 +46,7 @@ targets:
   CrispTests:
     type: bundle.unit-test
     platform: macOS
-    deploymentTarget: "15.0"
+    deploymentTarget: "14.0"
     sources:
       - path: CrispTests
       - path: Crisp/Models/DisplayModeGeometry.swift

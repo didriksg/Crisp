@@ -148,6 +148,23 @@ extension View {
     }
 }
 
+extension View {
+    /// Keep scroll content pinned to the top on first layout and while its
+    /// size animates; without this the scroll offset transiently re-anchors
+    /// during expansion and the whole panel content shifts up for a moment.
+    /// The role-scoped anchors are macOS 15+; on 14 the all-roles anchor is
+    /// close enough (it additionally top-aligns short content, which the
+    /// panel fills anyway).
+    @ViewBuilder func topAnchoredScroll() -> some View {
+        if #available(macOS 15.0, *) {
+            self.defaultScrollAnchor(.top, for: .sizeChanges)
+                .defaultScrollAnchor(.top, for: .initialOffset)
+        } else {
+            self.defaultScrollAnchor(.top)
+        }
+    }
+}
+
 // MARK: - SectionDivider
 
 /// The one canonical section separator, used between every group across the
@@ -590,11 +607,7 @@ struct MenuBarView: View {
         }
         // Native menus don't rubber-band unless they actually scroll
         .scrollBounceBehavior(.basedOnSize)
-        // Keep content pinned to the top while its size animates; without
-        // this the scroll offset transiently re-anchors during expansion and
-        // the whole panel content shifts up for a moment.
-        .defaultScrollAnchor(.top, for: .sizeChanges)
-        .defaultScrollAnchor(.top, for: .initialOffset)
+        .topAnchoredScroll()
         // macOS 26 Tahoe: MenuBarExtra(.window) gives ScrollView an ideal height of 0;
         // without an explicit height it collapses into an empty pill. Measure the actual content height so the popover fits its content, capping at 600 before scrolling;
         // if measurement fails (reports 0), fall back to a fixed 520
