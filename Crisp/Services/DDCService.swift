@@ -139,41 +139,29 @@ final class DDCService: ObservableObject, @unchecked Sendable {
             entry = IOIteratorNext(iterator)
         }
 
-        // Strategy 1: identity matching (vendor+product+serial, then vendor+product).
-        var map: [CGDirectDisplayID: IOAVServiceRef] = [:]
-        var usedDisplays = Set<CGDirectDisplayID>()
-        var unmatched: [Int] = []
-
-        for i in ordered.indices {
-            guard let idty = identities[i] else { unmatched.append(i); continue }
-            let exact = externalIDs.first {
-                !usedDisplays.contains($0)
-                    && CGDisplayVendorNumber($0) == idty.vendor
-                    && CGDisplayModelNumber($0) == idty.product
-                    && CGDisplaySerialNumber($0) == idty.serial
-            }
-            let byModel = exact ?? externalIDs.first {
-                !usedDisplays.contains($0)
-                    && CGDisplayVendorNumber($0) == idty.vendor
-                    && CGDisplayModelNumber($0) == idty.product
-            }
-            if let matched = byModel {
-                map[matched] = ordered[i]
-                usedDisplays.insert(matched)
-            } else {
-                unmatched.append(i)
-            }
+        // Strategy 1 + Strategy 2 + the ambiguity flag live in the pure, headless-testable
+        // `DDCServiceMatcher` (Crisp/Models/DDCServiceMatcher.swift). Its inputs are the
+        // IORegistry identities collected above and the CoreGraphics display list; the
+        // matching semantics are byte-for-byte those the inline code used previously.
+        let services = identities.map { idty -> DDCServiceMatcher.Identity? in
+            guard let idty else { return nil }
+            return DDCServiceMatcher.Identity(vendor: idty.vendor, product: idty.product, serial: idty.serial)
         }
+        let displays: [(id: CGDirectDisplayID, identity: DDCServiceMatcher.Identity)] = externalIDs.map {
+            (id: $0, identity: DDCServiceMatcher.Identity(
+                vendor: CGDisplayVendorNumber($0),
+                product: CGDisplayModelNumber($0),
+                serial: CGDisplaySerialNumber($0)))
+        }
+        let result = DDCServiceMatcher.match(services: services, displays: displays)
 
-        // Strategy 2: traversal-order fallback for whatever identity matching missed.
-        let leftovers = externalIDs.filter { !usedDisplays.contains($0) }.sorted()
-        for (n, i) in unmatched.enumerated() where n < leftovers.count {
-            map[leftovers[n]] = ordered[i]
+        var map: [CGDirectDisplayID: IOAVServiceRef] = [:]
+        for assignment in result.assignments {
+            map[assignment.displayID] = ordered[assignment.serviceIndex]
         }
 
         // Warn only when the fallback had to guess among >1 indistinguishable displays.
-        let ambiguous = !unmatched.isEmpty && leftovers.count > 1
-        let warning = ambiguous
+        let warning = result.ambiguous
             ? "Multiple external displays: DDC identity matching failed; using traversal order"
             : nil
         DispatchQueue.main.async { self.mappingWarning = warning }

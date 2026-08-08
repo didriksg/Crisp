@@ -50,6 +50,7 @@ targets:
     sources:
       - path: CrispTests
       - path: Crisp/Models/DisplayModeGeometry.swift
+      - path: Crisp/Models/DDCServiceMatcher.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.crisp.tests
