@@ -51,6 +51,7 @@ targets:
       - path: CrispTests
       - path: Crisp/Models/DisplayModeGeometry.swift
       - path: Crisp/Models/DDCServiceMatcher.swift
+      - path: Crisp/Models/RefreshRateFormat.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.crisp.tests
