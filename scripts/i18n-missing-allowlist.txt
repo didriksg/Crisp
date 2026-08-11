@@ -1,0 +1,5 @@
+# Localization keys used in code but not yet present in Localizable.xcstrings.
+# Consumed by scripts/check-localization-keys.py in CI: keys listed here do not
+# fail the build, everything else missing does. One key per line, exactly as
+# extracted (leading spaces and format specifiers matter). Remove entries as
+# the gaps get fixed; the checker flags stale entries.
