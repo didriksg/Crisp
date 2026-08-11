@@ -4,7 +4,7 @@
 #   make dev        compile, swap the binary into /Applications/Crisp.app, relaunch
 #   make compile    compile the binary only (./Crisp-bin), no swap — quick build check
 #   make test       generate the Xcode project and run unit tests
-#   make check      lint + tests, everything CI enforces: run before pushing
+#   make check      lint + tests + localization keys, everything CI enforces: run before pushing
 #                   (auto-run on every push after: git config core.hooksPath .githooks)
 #
 # Distributable DMG:
@@ -36,14 +36,14 @@ SWIFTC_FLAGS := -O -swift-version 5 -strict-concurrency=minimal -parse-as-librar
                 -Xlinker -undefined -Xlinker dynamic_lookup
 
 .DEFAULT_GOAL := help
-.PHONY: help dev compile test lint check build dmg release clean
+.PHONY: help dev compile test lint loc-check check build dmg release clean
 
 help:
 	@echo "Crisp — make targets:"
 	@echo "  make dev        compile + swap into /Applications/Crisp.app + relaunch (dev.sh)"
 	@echo "  make compile    compile ./Crisp-bin only, no swap (quick build check)"
 	@echo "  make test       generate the Xcode project and run unit tests"
-	@echo "  make check      lint + tests, everything CI enforces (run before pushing)"
+	@echo "  make check      lint + tests + localization keys, everything CI enforces"
 	@echo "  make build      signed universal DMG, no Xcode (scripts/release.sh v$(VERSION))"
 	@echo "  make dmg        DMG via Xcode (scripts/build-dmg.sh)"
 	@echo "  make release ARGS=\"vX.Y.Z notes.md --publish\"   full release (scripts/release.sh)"
@@ -67,9 +67,19 @@ lint:
 	@command -v swiftlint >/dev/null || { echo "SwiftLint not installed: brew install swiftlint"; exit 1; }
 	swiftlint lint --strict --quiet
 
-# Everything CI enforces (lint + build + tests), locally.
-check: lint test
-	@echo "check passed: lint clean, tests green"
+# Same check as CI's "Check localization keys" step: every key the code uses
+# must exist in the String Catalog (missing keys silently fall back to English).
+loc-check:
+	xcodegen generate
+	xcodebuild -quiet -exportLocalizations -project Crisp.xcodeproj \
+		-localizationPath build/loc CODE_SIGNING_ALLOWED=NO \
+		SWIFT_EMIT_LOC_STRINGS=YES SWIFT_VERSION=5 SWIFT_STRICT_CONCURRENCY=minimal
+	python3 scripts/check-localization-keys.py build/loc/en.xcloc \
+		Crisp/Resources/Localizable.xcstrings scripts/i18n-missing-allowlist.txt
+
+# Everything CI enforces (lint + build + tests + localization keys), locally.
+check: lint test loc-check
+	@echo "check passed: lint clean, tests green, localization keys complete"
 
 build:
 	./scripts/release.sh v$(VERSION)
