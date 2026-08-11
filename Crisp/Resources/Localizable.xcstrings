@@ -1422,6 +1422,26 @@
         }
       }
     },
+    "Variable (%@-%@)" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "可变（%@-%@）"
+          }
+        }
+      }
+    },
+    "Variable (up to %@)" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "可变（最高 %@）"
+          }
+        }
+      }
+    },
     "Virtual Display" : {
       "localizations" : {
         "zh-Hans" : {

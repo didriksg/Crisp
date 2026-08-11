@@ -53,6 +53,7 @@ targets:
       - path: Crisp/Models/DDCServiceMatcher.swift
       - path: Crisp/Models/RefreshRateFormat.swift
       - path: Crisp/Models/GammaPersistenceKey.swift
+      - path: Crisp/Models/VariableRefreshModes.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.crisp.tests

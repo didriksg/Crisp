@@ -19,6 +19,9 @@ struct DisplayMode: Identifiable, Equatable {
     let isHiDPI: Bool
     /// Whether this is the native (highest pixel resolution) mode
     let isNative: Bool
+    /// Whether this is the variable-refresh member of a duplicate mode pair
+    /// (see VariableRefreshModes); shown as "Variable (up to NHz)" like System Settings.
+    var isVariableRefresh: Bool = false
     /// Raw IODisplayModeID for CGConfigureDisplayWithDisplayMode (same as id)
     var ioDisplayModeID: Int32 { id }
 
@@ -52,6 +55,7 @@ struct DisplayMode: Identifiable, Equatable {
         }
 
         let maxPixelWidth = nativePixelWidth(from: rawModes)
+        let variableIDs = VariableRefreshModes.variableModeIDs(from: cgsModeRecords(for: displayID))
 
         var seen = Set<Int32>()
         var modes: [DisplayMode] = rawModes.compactMap { mode -> DisplayMode? in
@@ -73,7 +77,8 @@ struct DisplayMode: Identifiable, Equatable {
                 pixelHeight: ph,
                 refreshRate: refresh,
                 isHiDPI: pw > w,
-                isNative: pw >= maxPixelWidth
+                isNative: pw >= maxPixelWidth,
+                isVariableRefresh: variableIDs.contains(modeID)
             )
         }
 
@@ -86,15 +91,34 @@ struct DisplayMode: Identifiable, Equatable {
                                 pixelWidth: $0.pixelWidth, pixelHeight: $0.pixelHeight)
         })
         modes += cgsHiddenHiDPIModes(for: displayID, excludingIDs: knownIDs,
-                                     maxPixelWidth: maxPixelWidth, nativeAspect: nativeAR)
+                                     maxPixelWidth: maxPixelWidth, nativeAspect: nativeAR,
+                                     variableIDs: variableIDs)
 
         return modes.sorted { lhs, rhs in
             if lhs.width != rhs.width { return lhs.width > rhs.width }
             if lhs.height != rhs.height { return lhs.height > rhs.height }
             if lhs.refreshRate != rhs.refreshRate { return lhs.refreshRate > rhs.refreshRate }
+            // Variable above its same-rate fixed twin, matching System Settings.
+            if lhs.isVariableRefresh != rhs.isVariableRefresh { return lhs.isVariableRefresh }
             if lhs.isHiDPI != rhs.isHiDPI { return lhs.isHiDPI }
             return false
         }
+    }
+
+    /// The raw CGS mode table reduced to what the VRR detector needs.
+    private static func cgsModeRecords(for displayID: CGDirectDisplayID) -> [VRRModeRecord] {
+        var count: Int32 = 0
+        guard CGSGetNumberOfDisplayModes(displayID, &count) == .success, count > 0 else { return [] }
+        let length = Int32(MemoryLayout<CGSDisplayModeDescription>.size)
+        var out: [VRRModeRecord] = []
+        for i in 0..<count {
+            var d = CGSDisplayModeDescription()
+            guard CGSGetDisplayModeDescriptionOfLength(displayID, i, &d, length) == .success else { continue }
+            out.append(VRRModeRecord(id: Int32(bitPattern: d.modeNumber),
+                                     width: Int(d.width), height: Int(d.height),
+                                     freq: Int(d.freq), density: d.density, flags: d.flags))
+        }
+        return out
     }
 
     /// GPU-scaled HiDPI modes that `CGDisplayCopyAllDisplayModes` omits. When a scaled resolution
@@ -109,7 +133,8 @@ struct DisplayMode: Identifiable, Equatable {
     private static func cgsHiddenHiDPIModes(for displayID: CGDirectDisplayID,
                                             excludingIDs known: Set<Int32>,
                                             maxPixelWidth: Int,
-                                            nativeAspect: Double) -> [DisplayMode] {
+                                            nativeAspect: Double,
+                                            variableIDs: Set<Int32>) -> [DisplayMode] {
         var count: Int32 = 0
         guard CGSGetNumberOfDisplayModes(displayID, &count) == .success, count > 0 else { return [] }
         let length = Int32(MemoryLayout<CGSDisplayModeDescription>.size)
@@ -131,7 +156,8 @@ struct DisplayMode: Identifiable, Equatable {
             out.append(DisplayMode(id: id, width: w, height: h,
                                    pixelWidth: pw, pixelHeight: ph,
                                    refreshRate: Double(d.freq),
-                                   isHiDPI: pw > w, isNative: pw >= maxPixelWidth))
+                                   isHiDPI: pw > w, isNative: pw >= maxPixelWidth,
+                                   isVariableRefresh: variableIDs.contains(id)))
         }
         return out
     }
@@ -150,6 +176,7 @@ struct DisplayMode: Identifiable, Equatable {
         let ph = mode.pixelHeight
         let refresh = mode.refreshRate
         let modeID = mode.ioDisplayModeID
+        let variableIDs = VariableRefreshModes.variableModeIDs(from: cgsModeRecords(for: displayID))
 
         return DisplayMode(
             id: modeID,
@@ -159,7 +186,8 @@ struct DisplayMode: Identifiable, Equatable {
             pixelHeight: ph,
             refreshRate: refresh,
             isHiDPI: pw > w,
-            isNative: pw >= maxPixelWidth
+            isNative: pw >= maxPixelWidth,
+            isVariableRefresh: variableIDs.contains(modeID)
         )
     }
 }

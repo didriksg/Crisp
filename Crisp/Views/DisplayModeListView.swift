@@ -31,6 +31,9 @@ final class DisplayModeController: ObservableObject {
     private var isSwitching: Bool = false
     private var cachedGroups: [ResolutionGroup]?
     private var cachedSliderModes: [DisplayMode]?
+    /// Panel's adaptive-sync floor (48 on a 48-180Hz panel), for the Variable row label.
+    private lazy var vrrMinimumRate: Int? = VariableRefreshRange.minimumRate(
+        vendorNumber: display.vendorNumber, modelNumber: display.modelNumber)
     private var displayRelay: AnyCancellable?
 
     init(display: DisplayInfo, displayManager: DisplayManager) {
@@ -93,8 +96,21 @@ final class DisplayModeController: ObservableObject {
         let lodpiSizes = Set(base.filter { !$0.isHiDPI }.map { "\($0.width)x\($0.height)" })
 
         let mapped = grouped.map { (_, modes) -> ResolutionGroup in
-            let sorted = modes.sorted { $0.refreshRate > $1.refreshRate }
-            let w = sorted[0].width, h = sorted[0].height, hidpi = sorted[0].isHiDPI
+            let sorted = modes.sorted {
+                if $0.refreshRate != $1.refreshRate { return $0.refreshRate > $1.refreshRate }
+                // Variable above its same-rate fixed twin, matching System Settings.
+                return $0.isVariableRefresh && !$1.isVariableRefresh
+            }
+            // One Variable row per size, like System Settings: macOS mints a variable
+            // twin for every rate inside the panel's adaptive range, but only the top
+            // one is a meaningful choice; the lesser twins would just render as
+            // duplicate Hz rows. Keep whatever is current, as everywhere else.
+            let maxVariableRate = sorted.lazy.filter { $0.isVariableRefresh }.map { $0.refreshRate }.max()
+            let visible = sorted.filter {
+                !$0.isVariableRefresh || $0.refreshRate == maxVariableRate
+                    || $0.id == currentMode?.id
+            }
+            let w = visible[0].width, h = visible[0].height, hidpi = visible[0].isHiDPI
             let isDefault = !display.isBuiltin && !hidpi && w == nativeW && h == nativeH
             let isLowResolution = !hidpi && !isDefault && hiDPISizes.contains("\(w)x\(h)")
             return ResolutionGroup(
@@ -103,7 +119,7 @@ final class DisplayModeController: ObservableObject {
                 isHiDPI: hidpi,
                 isDefault: isDefault,
                 isLowResolution: isLowResolution,
-                modes: sorted
+                modes: visible
             )
         }
 
@@ -165,9 +181,20 @@ final class DisplayModeController: ObservableObject {
     }
 
     /// Refresh-rate label, matching System Settings: the built-in's 120Hz variable-refresh
-    /// mode reads "ProMotion" rather than a fixed number; everything else is its Hz string.
+    /// mode reads "ProMotion" rather than a fixed number, an external VRR twin reads
+    /// "Variable (up to NHz)", and everything else is its Hz string.
     func refreshLabel(_ mode: DisplayMode) -> String {
         if display.isBuiltin && Int(mode.refreshRate.rounded()) >= 120 { return "ProMotion" }
+        if mode.isVariableRefresh {
+            // Full range like System Settings ("Variable (48-180Hz)") when the registry
+            // exposes the adaptive-sync floor; "up to" wording otherwise.
+            if let minRate = vrrMinimumRate {
+                return String(format: NSLocalizedString("Variable (%@-%@)", comment: "External VRR refresh-rate row, full range"),
+                              String(minRate), mode.refreshRateString)
+            }
+            return String(format: NSLocalizedString("Variable (up to %@)", comment: "External VRR refresh-rate row"),
+                          mode.refreshRateString)
+        }
         return mode.refreshRateString
     }
 
