@@ -34,10 +34,34 @@ jobs:
       # The macos-26 image ships no swiftlint, so the lint step used to hit
       # "command not found" that `|| true` swallowed, making it a silent no-op.
       # Install it explicitly; the runner has full Xcode so its SourceKit loads.
-      - name: Install SwiftLint
-        run: HOMEBREW_NO_AUTO_UPDATE=1 brew install swiftlint
+      - name: Install SwiftLint and xcodegen
+        run: HOMEBREW_NO_AUTO_UPDATE=1 brew install swiftlint xcodegen
       - name: Lint (SwiftLint, advisory)
         run: swiftlint lint --reporter github-actions-logging || true
+      # Unit tests. The dev machine is CLT-only and cannot run xcodebuild, so CI
+      # is the only place the suite actually executes; without this step the
+      # tests in CrispTests are dead weight (that is how the "-- Hz" bug and the
+      # untested doc-comment contract in DisplayMode survived to a release).
+      - name: Test
+        run: make test
+      # Every localization key the code uses must exist in the String Catalog.
+      # SwiftUI coalesces interpolated text into "%@"-style lookup keys, and a
+      # key missing from the catalog silently falls back to English at runtime
+      # (issue class fixed in PR #34). Export what the compiler extracts and
+      # diff it against the catalog. Pre-existing gaps are tracked in the
+      # allowlist next to the script; remove entries as they get fixed.
+      - name: Check localization keys
+        run: |
+          xcodebuild -quiet -exportLocalizations -project Crisp.xcodeproj \
+            -localizationPath build/loc CODE_SIGNING_ALLOWED=NO \
+            SWIFT_EMIT_LOC_STRINGS=YES SWIFT_VERSION=5 SWIFT_STRICT_CONCURRENCY=minimal
+          python3 scripts/check-localization-keys.py build/loc/en.xcloc \
+            Crisp/Resources/Localizable.xcstrings scripts/i18n-missing-allowlist.txt
+      # Advisory here: completeness is enforced in the release path
+      # (release.sh --publish) so a PR adding an English string never blocks a
+      # contributor. This run only surfaces the current gaps on the PR.
+      - name: Translation completeness (advisory)
+        run: python3 scripts/check-translations.py Crisp/Resources/Localizable.xcstrings || true
       # Reuses the release script's dry run: compiles the universal binary,
       # builds the icon, compiles the String Catalog, and packages the DMG,
       # so a green check means the real release path builds. Publishes nothing.
