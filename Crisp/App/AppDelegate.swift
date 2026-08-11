@@ -117,7 +117,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.onWake?()
+            // Delivered on `queue: .main`, so the main actor is current.
+            MainActor.assumeIsolated { self?.onWake?() }
         }
 
         setupStartupBehavior()
@@ -916,8 +917,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }, completionHandler: { [weak self] in
             // Hidden now: tell the content to collapse its tool/nav sections so the
             // next open is fresh. Skip if the panel was reopened during the fade.
-            guard let self, !self.isPanelShown else { return }
-            NotificationCenter.default.post(name: .crispPanelDidClose, object: nil)
+            // Animation completion runs on the main thread.
+            MainActor.assumeIsolated {
+                guard let self, !self.isPanelShown else { return }
+                NotificationCenter.default.post(name: .crispPanelDidClose, object: nil)
+            }
         })
         if let monitor = clickMonitor {
             NSEvent.removeMonitor(monitor)

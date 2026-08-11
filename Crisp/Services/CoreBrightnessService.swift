@@ -80,12 +80,14 @@ final class CoreBrightnessService: ObservableObject {
     /// The reads are XPC round-trips, so they run off the main thread to keep
     /// panel opening snappy; results publish back on main.
     func refresh() {
-        let blueClient = blueLightClient
-        let ttClient = trueToneClient
+        // The CoreBrightness XPC client objects are safe to message from any
+        // thread, but NSObject is not Sendable; box them across the hop.
+        let blueBox = UncheckedSendable(value: blueLightClient)
+        let ttBox = UncheckedSendable(value: trueToneClient)
         let ttAvailable = trueToneAvailable
         DispatchQueue.global(qos: .userInitiated).async {
             var nightShift: Bool?
-            if let c = blueClient {
+            if let c = blueBox.value {
                 var buf = [UInt8](repeating: 0, count: 64)
                 let sel = NSSelectorFromString("getBlueLightStatus:")
                 if c.responds(to: sel) {
@@ -98,7 +100,7 @@ final class CoreBrightnessService: ObservableObject {
                 }
             }
             var trueTone: Bool?
-            if let c = ttClient, ttAvailable {
+            if let c = ttBox.value, ttAvailable {
                 trueTone = Self.boolCall(c, "enabled")
             }
             let dark = _SLSGetAppearanceTheme?()
@@ -177,3 +179,8 @@ final class CoreBrightnessService: ObservableObject {
         unsafeBitCast(obj.method(for: sel), to: Fn.self)(obj, sel, v)
     }
 }
+
+/// Carries a value across a `@Sendable` boundary the compiler cannot verify.
+/// Only for objects that are documented or observed thread-safe to message
+/// (here: the CoreBrightness XPC client objects).
+private struct UncheckedSendable<T>: @unchecked Sendable { let value: T }

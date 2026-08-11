@@ -208,7 +208,7 @@ final class PanelBlock {
 /// keeps window frame + block frames consistent every tick.
 @MainActor
 final class PanelCanvas {
-    static let log = Logger(subsystem: "com.crisp.app", category: "panelcanvas")
+    nonisolated static let log = Logger(subsystem: "com.crisp.app", category: "panelcanvas")
     /// For the spring's tick log sub-timings (single instance in practice).
     static weak var shared: PanelCanvas?
 

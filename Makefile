@@ -57,11 +57,15 @@ compile:
 	swiftc $(SWIFTC_FLAGS) $(SWIFT_SOURCES) -o Crisp-bin
 	@echo "Done. ./Crisp-bin built (not swapped into the app; use 'make dev' for that)."
 
+# Warnings are errors here (the baseline is zero, issue #47), so a PR that
+# introduces one fails make check and CI. `make compile` stays permissive for
+# mid-iteration builds.
 test:
 	xcodegen generate
 	xcodebuild -quiet test -project Crisp.xcodeproj -scheme Crisp \
 		-destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO \
-		SWIFT_VERSION=5 SWIFT_STRICT_CONCURRENCY=minimal
+		SWIFT_VERSION=5 SWIFT_STRICT_CONCURRENCY=minimal \
+		SWIFT_TREAT_WARNINGS_AS_ERRORS=YES
 
 lint:
 	@command -v swiftlint >/dev/null || { echo "SwiftLint not installed: brew install swiftlint"; exit 1; }

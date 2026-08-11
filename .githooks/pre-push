@@ -2,4 +2,10 @@
 # Runs the same checks CI enforces before every push. Opt in once with:
 #   git config core.hooksPath .githooks
 # Bypass for a single push with: git push --no-verify
-exec make check
+# Skip delete-only pushes (local sha is all zeros): nothing new to check.
+while read -r _ local_sha _ _; do
+	case "$local_sha" in
+	*[!0]*) exec make check ;;
+	esac
+done
+exit 0

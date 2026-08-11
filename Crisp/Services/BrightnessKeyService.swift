@@ -43,26 +43,26 @@ final class BrightnessKeyService: @unchecked Sendable {
     private var disabledAt: TimeInterval = 0
 
     // MARK: - NX Media Key Constants
-    // Read from the nonisolated callback method; immutable Sendable `static let`s
-    // are implicitly nonisolated, so that is safe without any annotation.
+    // `nonisolated` (immutable Sendable constants) so the nonisolated tap
+    // callback can read them without hopping to the main actor.
 
     /// CGEventType raw value for NSSystemDefined / NX_SYSDEFINED events (media keys).
-    private static let cgEventTypeSystemDefinedRaw: UInt32 = 14
+    private nonisolated static let cgEventTypeSystemDefinedRaw: UInt32 = 14
     /// NX_SUBTYPE_AUX_CONTROL_BUTTONS, the subtype value for media/function keys.
-    private static let nxSubtypeAuxControlButtons: Int16 = 8
+    private nonisolated static let nxSubtypeAuxControlButtons: Int16 = 8
     /// NX_KEYTYPE_BRIGHTNESS_UP
-    private static let nxKeytypeBrightnessUp: Int = 2
+    private nonisolated static let nxKeytypeBrightnessUp: Int = 2
     /// NX_KEYTYPE_BRIGHTNESS_DOWN
-    private static let nxKeytypeBrightnessDown: Int = 3
+    private nonisolated static let nxKeytypeBrightnessDown: Int = 3
     /// NX_KEYTYPE_SOUND_UP / NX_KEYTYPE_SOUND_DOWN / NX_KEYTYPE_MUTE
-    private static let nxKeytypeSoundUp: Int = 0
-    private static let nxKeytypeSoundDown: Int = 1
-    private static let nxKeytypeMute: Int = 7
+    private nonisolated static let nxKeytypeSoundUp: Int = 0
+    private nonisolated static let nxKeytypeSoundDown: Int = 1
+    private nonisolated static let nxKeytypeMute: Int = 7
 
     /// Each key press moves brightness by 1/16 (≈ 6.25 %), matching macOS native behaviour.
-    private static let brightnessStep: Double = 100.0 / 16.0
+    private nonisolated static let brightnessStep: Double = 100.0 / 16.0
     /// Volume keys use the same 1/16 step as macOS's own volume control.
-    private static let volumeStep: Double = 100.0 / 16.0
+    private nonisolated static let volumeStep: Double = 100.0 / 16.0
 
     // MARK: - Start / Stop
 
@@ -140,8 +140,11 @@ final class BrightnessKeyService: @unchecked Sendable {
         // lands. The activation observer just makes it feel instant when the user clicks back in.
         if pollTimer == nil {
             pollTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] timer in
-                guard let self else { timer.invalidate(); return }
-                self.armIfSettled()
+                // Scheduled from the main actor, so it fires on the main run loop.
+                MainActor.assumeIsolated {
+                    guard let self else { timer.invalidate(); return }
+                    self.armIfSettled()
+                }
             }
         }
         if activationObserver == nil {
@@ -190,11 +193,14 @@ final class BrightnessKeyService: @unchecked Sendable {
         // ponytail: 0.5s poll, well inside the ~1s WindowServer tap-timeout; AXIsProcessTrusted()
         // is a cheap TCC lookup so 2x/sec while armed is negligible.
         trustWatchdog = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] timer in
-            guard let self else { timer.invalidate(); return }
-            guard self.eventTap != nil, !AXIsProcessTrusted() else { return }
-            self.disabledAt = ProcessInfo.processInfo.systemUptime
-            self.stop()
-            self.retryUntilArmed()
+            // Scheduled from the main actor, so it fires on the main run loop.
+            MainActor.assumeIsolated {
+                guard let self else { timer.invalidate(); return }
+                guard self.eventTap != nil, !AXIsProcessTrusted() else { return }
+                self.disabledAt = ProcessInfo.processInfo.systemUptime
+                self.stop()
+                self.retryUntilArmed()
+            }
         }
     }
 

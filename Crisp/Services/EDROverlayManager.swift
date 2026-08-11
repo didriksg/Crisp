@@ -137,7 +137,8 @@ final class EDROverlayManager {
         // long as the overlay exists (matches BrightIntosh's MTKView-driven
         // approach; ours stays a CAMetalLayer + Timer to keep the diff small).
         let timer = Timer(timeInterval: 0.2, repeats: true) { [weak self] _ in
-            self?.render(for: displayID)
+            // Added to RunLoop.main below, so it fires on the main run loop.
+            MainActor.assumeIsolated { self?.render(for: displayID) }
         }
         RunLoop.main.add(timer, forMode: .common)
         overlays[displayID]?.timer = timer
