@@ -68,8 +68,7 @@ struct ArrangementView: View {
                 .contentShape(Rectangle())
                 .onHover { hovering in
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.72)) {
-                        if hovering { hoveredID = display.displayID }
-                        else if hoveredID == display.displayID { hoveredID = nil }
+                        if hovering { hoveredID = display.displayID } else if hoveredID == display.displayID { hoveredID = nil }
                     }
                 }
                 .gesture(

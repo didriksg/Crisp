@@ -465,6 +465,7 @@ struct SettingsView: View {
                 .toggleStyle(.switch)
                 .controlSize(.small)
 
+                // swiftlint:disable:next line_length - localized literal, splitting would change its catalog key
                 Text("Brightness keys need Accessibility access to redirect them to external displays. Grant it once and they start working, no restart.")
                     .font(.caption)
                     .foregroundColor(.secondary)
@@ -578,8 +579,11 @@ struct SettingsView: View {
                             Toggle(isOn: Binding(
                                 get: { settings.brightnessKeySelectedDisplayUUIDs.contains(display.displayUUID) },
                                 set: { isOn in
-                                    if isOn { settings.brightnessKeySelectedDisplayUUIDs.insert(display.displayUUID) }
-                                    else { settings.brightnessKeySelectedDisplayUUIDs.remove(display.displayUUID) }
+                                    if isOn {
+                                        settings.brightnessKeySelectedDisplayUUIDs.insert(display.displayUUID)
+                                    } else {
+                                        settings.brightnessKeySelectedDisplayUUIDs.remove(display.displayUUID)
+                                    }
                                 }
                             )) {
                                 Text(display.name).font(.callout)

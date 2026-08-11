@@ -53,10 +53,10 @@ struct ImageAdjustmentView: View {
         VStack(alignment: .leading, spacing: 0) {
 
             // ── Group 1: Global adjustments ────────────────────────────────
-            adjustRow(icon: "circle.righthalf.filled",   label: "Contrast",  value: $contrast)
-            adjustRow(icon: "sparkle",                   label: "Gamma",  value: $gammaVal)
-            adjustRow(icon: "bolt.fill",                 label: "Gain",    value: $gain)
-            adjustRow(icon: "thermometer.medium",        label: "Color Temp",    value: $colorTemperature)
+            adjustRow(icon: "circle.righthalf.filled", label: "Contrast", value: $contrast)
+            adjustRow(icon: "sparkle", label: "Gamma", value: $gammaVal)
+            adjustRow(icon: "bolt.fill", label: "Gain", value: $gain)
+            adjustRow(icon: "thermometer.medium", label: "Color Temp", value: $colorTemperature)
             quantizationRow
 
             Divider()
@@ -64,18 +64,18 @@ struct ImageAdjustmentView: View {
                 .padding(.vertical, 2)
 
             // ── Group 2: Per-channel gamma ─────────────────────────────────
-            adjustRow(icon: "r.circle",      label: "Gamma R",  value: $rGamma, accent: .red)
-            adjustRow(icon: "g.circle",      label: "Gamma G",  value: $gGamma, accent: .green)
-            adjustRow(icon: "b.circle",      label: "Gamma B",  value: $bGamma, accent: .blue)
+            adjustRow(icon: "r.circle", label: "Gamma R", value: $rGamma, accent: .red)
+            adjustRow(icon: "g.circle", label: "Gamma G", value: $gGamma, accent: .green)
+            adjustRow(icon: "b.circle", label: "Gamma B", value: $bGamma, accent: .blue)
 
             Divider()
                 .padding(.horizontal, 12)
                 .padding(.vertical, 2)
 
             // ── Group 3: Per-channel gain ──────────────────────────────────
-            adjustRow(icon: "r.circle.fill", label: "Gain R",    value: $rGain,  accent: .red)
-            adjustRow(icon: "g.circle.fill", label: "Gain G",    value: $gGain,  accent: .green)
-            adjustRow(icon: "b.circle.fill", label: "Gain B",    value: $bGain,  accent: .blue)
+            adjustRow(icon: "r.circle.fill", label: "Gain R", value: $rGain, accent: .red)
+            adjustRow(icon: "g.circle.fill", label: "Gain G", value: $gGain, accent: .green)
+            adjustRow(icon: "b.circle.fill", label: "Gain B", value: $bGain, accent: .blue)
 
             Divider()
                 .padding(.horizontal, 12)
@@ -246,7 +246,7 @@ struct ImageAdjustmentView: View {
             gain: gain,
             colorTemperature: colorTemperature,
             rGamma: rGamma, gGamma: gGamma, bGamma: bGamma,
-            rGain: rGain,   gGain: gGain,   bGain: bGain,
+            rGain: rGain, gGain: gGain, bGain: bGain,
             quantizationLevels: Int(quantLevels),
             isInverted: isInverted,
             isPaused: false

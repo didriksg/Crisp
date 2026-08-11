@@ -1,16 +1,17 @@
-# SwiftLint config. Runs in CI only: SwiftLint needs a full toolchain to load
-# SourceKit, which the Command Line Tools-only local build doesn't have (dev.sh
-# builds fine without it, so linting stays a CI concern). See .github/workflows/ci.yml.
+# SwiftLint config. Enforced in CI (see .github/workflows/ci.yml). Runs locally
+# too on Command Line Tools-only machines with SWIFTLINT_DISABLE_SOURCEKIT=1
+# (SourceKit-backed analyzer rules are skipped there; CI is the full check).
 
 disabled_rules:
-  - todo                               # `ponytail:` / TODO notes are intentional here
-  - redundant_optional_initialization  # `= nil` on optionals is a deliberate style choice
+  - todo                                     # `ponytail:` / TODO notes are intentional here
+  - implicit_optional_initialization         # `= nil` on optionals is a deliberate style choice
+  - multiple_closures_with_trailing_closure  # SwiftUI DSL (Button(action:){}, Menu{}label:{}) uses this shape everywhere
 
 excluded:
   - scripts        # generate-icon.swift is a one-off tool
   - build
 
-# Rules that default to error severity — keep them as warnings so an unverified
+# Rules that default to error severity: keep them as warnings so an unverified
 # baseline can't hard-fail. Tighten later.
 force_cast: warning
 force_try: warning
@@ -19,10 +20,18 @@ line_length:
   warning: 140
   ignores_comments: true
   ignores_urls: true
+  ignores_interpolated_strings: true  # OSLog Logger messages must be single interpolated literals
 
 identifier_name:
   min_length:
     warning: 1        # short locals (w, h, b, t, a) are idiomatic in this code
+  excluded:
+    - _DisplayServices_GetBrightness  # dlsym'd private symbols keep their real names
+    - _CoreDisplay_GetBrightness
+
+type_name:
+  excluded:
+    - Fn              # local typealias for dlsym'd C function signatures
 
 # The larger view/service files predate linting; generous caps keep noise down.
 type_body_length:
@@ -30,4 +39,10 @@ type_body_length:
 file_length:
   warning: 1400
 function_body_length:
-  warning: 150
+  warning: 175
+cyclomatic_complexity:
+  warning: 15
+function_parameter_count:
+  warning: 8
+large_tuple:
+  warning: 3

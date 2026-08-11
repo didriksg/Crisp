@@ -326,11 +326,11 @@ struct CreateVirtualDisplayForm: View {
     static let presetOptions: [(label: String, width: Int, height: Int)] = [
         ("1920×1080 (FHD)", 1920, 1080),
         ("2560×1440 (QHD)", 2560, 1440),
-        ("3840×2160 (4K)",  3840, 2160),
+        ("3840×2160 (4K)", 3840, 2160),
         ("2732×2048 (iPad Pro 12.9″)", 2732, 2048),
-        ("2388×1668 (iPad Pro 11″)",   2388, 1668),
-        ("2360×1640 (iPad Air)",       2360, 1640),
-        ("2048×1536 (iPad 4:3)",       2048, 1536),
+        ("2388×1668 (iPad Pro 11″)", 2388, 1668),
+        ("2360×1640 (iPad Air)", 2360, 1640),
+        ("2048×1536 (iPad 4:3)", 2048, 1536)
     ]
     private var presets: [(label: String, width: Int, height: Int)] { Self.presetOptions }
     /// The tag used by the "Custom…" picker entry (one past the last preset).

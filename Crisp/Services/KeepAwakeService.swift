@@ -1,12 +1,12 @@
 import Foundation
 import IOKit.pwr_mgt
 
+// ponytail: session-only + prevent-display-sleep only. Persist across launches or add a
+// system-only ("let the screen dim") mode if asked; both are a few lines here.
 /// Holds an IOKit power assertion that keeps the display (and, implicitly, the system)
 /// awake while active. Session-only: not persisted, so a fresh launch starts inactive.
 /// The assertion is released automatically when the process exits, so quitting Crisp can
 /// never strand the Mac awake.
-// ponytail: session-only + prevent-display-sleep only. Persist across launches or add a
-// system-only ("let the screen dim") mode if asked; both are a few lines here.
 @MainActor
 final class KeepAwakeService: ObservableObject {
     static let shared = KeepAwakeService()

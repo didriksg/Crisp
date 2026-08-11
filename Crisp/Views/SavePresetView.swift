@@ -134,7 +134,7 @@ struct SavePresetForm: View {
         ("sun.max.fill", "Day"),
         ("gamecontroller.fill", "Gaming"),
         ("person.fill", "Personal"),
-        ("briefcase.fill", "Work"),
+        ("briefcase.fill", "Work")
     ]
 
     var body: some View {
@@ -480,8 +480,7 @@ struct PresetArrangementThumbnail: View {
                         .contentShape(Rectangle())
                         .onHover { hovering in
                             withAnimation(.spring(response: 0.3, dampingFraction: 0.72)) {
-                                if hovering { hoveredID = item.id }
-                                else if hoveredID == item.id { hoveredID = nil }
+                                if hovering { hoveredID = item.id } else if hoveredID == item.id { hoveredID = nil }
                             }
                         }
                         .overlay(alignment: .top) {
