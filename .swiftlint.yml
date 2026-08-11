@@ -1,6 +1,6 @@
-# SwiftLint config. Enforced in CI (see .github/workflows/ci.yml). Runs locally
-# too on Command Line Tools-only machines with SWIFTLINT_DISABLE_SOURCEKIT=1
-# (SourceKit-backed analyzer rules are skipped there; CI is the full check).
+# SwiftLint config. Enforced in CI (see .github/workflows/ci.yml); run locally
+# with `swiftlint lint --strict`. Without full Xcode, prefix
+# SWIFTLINT_DISABLE_SOURCEKIT=1 (skips the SourceKit-backed rules).
 
 disabled_rules:
   - todo                                     # `ponytail:` / TODO notes are intentional here

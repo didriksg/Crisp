@@ -27,8 +27,9 @@ jobs:
             exit 1
           fi
       # Lint, enforcing: the baseline is clean, so any violation (warning or
-      # error) fails via --strict. Locally run with SWIFTLINT_DISABLE_SOURCEKIT=1
-      # on CLT-only machines; the runner has full Xcode so SourceKit loads here.
+      # error) fails via --strict. Run locally with `swiftlint lint --strict`;
+      # without full Xcode, SWIFTLINT_DISABLE_SOURCEKIT=1 skips the
+      # SourceKit-backed rules, so CI stays the authoritative check.
       #
       # The macos-26 image ships no swiftlint, so install it explicitly (a
       # missing binary used to be swallowed as a silent no-op).
@@ -36,10 +37,11 @@ jobs:
         run: HOMEBREW_NO_AUTO_UPDATE=1 brew install swiftlint xcodegen
       - name: Lint (SwiftLint)
         run: swiftlint lint --strict --reporter github-actions-logging
-      # Unit tests. The dev machine is CLT-only and cannot run xcodebuild, so CI
-      # is the only place the suite actually executes; without this step the
-      # tests in CrispTests are dead weight (that is how the "-- Hz" bug and the
-      # untested doc-comment contract in DisplayMode survived to a release).
+      # Unit tests. Run locally with `make test` (needs full Xcode; the app
+      # itself builds with just the Command Line Tools). CI is the enforced
+      # gate: the suite was once never executed anywhere, which is how the
+      # "-- Hz" bug and the untested doc-comment contract in DisplayMode
+      # survived to a release.
       - name: Test
         run: make test
       # Every localization key the code uses must exist in the String Catalog.
