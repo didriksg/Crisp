@@ -4,6 +4,8 @@
 #   make dev        compile, swap the binary into /Applications/Crisp.app, relaunch
 #   make compile    compile the binary only (./Crisp-bin), no swap — quick build check
 #   make test       generate the Xcode project and run unit tests
+#   make check      lint + tests, everything CI enforces: run before pushing
+#                   (auto-run on every push after: git config core.hooksPath .githooks)
 #
 # Distributable DMG:
 #   make build      signed universal (arm64 + x86_64) DMG via scripts/release.sh (dry run)
@@ -19,6 +21,12 @@
 # Single source of truth for the version: project.yml (used to tag the dry-run DMG).
 VERSION := $(shell grep -E '^[[:space:]]*MARKETING_VERSION:' project.yml | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
 
+# Use Xcode.app's toolchain when installed, even if xcode-select still points at
+# the Command Line Tools: xcodebuild (test) and SwiftLint's SourceKit need it.
+ifneq (,$(wildcard /Applications/Xcode.app))
+export DEVELOPER_DIR ?= /Applications/Xcode.app/Contents/Developer
+endif
+
 # swiftc invocation kept in sync with dev.sh's compile step.
 SWIFT_SOURCES := Crisp/App/*.swift Crisp/Models/*.swift Crisp/Services/*.swift \
                  Crisp/Views/*.swift Crisp/Utilities/*.swift
@@ -28,13 +36,14 @@ SWIFTC_FLAGS := -O -swift-version 5 -strict-concurrency=minimal -parse-as-librar
                 -Xlinker -undefined -Xlinker dynamic_lookup
 
 .DEFAULT_GOAL := help
-.PHONY: help dev compile test build dmg release clean
+.PHONY: help dev compile test lint check build dmg release clean
 
 help:
 	@echo "Crisp — make targets:"
 	@echo "  make dev        compile + swap into /Applications/Crisp.app + relaunch (dev.sh)"
 	@echo "  make compile    compile ./Crisp-bin only, no swap (quick build check)"
 	@echo "  make test       generate the Xcode project and run unit tests"
+	@echo "  make check      lint + tests, everything CI enforces (run before pushing)"
 	@echo "  make build      signed universal DMG, no Xcode (scripts/release.sh v$(VERSION))"
 	@echo "  make dmg        DMG via Xcode (scripts/build-dmg.sh)"
 	@echo "  make release ARGS=\"vX.Y.Z notes.md --publish\"   full release (scripts/release.sh)"
@@ -53,6 +62,14 @@ test:
 	xcodebuild -quiet test -project Crisp.xcodeproj -scheme Crisp \
 		-destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO \
 		SWIFT_VERSION=5 SWIFT_STRICT_CONCURRENCY=minimal
+
+lint:
+	@command -v swiftlint >/dev/null || { echo "SwiftLint not installed: brew install swiftlint"; exit 1; }
+	swiftlint lint --strict --quiet
+
+# Everything CI enforces (lint + build + tests), locally.
+check: lint test
+	@echo "check passed: lint clean, tests green"
 
 build:
 	./scripts/release.sh v$(VERSION)

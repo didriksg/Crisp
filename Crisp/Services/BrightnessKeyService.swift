@@ -43,26 +43,26 @@ final class BrightnessKeyService: @unchecked Sendable {
     private var disabledAt: TimeInterval = 0
 
     // MARK: - NX Media Key Constants
-    // Marked nonisolated(unsafe) so they can be read from the nonisolated callback method.
-    // These are immutable compile-time constants so there is no data-race risk.
+    // Read from the nonisolated callback method; immutable Sendable `static let`s
+    // are implicitly nonisolated, so that is safe without any annotation.
 
     /// CGEventType raw value for NSSystemDefined / NX_SYSDEFINED events (media keys).
-    private nonisolated(unsafe) static let cgEventTypeSystemDefinedRaw: UInt32 = 14
+    private static let cgEventTypeSystemDefinedRaw: UInt32 = 14
     /// NX_SUBTYPE_AUX_CONTROL_BUTTONS, the subtype value for media/function keys.
-    private nonisolated(unsafe) static let nxSubtypeAuxControlButtons: Int16 = 8
+    private static let nxSubtypeAuxControlButtons: Int16 = 8
     /// NX_KEYTYPE_BRIGHTNESS_UP
-    private nonisolated(unsafe) static let nxKeytypeBrightnessUp: Int = 2
+    private static let nxKeytypeBrightnessUp: Int = 2
     /// NX_KEYTYPE_BRIGHTNESS_DOWN
-    private nonisolated(unsafe) static let nxKeytypeBrightnessDown: Int = 3
+    private static let nxKeytypeBrightnessDown: Int = 3
     /// NX_KEYTYPE_SOUND_UP / NX_KEYTYPE_SOUND_DOWN / NX_KEYTYPE_MUTE
-    private nonisolated(unsafe) static let nxKeytypeSoundUp: Int = 0
-    private nonisolated(unsafe) static let nxKeytypeSoundDown: Int = 1
-    private nonisolated(unsafe) static let nxKeytypeMute: Int = 7
+    private static let nxKeytypeSoundUp: Int = 0
+    private static let nxKeytypeSoundDown: Int = 1
+    private static let nxKeytypeMute: Int = 7
 
     /// Each key press moves brightness by 1/16 (≈ 6.25 %), matching macOS native behaviour.
-    private nonisolated(unsafe) static let brightnessStep: Double = 100.0 / 16.0
+    private static let brightnessStep: Double = 100.0 / 16.0
     /// Volume keys use the same 1/16 step as macOS's own volume control.
-    private nonisolated(unsafe) static let volumeStep: Double = 100.0 / 16.0
+    private static let volumeStep: Double = 100.0 / 16.0
 
     // MARK: - Start / Stop
 

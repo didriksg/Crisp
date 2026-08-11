@@ -1,0 +1,5 @@
+#!/bin/sh
+# Runs the same checks CI enforces before every push. Opt in once with:
+#   git config core.hooksPath .githooks
+# Bypass for a single push with: git push --no-verify
+exec make check

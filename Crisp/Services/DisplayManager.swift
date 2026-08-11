@@ -112,7 +112,7 @@ class DisplayManager: ObservableObject {
         }
 
         // Diff-based refresh: keep existing DisplayInfo objects (preserves @Published state)
-        var existingByID = Dictionary(uniqueKeysWithValues: displays.map { ($0.displayID, $0) })
+        let existingByID = Dictionary(uniqueKeysWithValues: displays.map { ($0.displayID, $0) })
 
         var updatedDisplays: [DisplayInfo] = []
         var addedDisplays: [DisplayInfo] = []

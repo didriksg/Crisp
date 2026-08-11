@@ -156,7 +156,7 @@ final class GammaService: @unchecked Sendable {
     /// is restored, preventing a "flat" / uncalibrated appearance after reset.
     /// Prefer this over `restoreColorSync()` whenever only one display needs resetting.
     func resetSingleDisplay(_ displayID: CGDirectDisplayID) {
-        adjustmentsLock.withLock { activeAdjustments.removeValue(forKey: displayID) }
+        _ = adjustmentsLock.withLock { activeAdjustments.removeValue(forKey: displayID) }
         let size = 256
         var r = (0..<size).map { CGGammaValue($0) / CGGammaValue(size - 1) }
         var g = r; var b = r
