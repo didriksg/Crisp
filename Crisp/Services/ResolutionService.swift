@@ -138,7 +138,6 @@ final class ResolutionService: @unchecked Sendable {
             return ok
         }
 
-
         // Apply via standard public CG API (off main thread to avoid blocking the UI)
         let success = await Task.detached(priority: .userInitiated) {
             await ResolutionService.applyModeSync(cgMode, on: targetID)

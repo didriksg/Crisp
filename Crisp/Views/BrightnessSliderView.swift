@@ -296,7 +296,8 @@ struct CombinedBrightnessView: View {
                             // probe sync would snap it back down through the fade.
                             clickGliding = true
                             for display in displays {
-                                BrightnessService.shared.setBrightnessSmooth(combinedBrightness / 100.0 * display.maxBrightness, for: display)
+                                BrightnessService.shared.setBrightnessSmooth(
+                                    combinedBrightness / 100.0 * display.maxBrightness, for: display)
                             }
                             Task { @MainActor in
                                 try? await Task.sleep(nanoseconds: 600_000_000)  // fallback release
@@ -306,7 +307,8 @@ struct CombinedBrightnessView: View {
                             // Drag ended, flush final value to all displays.
                             Task { @MainActor in
                                 for display in displays {
-                                    await BrightnessService.shared.setBrightness(combinedBrightness / 100.0 * display.maxBrightness, for: display)
+                                    await BrightnessService.shared.setBrightness(
+                                        combinedBrightness / 100.0 * display.maxBrightness, for: display)
                                 }
                             }
                         }

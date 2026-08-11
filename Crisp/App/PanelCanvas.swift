@@ -385,7 +385,7 @@ final class PanelCanvas {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.animatePending = false
-            self.isShown() ? self.animateToTargets() : self.snapToTargets()
+            if self.isShown() { self.animateToTargets() } else { self.snapToTargets() }
         }
     }
 
@@ -589,12 +589,12 @@ final class PanelCanvas {
         guard let panel else { return }
         // h is the VISIBLE height below anchorTopY; the window extends
         // topMargin above it (rim headroom, covered by the menu bar).
-        let H = h.rounded() + topMargin
-        let f = NSRect(x: anchorX - sideMargin, y: anchorTopY + topMargin - H,
-                       width: width + 2 * sideMargin, height: H)
+        let fullHeight = h.rounded() + topMargin
+        let f = NSRect(x: anchorX - sideMargin, y: anchorTopY + topMargin - fullHeight,
+                       width: width + 2 * sideMargin, height: fullHeight)
         if panel.frame != f {
             panel.setFrame(f, display: false)
-            lastSetWindowH = H
+            lastSetWindowH = fullHeight
             layoutNow()
         }
     }

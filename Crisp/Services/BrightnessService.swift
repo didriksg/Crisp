@@ -602,7 +602,8 @@ final class BrightnessService: @unchecked Sendable {
                 // synchronous WindowServer call, so it goes to the background
                 // queue like the built-in path's IOKit write; at 125 steps/s
                 // it would otherwise stall the main thread mid-glide.
-                anim.animate(from: fromBrightness, to: clamped, steps: smoothSteps, duration: duration) { [weak self, weak display] value, _ in
+                anim.animate(from: fromBrightness, to: clamped,
+                             steps: smoothSteps, duration: duration) { [weak self, weak display] value, _ in
                     guard let self, let display else { return }
                     display.brightness = value
                     // Above 100 the boost sync owns the transfer table (see setBrightness).
@@ -614,7 +615,8 @@ final class BrightnessService: @unchecked Sendable {
             } else {
                 // DDC path, routed through the coalescing writer so steps that
                 // outpace the I2C bus are dropped instead of queued.
-                anim.animate(from: fromBrightness, to: clamped, steps: smoothSteps, duration: duration) { [weak self, weak display] value, _ in
+                anim.animate(from: fromBrightness, to: clamped,
+                             steps: smoothSteps, duration: duration) { [weak self, weak display] value, _ in
                     guard let self, let display else { return }
                     display.brightness = value
                     // Above 100 the boost sync owns the transfer table (see setBrightness).

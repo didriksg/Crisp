@@ -26,18 +26,16 @@ jobs:
             echo "::error::Don't change MARKETING_VERSION in project.yml — the maintainer bumps the version at release."
             exit 1
           fi
-      # Lint. Runs here (not locally) because SwiftLint needs a full toolchain
-      # the CLT-only dev machine lacks. Advisory: `|| true` keeps it from blocking
-      # while the baseline is unverified — annotations still show on the PR. Drop
-      # `|| true` (and add --strict) to make it enforcing once a run is clean.
+      # Lint, enforcing: the baseline is clean, so any violation (warning or
+      # error) fails via --strict. Locally run with SWIFTLINT_DISABLE_SOURCEKIT=1
+      # on CLT-only machines; the runner has full Xcode so SourceKit loads here.
       #
-      # The macos-26 image ships no swiftlint, so the lint step used to hit
-      # "command not found" that `|| true` swallowed, making it a silent no-op.
-      # Install it explicitly; the runner has full Xcode so its SourceKit loads.
+      # The macos-26 image ships no swiftlint, so install it explicitly (a
+      # missing binary used to be swallowed as a silent no-op).
       - name: Install SwiftLint and xcodegen
         run: HOMEBREW_NO_AUTO_UPDATE=1 brew install swiftlint xcodegen
-      - name: Lint (SwiftLint, advisory)
-        run: swiftlint lint --reporter github-actions-logging || true
+      - name: Lint (SwiftLint)
+        run: swiftlint lint --strict --reporter github-actions-logging
       # Unit tests. The dev machine is CLT-only and cannot run xcodebuild, so CI
       # is the only place the suite actually executes; without this step the
       # tests in CrispTests are dead weight (that is how the "-- Hz" bug and the

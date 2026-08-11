@@ -187,7 +187,7 @@ final class GammaService: @unchecked Sendable {
             "gain": adj.gain,
             "colorTemperature": adj.colorTemperature,
             "rGamma": adj.rGamma, "gGamma": adj.gGamma, "bGamma": adj.bGamma,
-            "rGain": adj.rGain,   "gGain": adj.gGain,   "bGain": adj.bGain,
+            "rGain": adj.rGain, "gGain": adj.gGain, "bGain": adj.bGain,
             "quantizationLevels": adj.quantizationLevels,
             "isInverted": adj.isInverted,
             "isPaused": adj.isPaused

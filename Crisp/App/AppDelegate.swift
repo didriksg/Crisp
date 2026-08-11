@@ -25,8 +25,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var repositionWorkItem: DispatchWorkItem?
     private var clickMonitor: Any?
     private var clickInterceptor: Any?
-    /// Temporary probe: logs where every in-panel mouse-down lands in the view
-    /// tree, to corner the dead-click zones. Remove with the other probes.
+    // Temporary probe: logs where every in-panel mouse-down lands in the view
+    // tree, to corner the dead-click zones. Remove with the other probes.
     // The NSMenu currently tracking (a SwiftUI Menu / context menu), captured so an
     // outside-panel click can cancel it the way native menus dismiss on click-away.
     private var trackingMenu: NSMenu?
@@ -341,7 +341,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             dot.widthAnchor.constraint(equalToConstant: d),
             dot.heightAnchor.constraint(equalToConstant: d),
             dot.trailingAnchor.constraint(equalTo: button.trailingAnchor, constant: -1),
-            dot.bottomAnchor.constraint(equalTo: button.bottomAnchor, constant: -2),
+            dot.bottomAnchor.constraint(equalTo: button.bottomAnchor, constant: -2)
         ])
         return dot
     }
@@ -973,4 +973,3 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
 }
-

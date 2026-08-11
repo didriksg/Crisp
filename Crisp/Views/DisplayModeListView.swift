@@ -305,6 +305,7 @@ final class DisplayModeController: ObservableObject {
         // and only clears once the dense modes actually enumerate.
         guard !smoothModesPresent else { return nil }
         return smoothWouldPrompt
+            // swiftlint:disable:next line_length - localized literal, splitting would change its catalog key
             ? String(localized: "Adds finer in-between steps for how large everything looks. Enabling asks for an administrator password and briefly flashes the screen")
             : String(localized: "Adds finer in-between steps for how large everything looks")
     }

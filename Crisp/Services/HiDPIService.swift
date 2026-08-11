@@ -105,7 +105,7 @@ final class HiDPIService: @unchecked Sendable {
     // MARK: - Plist Override
 
     private func enableHiDPIPlist(vendor: UInt32, product: UInt32,
-                                   nativeWidth: Int, nativeHeight: Int) -> String? {
+                                  nativeWidth: Int, nativeHeight: Int) -> String? {
         writeScaledModesPlist(vendor: vendor, product: product,
                               scaledModes: generateScaledModes(nativeWidth: nativeWidth,
                                                                nativeHeight: nativeHeight))

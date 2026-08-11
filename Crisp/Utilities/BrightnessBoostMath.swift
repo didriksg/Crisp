@@ -43,6 +43,9 @@ enum BrightnessBoostMath {
         return pow(currentEDR, t)
     }
 
+    // ponytail: one fixed ceiling and gamma for all externals; make them
+    // per-display (EDID maxFALL / measured gamma) if one constant fits some
+    // panel badly.
     /// Gamma-table top for EXTERNAL HDR monitors at slider max. External boost
     /// does not use the EDR overlay: on third-party displays the OS-reported
     /// live headroom is not trustworthy (observed pinned at 1.2 on an AOC
@@ -62,9 +65,6 @@ enum BrightnessBoostMath {
     /// ~7.5x luminance; BetterDisplay's observed 2.87, ~10x) blasts mid-tones
     /// far past what the panel's fullscreen limit lets whites do, which is
     /// what reads as washed out.
-    // ponytail: one fixed ceiling and gamma for all externals; make them
-    // per-display (EDID maxFALL / measured gamma) if one constant fits some
-    // panel badly.
     static let externalBoostCeilingLuminance = 4.0
     static let externalDisplayGamma = 2.2
 

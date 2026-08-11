@@ -15,14 +15,14 @@ private func displayReconfigCallback(
     // .movedFlag fires when a display's origin changes (a rearrange, in Crisp or
     // in System Settings). Without it the arranger keeps rendering stale bounds.
     let relevant: CGDisplayChangeSummaryFlags = [.addFlag, .removeFlag, .setMainFlag, .setModeFlag, .movedFlag]
-    guard !flags.intersection(relevant).isEmpty else { return }
+    guard !flags.isDisjoint(with: relevant) else { return }
 
     // Skip the begin-configuration notification; only act when the change is complete.
     // (beginConfigurationFlag is set at the start of a transaction; absence means it finished.)
     guard !flags.contains(.beginConfigurationFlag) else { return }
 
     Task { @MainActor in
-        if flags.intersection([.addFlag, .removeFlag, .movedFlag]).isEmpty {
+        if flags.isDisjoint(with: [.addFlag, .removeFlag, .movedFlag]) {
             // Mode or main-display change: refresh mode info for existing displays only.
             manager.refreshExistingDisplayModes()
         } else {

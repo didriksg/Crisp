@@ -465,6 +465,7 @@ struct SettingsView: View {
                 .toggleStyle(.switch)
                 .controlSize(.small)
 
+                // swiftlint:disable:next line_length - localized literal, splitting would change its catalog key
                 Text("Brightness keys need Accessibility access to redirect them to external displays. Grant it once and they start working, no restart.")
                     .font(.caption)
                     .foregroundColor(.secondary)

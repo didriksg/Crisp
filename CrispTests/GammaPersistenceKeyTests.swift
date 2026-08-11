@@ -130,7 +130,8 @@ final class GammaPersistenceKeyTests: XCTestCase {
     /// No live displays and/or no legacy state must not crash and must yield no targets.
     func testEmptyInputsProduceNoMigrationTargets() {
         XCTAssertEqual(GammaPersistenceKey.migrationTargets(liveDisplays: [], legacyDisplayIDsWithSavedState: [501]), [])
-        XCTAssertEqual(GammaPersistenceKey.migrationTargets(liveDisplays: [(id: 1, uuid: "uuid-A")], legacyDisplayIDsWithSavedState: []), [])
+        XCTAssertEqual(GammaPersistenceKey.migrationTargets(liveDisplays: [(id: 1, uuid: "uuid-A")],
+                                                            legacyDisplayIDsWithSavedState: []), [])
         XCTAssertEqual(GammaPersistenceKey.migrationTargets(liveDisplays: [], legacyDisplayIDsWithSavedState: []), [])
     }
 }

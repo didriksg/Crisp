@@ -4,7 +4,7 @@ extension DisplayPreset {
     static let colorOptions: [(name: String, color: Color)] = [
         ("blue", .blue), ("indigo", .indigo), ("purple", .purple), ("pink", .pink),
         ("red", .red), ("orange", .orange), ("yellow", .yellow), ("green", .green),
-        ("teal", .teal), ("gray", .gray),
+        ("teal", .teal), ("gray", .gray)
     ]
     var chipColor: Color {
         Self.colorOptions.first(where: { $0.name == colorName })?.color ?? .indigo

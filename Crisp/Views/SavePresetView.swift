@@ -134,7 +134,7 @@ struct SavePresetForm: View {
         ("sun.max.fill", "Day"),
         ("gamecontroller.fill", "Gaming"),
         ("person.fill", "Personal"),
-        ("briefcase.fill", "Work"),
+        ("briefcase.fill", "Work")
     ]
 
     var body: some View {
