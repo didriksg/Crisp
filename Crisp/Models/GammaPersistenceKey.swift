@@ -27,7 +27,9 @@ enum GammaPersistenceKey {
     }
 
     /// One legacy entry that should move to its display's stable UUID key.
-    struct MigrationTarget: Equatable {
+    /// Hashable (not just Equatable) so tests can compare migration batches
+    /// order-independently; synthesis has to live in the type's own file.
+    struct MigrationTarget: Hashable {
         let legacyKey: String
         let uuidKey: String
     }

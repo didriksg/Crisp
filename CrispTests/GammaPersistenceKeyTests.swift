@@ -134,8 +134,3 @@ final class GammaPersistenceKeyTests: XCTestCase {
         XCTAssertEqual(GammaPersistenceKey.migrationTargets(liveDisplays: [], legacyDisplayIDsWithSavedState: []), [])
     }
 }
-
-/// `MigrationTarget` needs `Hashable` only for the `Set` comparison in
-/// `testMultipleLiveDisplaysEachMigrateIndependently`, where migration order is not
-/// part of the contract; production code never needs `Set<MigrationTarget>`.
-extension GammaPersistenceKey.MigrationTarget: Hashable {}
