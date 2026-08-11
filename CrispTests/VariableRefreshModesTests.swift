@@ -19,7 +19,7 @@ final class VariableRefreshModesTests: XCTestCase {
     func testDefaultFlaggedTwinIsFixed() {
         let ids = VariableRefreshModes.variableModeIDs(from: [
             record(680, 2560, 1440, freq: 180, flags: 0x0200_0001),
-            record(681, 2560, 1440, freq: 180, flags: 0x0200_0007),
+            record(681, 2560, 1440, freq: 180, flags: 0x0200_0007)
         ])
         XCTAssertEqual(ids, [680])
     }
@@ -29,7 +29,7 @@ final class VariableRefreshModesTests: XCTestCase {
     func testFlagRuleBeatsOrderRule() {
         let ids = VariableRefreshModes.variableModeIDs(from: [
             record(680, 2560, 1440, freq: 180, flags: 0x0200_0007),
-            record(681, 2560, 1440, freq: 180, flags: 0x0200_0001),
+            record(681, 2560, 1440, freq: 180, flags: 0x0200_0001)
         ])
         XCTAssertEqual(ids, [681])
     }
@@ -39,7 +39,7 @@ final class VariableRefreshModesTests: XCTestCase {
     func testFlagIdenticalPairFallsBackToLowerID() {
         let ids = VariableRefreshModes.variableModeIDs(from: [
             record(387, 1920, 1080, freq: 180),
-            record(386, 1920, 1080, freq: 180),
+            record(386, 1920, 1080, freq: 180)
         ])
         XCTAssertEqual(ids, [386])
     }
@@ -49,7 +49,7 @@ final class VariableRefreshModesTests: XCTestCase {
     func testDifferentDensityIsNotAPair() {
         let ids = VariableRefreshModes.variableModeIDs(from: [
             record(686, 2560, 1440, freq: 60, density: 1.0),
-            record(727, 2560, 1440, freq: 60, density: 2.0),
+            record(727, 2560, 1440, freq: 60, density: 2.0)
         ])
         XCTAssertEqual(ids, [])
     }
@@ -59,7 +59,7 @@ final class VariableRefreshModesTests: XCTestCase {
     func testUnusableModesAreIgnored() {
         let ids = VariableRefreshModes.variableModeIDs(from: [
             record(731, 400, 300, freq: 180, density: 2.0, flags: 0x4000_0000),
-            record(732, 400, 300, freq: 180, density: 2.0, flags: 0x4000_0000),
+            record(732, 400, 300, freq: 180, density: 2.0, flags: 0x4000_0000)
         ])
         XCTAssertEqual(ids, [])
     }
@@ -70,7 +70,7 @@ final class VariableRefreshModesTests: XCTestCase {
         let ids = VariableRefreshModes.variableModeIDs(from: [
             record(1, 1920, 1200, freq: 60),
             record(2, 1920, 1200, freq: 50),
-            record(3, 1600, 1200, freq: 60),
+            record(3, 1600, 1200, freq: 60)
         ])
         XCTAssertEqual(ids, [])
     }
@@ -81,7 +81,7 @@ final class VariableRefreshModesTests: XCTestCase {
         let ids = VariableRefreshModes.variableModeIDs(from: [
             record(1, 800, 600, freq: 120),
             record(2, 800, 600, freq: 120),
-            record(3, 800, 600, freq: 120),
+            record(3, 800, 600, freq: 120)
         ])
         XCTAssertEqual(ids, [])
     }
@@ -93,7 +93,7 @@ final class VariableRefreshModesTests: XCTestCase {
             record(680, 2560, 1440, freq: 180, flags: 0x0200_0001),
             record(681, 2560, 1440, freq: 180, flags: 0x0200_0007),
             record(727, 2560, 1440, freq: 60, density: 2.0),
-            record(728, 2560, 1440, freq: 60, density: 2.0),
+            record(728, 2560, 1440, freq: 60, density: 2.0)
         ])
         XCTAssertEqual(ids, [680, 727])
     }
