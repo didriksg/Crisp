@@ -33,7 +33,7 @@ struct ImageAdjustmentView: View {
     init(display: DisplayInfo, isExpanded: Bool) {
         _display = ObservedObject(wrappedValue: display)
         self.isExpanded = isExpanded
-        let saved = GammaService.shared.loadSavedState(for: display.displayID)
+        let saved = GammaService.shared.loadSavedState(for: display)
         _contrast = State(initialValue: saved?.contrast ?? 0)
         _gammaVal = State(initialValue: saved?.gammaVal ?? 0)
         _gain = State(initialValue: saved?.gain ?? 0)
@@ -215,7 +215,7 @@ struct ImageAdjustmentView: View {
     /// Save the current adjustment, or clear it and restore identity when neutral.
     private func persist() {
         if isIdentity {
-            GammaService.shared.clearSavedState(for: display.displayID)
+            GammaService.shared.clearSavedState(for: display)
             GammaService.shared.resetSingleDisplay(display.displayID)
         } else {
             let adj = GammaAdjustment(
@@ -226,7 +226,7 @@ struct ImageAdjustmentView: View {
                 quantizationLevels: Int(quantLevels),
                 isInverted: isInverted, isPaused: isPaused
             )
-            GammaService.shared.saveState(adj, for: display.displayID)
+            GammaService.shared.saveState(adj, for: display)
         }
     }
 
@@ -262,7 +262,7 @@ struct ImageAdjustmentView: View {
         quantLevels = 256
         isInverted = false
         isPaused = false
-        GammaService.shared.clearSavedState(for: display.displayID)
+        GammaService.shared.clearSavedState(for: display)
         GammaService.shared.resetSingleDisplay(display.displayID)
     }
 }

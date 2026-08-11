@@ -131,6 +131,10 @@ class DisplayManager: ObservableObject {
         displays = updatedDisplays
         DisplayManagerAccessor.shared.displays = updatedDisplays
 
+        // Reconcile any legacy CGDirectDisplayID-keyed gamma adjustment onto the stable
+        // UUID key before anything below reapplies a saved adjustment (issue #32).
+        GammaService.shared.migrateLegacyStateIfNeeded(for: updatedDisplays)
+
         // Only load details / refresh brightness for newly appeared displays
         for display in addedDisplays {
             Task { await BrightnessService.shared.refreshBrightness(for: display) }
@@ -161,7 +165,7 @@ class DisplayManager: ObservableObject {
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 300_000_000)
                 BrightnessService.shared.reapplySoftwareBrightnessIfNeeded(for: display)
-                GammaService.shared.reapplyIfNeeded(for: display.displayID)
+                GammaService.shared.reapplyIfNeeded(for: display)
             }
         }
 

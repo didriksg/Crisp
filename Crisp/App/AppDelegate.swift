@@ -258,7 +258,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                         // Apply software brightness factor first so GammaService
                         // can read the up-to-date factor when it re-applies its formula.
                         BrightnessService.shared.reapplySoftwareBrightnessIfNeeded(for: display)
-                        GammaService.shared.reapplyIfNeeded(for: display.displayID)
+                        GammaService.shared.reapplyIfNeeded(for: display)
                         // Re-apply any custom resolution that macOS may have reset on wake
                         ResolutionService.shared.reapplySavedModeIfNeeded(for: display.displayID)
                     }
