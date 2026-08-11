@@ -58,8 +58,7 @@ final class PanelSectionState: ObservableObject {
         Binding(
             get: { self[keyPath: keyPath].contains(id) },
             set: {
-                if $0 { self[keyPath: keyPath].insert(id) }
-                else { self[keyPath: keyPath].remove(id) }
+                if $0 { self[keyPath: keyPath].insert(id) } else { self[keyPath: keyPath].remove(id) }
             }
         )
     }

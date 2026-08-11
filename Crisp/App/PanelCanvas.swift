@@ -423,8 +423,11 @@ final class PanelCanvas {
         fadeInIdx.removeAll()
         fadeOutIdx.removeAll()
         for i in blocks.indices {
-            if animFrom[i] == 0, animTarget[i] > 0 { fadeInIdx.insert(i) }
-            else if animFrom[i] > 0, animTarget[i] == 0 { fadeOutIdx.insert(i) }
+            if animFrom[i] == 0, animTarget[i] > 0 {
+                fadeInIdx.insert(i)
+            } else if animFrom[i] > 0, animTarget[i] == 0 {
+                fadeOutIdx.insert(i)
+            }
             let a: CGFloat = fadeInIdx.contains(i) ? 0 : 1
             if blocks[i].host.alphaValue != a { blocks[i].host.alphaValue = a }
         }

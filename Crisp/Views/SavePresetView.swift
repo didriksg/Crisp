@@ -480,8 +480,7 @@ struct PresetArrangementThumbnail: View {
                         .contentShape(Rectangle())
                         .onHover { hovering in
                             withAnimation(.spring(response: 0.3, dampingFraction: 0.72)) {
-                                if hovering { hoveredID = item.id }
-                                else if hoveredID == item.id { hoveredID = nil }
+                                if hovering { hoveredID = item.id } else if hoveredID == item.id { hoveredID = nil }
                             }
                         }
                         .overlay(alignment: .top) {

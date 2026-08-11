@@ -369,13 +369,11 @@ final class DDCService: ObservableObject, @unchecked Sendable {
             // Extract vendor and model IDs (may be stored as UInt32 or Int)
             let sVendor: UInt32
             let sModel: UInt32
-            if let v = cfDict["DisplayVendorID"] as? UInt32 { sVendor = v }
-            else if let v = cfDict["DisplayVendorID"] as? Int {
+            if let v = cfDict["DisplayVendorID"] as? UInt32 { sVendor = v } else if let v = cfDict["DisplayVendorID"] as? Int {
                 sVendor = UInt32(bitPattern: Int32(truncatingIfNeeded: v))
             } else { continue }
 
-            if let m = cfDict["DisplayProductID"] as? UInt32 { sModel = m }
-            else if let m = cfDict["DisplayProductID"] as? Int {
+            if let m = cfDict["DisplayProductID"] as? UInt32 { sModel = m } else if let m = cfDict["DisplayProductID"] as? Int {
                 sModel = UInt32(bitPattern: Int32(truncatingIfNeeded: m))
             } else { continue }
 

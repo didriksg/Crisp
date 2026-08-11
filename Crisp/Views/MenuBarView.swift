@@ -579,8 +579,11 @@ struct SettingsView: View {
                             Toggle(isOn: Binding(
                                 get: { settings.brightnessKeySelectedDisplayUUIDs.contains(display.displayUUID) },
                                 set: { isOn in
-                                    if isOn { settings.brightnessKeySelectedDisplayUUIDs.insert(display.displayUUID) }
-                                    else { settings.brightnessKeySelectedDisplayUUIDs.remove(display.displayUUID) }
+                                    if isOn {
+                                        settings.brightnessKeySelectedDisplayUUIDs.insert(display.displayUUID)
+                                    } else {
+                                        settings.brightnessKeySelectedDisplayUUIDs.remove(display.displayUUID)
+                                    }
                                 }
                             )) {
                                 Text(display.name).font(.callout)
