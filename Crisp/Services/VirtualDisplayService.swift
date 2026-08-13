@@ -192,7 +192,11 @@ final class VirtualDisplayService: ObservableObject, @unchecked Sendable {
     private func applyNativeResolution(_ displayID: CGDirectDisplayID, width: Int, height: Int) async {
         let options = [kCGDisplayShowDuplicateLowResolutionModes as String: true] as CFDictionary
         for attempt in 0..<5 {
-            if attempt > 0 { try? await Task.sleep(nanoseconds: 300_000_000) }
+            // Between attempts, wake on the mode-change event instead of a blind
+            // 300ms sleep; same per-attempt ceiling when no event comes.
+            if attempt > 0 {
+                await ReconfigEvents.shared.next(for: displayID, matching: .setModeFlag, timeout: 0.3)
+            }
             // Native 1x means point size == pixel size == the target resolution.
             if let cur = CGDisplayCopyDisplayMode(displayID),
                cur.width == width, cur.pixelWidth == width { return }
@@ -277,18 +281,17 @@ final class VirtualDisplayService: ObservableObject, @unchecked Sendable {
         return true
     }
 
-    /// Waits (bounded, ~1.5s ceiling) for a torn-down virtual display to leave the
+    /// Waits (bounded, 1.5s ceiling) for a torn-down virtual display to leave the
     /// online display list. CGVirtualDisplay teardown is async: dropping the strong
-    /// reference starts it, but WindowServer finishes on its own time.
+    /// reference starts it, but WindowServer finishes on its own time. Event-driven:
+    /// the check-then-await is race-free on the main actor (see ReconfigEvents).
     private func waitForDisplayOffline(_ displayID: CGDirectDisplayID) async {
-        for _ in 0..<30 {
-            var count: UInt32 = 0
-            CGGetOnlineDisplayList(0, nil, &count)
-            var ids = [CGDirectDisplayID](repeating: 0, count: Int(count))
-            CGGetOnlineDisplayList(count, &ids, &count)
-            if !ids.contains(displayID) { return }
-            try? await Task.sleep(nanoseconds: 50_000_000)
-        }
+        var count: UInt32 = 0
+        CGGetOnlineDisplayList(0, nil, &count)
+        var ids = [CGDirectDisplayID](repeating: 0, count: Int(count))
+        CGGetOnlineDisplayList(count, &ids, &count)
+        guard ids.contains(displayID) else { return }
+        await ReconfigEvents.shared.next(for: displayID, matching: .removeFlag, timeout: 1.5)
     }
 
     // MARK: - Persistence

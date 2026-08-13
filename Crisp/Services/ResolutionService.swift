@@ -237,7 +237,7 @@ final class ResolutionService: @unchecked Sendable {
     /// id segfaults in checkCapacity() on macOS 26. It must run inside a real
     /// CGBegin/CGCompleteDisplayConfiguration transaction (verified against BetterDisplay on Tahoe).
     private func cgsFallback(modeID: UInt32, on displayID: CGDirectDisplayID) async -> Bool {
-        return await Task.detached(priority: .userInitiated) {
+        let committed = await Task.detached(priority: .userInitiated) {
             var config: CGDisplayConfigRef?
             guard CGBeginDisplayConfiguration(&config) == .success, let cfg = config else {
                 return false
@@ -249,12 +249,16 @@ final class ResolutionService: @unchecked Sendable {
                 return false
             }
 
-            let complete = CGCompleteDisplayConfiguration(cfg, .forSession)
-            // Wait for the mode change to propagate, then verify the active mode actually changed.
-            try? await Task.sleep(nanoseconds: 100_000_000)  // 100ms
-            let newModeID = CGDisplayCopyDisplayMode(displayID)?.ioDisplayModeID
-            let success = complete == .success && newModeID == Int32(bitPattern: modeID)
-            return success
+            return CGCompleteDisplayConfiguration(cfg, .forSession) == .success
         }.value
+        guard committed else { return false }
+        // The commit propagates async. Fast path: already active. Otherwise wait
+        // for the mode-change event instead of a blind 100ms sleep (0.5s ceiling
+        // also covers panels the old flat sleep verified too early on), then
+        // verify the active mode actually changed.
+        let target = Int32(bitPattern: modeID)
+        if CGDisplayCopyDisplayMode(displayID)?.ioDisplayModeID == target { return true }
+        await ReconfigEvents.shared.next(for: displayID, matching: .setModeFlag, timeout: 0.5)
+        return CGDisplayCopyDisplayMode(displayID)?.ioDisplayModeID == target
     }
 }

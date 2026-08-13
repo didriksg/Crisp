@@ -231,15 +231,11 @@ final class DisplayModeController: ObservableObject {
                 success = await ResolutionService.shared.setDisplayMode(mode, for: displayID)
             }
             if success {
-                try? await Task.sleep(nanoseconds: 300_000_000)
-                let refreshedMode = await Task.detached(priority: .userInitiated) {
-                    DisplayMode.currentMode(for: displayID)
-                }.value
-                if let rm = refreshedMode, rm.width == mode.width && rm.height == mode.height {
-                    display.currentDisplayMode = rm
-                } else {
-                    display.currentDisplayMode = mode
-                }
+                // Optimistic: the reconfiguration callback's setModeFlag branch
+                // re-reads the authoritative mode into display.currentDisplayMode
+                // moments later (refreshExistingDisplayModes); this only moves the
+                // checkmark instantly instead of after a 300ms re-read.
+                display.currentDisplayMode = mode
                 errorMessage = nil
             } else {
                 withAnimation {

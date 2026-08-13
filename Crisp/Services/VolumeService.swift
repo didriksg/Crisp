@@ -31,6 +31,14 @@ final class VolumeService: ObservableObject {
         UserDefaults.standard.set(Array(rememberedCapable), forKey: capableKey)
     }
 
+    /// Drop per-display state for a disconnected display so a reused
+    /// displayID cannot inherit it. rememberedCapable stays: it is UUID-keyed
+    /// and deliberately permanent.
+    func invalidate(for displayID: CGDirectDisplayID) {
+        ddcMax.removeValue(forKey: displayID)
+        preMuteVolume.removeValue(forKey: displayID)
+    }
+
     // MARK: - Probe
 
     /// Reads VCP 0x62 once. Success marks the display volume-capable (the

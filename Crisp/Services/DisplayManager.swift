@@ -22,6 +22,7 @@ private func displayReconfigCallback(
     guard !flags.contains(.beginConfigurationFlag) else { return }
 
     Task { @MainActor in
+        ReconfigEvents.shared.resolve(displayID: displayID, flags: flags)
         if flags.isDisjoint(with: [.addFlag, .removeFlag, .movedFlag]) {
             // Mode or main-display change: refresh mode info for existing displays only.
             manager.refreshExistingDisplayModes()
@@ -29,6 +30,53 @@ private func displayReconfigCallback(
             // Add/remove/move: rebuild so display bounds (arrangement) are current;
             // refreshExistingDisplayModes doesn't re-read bounds.
             manager.refreshDisplays()
+        }
+    }
+}
+
+/// Awaitable one-shot bridge over the CG reconfiguration callback: suspend
+/// until `displayID` posts a completed event matching `flags`, or the timeout
+/// elapses (returns false). Replaces blind sleeps and polls for "the display
+/// left the online list" / "the mode change landed". Events are not replayed,
+/// so callers must check their condition right before awaiting; on a MainActor
+/// caller that check-then-await is race-free (the resolving callback also runs
+/// on the main actor), elsewhere the timeout bounds the miss at the old
+/// fixed-sleep cost.
+@MainActor
+final class ReconfigEvents {
+    static let shared = ReconfigEvents()
+    private init() {}
+
+    private struct Waiter {
+        let displayID: CGDirectDisplayID
+        let flags: CGDisplayChangeSummaryFlags
+        let continuation: CheckedContinuation<Bool, Never>
+    }
+    private var waiters: [UUID: Waiter] = [:]
+
+    /// Called from the reconfiguration callback for completed changes only.
+    func resolve(displayID: CGDirectDisplayID, flags: CGDisplayChangeSummaryFlags) {
+        for (token, waiter) in waiters
+        where waiter.displayID == displayID && !flags.isDisjoint(with: waiter.flags) {
+            waiters.removeValue(forKey: token)
+            waiter.continuation.resume(returning: true)
+        }
+    }
+
+    @discardableResult
+    func next(
+        for displayID: CGDirectDisplayID,
+        matching flags: CGDisplayChangeSummaryFlags,
+        timeout: TimeInterval
+    ) async -> Bool {
+        await withCheckedContinuation { continuation in
+            let token = UUID()
+            waiters[token] = Waiter(displayID: displayID, flags: flags, continuation: continuation)
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+                guard let waiter = self?.waiters.removeValue(forKey: token) else { return }
+                waiter.continuation.resume(returning: false)
+            }
         }
     }
 }
@@ -110,6 +158,8 @@ class DisplayManager: ObservableObject {
             DDCService.shared.clearCache(for: $0)
             BrightnessService.shared.invalidateDDCState(for: $0)
             GammaService.shared.invalidate(for: $0)
+            BrightnessBoostService.shared.invalidate(for: $0)
+            VolumeService.shared.invalidate(for: $0)
         }
 
         // Diff-based refresh: keep existing DisplayInfo objects (preserves @Published state)
@@ -135,6 +185,7 @@ class DisplayManager: ObservableObject {
         // Reconcile any legacy CGDirectDisplayID-keyed gamma adjustment onto the stable
         // UUID key before anything below reapplies a saved adjustment (issue #32).
         GammaService.shared.migrateLegacyStateIfNeeded(for: updatedDisplays)
+        BrightnessService.shared.migrateLegacySoftBrightnessIfNeeded(for: updatedDisplays)
 
         // Only load details / refresh brightness for newly appeared displays
         for display in addedDisplays {

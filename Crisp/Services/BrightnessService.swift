@@ -2,6 +2,8 @@ import Foundation
 import IOKit
 import IOKit.graphics
 import CoreGraphics
+// For CGDisplayCreateUUIDFromDisplayID (ApplicationServices, not CoreGraphics).
+import AppKit
 
 @_silgen_name("CGDisplayIOServicePort")
 private func CGDisplayIOServicePort(_ display: CGDirectDisplayID) -> io_service_t
@@ -189,8 +191,46 @@ final class BrightnessService: @unchecked Sendable {
     private var softwareBrightnessFactors: [CGDirectDisplayID: Double] = [:]
     private let softwareBrightnessLock = NSLock()
 
+    /// UUID-keyed like GammaPersistenceKey (issue #32): displayIDs are reused
+    /// across reconnects and reboots, so the old raw-ID key could hand this
+    /// display's dimming factor to a different physical display later.
     private func softBrightnessKey(for displayID: CGDirectDisplayID) -> String {
+        if let uuid = Self.displayUUIDString(for: displayID) {
+            return "crisp.softBrightness.uuid.\(uuid)"
+        }
+        // UUID lookup failed (display just went offline): legacy raw-ID key.
+        return Self.legacySoftBrightnessKey(for: displayID)
+    }
+
+    private static func legacySoftBrightnessKey(for displayID: CGDirectDisplayID) -> String {
         "crisp.softBrightness_\(displayID)"
+    }
+
+    /// Same primary path as DisplayInfo.displayUUID (CG UUID of an online
+    /// display), so both produce identical key strings.
+    private static func displayUUIDString(for displayID: CGDirectDisplayID) -> String? {
+        guard let cfUUID = CGDisplayCreateUUIDFromDisplayID(displayID) else { return nil }
+        return CFUUIDCreateString(nil, cfUUID.takeRetainedValue()) as String?
+    }
+
+    /// Moves any legacy, displayID-keyed software-brightness factor onto the
+    /// stable UUID key, for every display currently online. Same rules as
+    /// GammaService.migrateLegacyStateIfNeeded: repeated calls are no-ops, an
+    /// existing UUID entry is never overwritten, and a legacy key with no live
+    /// display is left alone (guessing which physical display it belonged to
+    /// is exactly the bug being fixed).
+    @MainActor
+    func migrateLegacySoftBrightnessIfNeeded(for displays: [DisplayInfo]) {
+        let defaults = UserDefaults.standard
+        for display in displays {
+            let legacyKey = Self.legacySoftBrightnessKey(for: display.displayID)
+            guard defaults.object(forKey: legacyKey) != nil else { continue }
+            let uuidKey = "crisp.softBrightness.uuid.\(display.displayUUID)"
+            if defaults.object(forKey: uuidKey) == nil {
+                defaults.set(defaults.double(forKey: legacyKey), forKey: uuidKey)
+            }
+            defaults.removeObject(forKey: legacyKey)
+        }
     }
 
     private func saveSoftwareBrightness(factor: Double, for displayID: CGDirectDisplayID) {

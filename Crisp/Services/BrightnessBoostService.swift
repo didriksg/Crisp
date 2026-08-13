@@ -355,6 +355,18 @@ final class BrightnessBoostService {
         EDROverlayManager.shared.removeAll()
     }
 
+    /// Drop all per-display state for a disconnected display so a reused
+    /// displayID cannot inherit it (same hazard as BrightnessService's
+    /// invalidateDDCState; DisplayManager calls both from its removed loop).
+    func invalidate(for displayID: CGDirectDisplayID) {
+        maxAnimators[displayID]?.cancel()
+        maxAnimators.removeValue(forKey: displayID)
+        headroomLossSince.removeValue(forKey: displayID)
+        hdrRequestGeneration.removeValue(forKey: displayID)
+        collapsingDisplays.remove(displayID)
+        hdrSupportCache.removeValue(forKey: displayID)
+    }
+
     @objc private func screenParametersChanged() {
         // DisplayIDs can be reassigned across a reconfiguration; drop the
         // capability cache before anything re-reads it.
@@ -411,9 +423,13 @@ final class BrightnessBoostService {
         }
         // Wait on the live collapse set, not the isEnabled flag: a collapse
         // started moments earlier from the Extra Brightness row has already
-        // cleared the flag but is still animating this display.
-        while collapsingDisplays.contains(displayID) {
+        // cleared the flag but is still animating this display. Capped at 2s
+        // (the collapse runs 0.35s): an animator cancelled without its final
+        // tick would otherwise leave the marker set and spin this forever.
+        var waited = 0
+        while collapsingDisplays.contains(displayID), waited < 40 {
             try? await Task.sleep(nanoseconds: 50_000_000)
+            waited += 1
         }
         // Brief settle so the collapse's last brightness write lands
         // before the mode switch.

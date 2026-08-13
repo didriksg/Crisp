@@ -194,7 +194,9 @@ final class PhysicalDisplayToggleService: ObservableObject {
         let startID = display.displayID
         guard !wouldLeaveNoActiveDisplay(startID) else { return false }
         guard case .success = await setEnabled(false, displayID: startID) else { return false }
-        try? await Task.sleep(nanoseconds: 900_000_000)  // let the framebuffer drop before re-enabling
+        // Wait for the framebuffer to actually drop (removeFlag) before re-enabling;
+        // the 0.9s ceiling matches the old fixed sleep if the event never comes.
+        await ReconfigEvents.shared.next(for: startID, matching: .removeFlag, timeout: 0.9)
         for _ in 0..<3 {
             let targetID = allDisplaysIncludingDisabled().first { uuid(for: $0) == display.displayUUID } ?? startID
             if case .success = await setEnabled(true, displayID: targetID) { return true }
