@@ -49,6 +49,11 @@ final class BrightnessBoostService {
     /// once nothing is boosted.
     private var headroomPollTask: Task<Void, Never>?
 
+    /// Pending post-reconfiguration reconcile. One at a time: a connect or
+    /// disconnect storm posts didChangeScreenParametersNotification many
+    /// times, and each reapplyAll is a full DDC/gamma/overlay pass.
+    private var reapplyAfterReconfigTask: Task<Void, Never>?
+
     /// When an enabled external first reported potentialHeadroom at or below
     /// hdrReadyThreshold: HDR capability disappeared out from under it (user
     /// turned HDR off, or a HiDPI mode switch dropped HDR advertisement).
@@ -354,10 +359,13 @@ final class BrightnessBoostService {
         // DisplayIDs can be reassigned across a reconfiguration; drop the
         // capability cache before anything re-reads it.
         hdrSupportCache.removeAll()
-        // Reconcile after connect/disconnect storms settle (mirrors the panel's
-        // own debounce; mid-reconfig geometry and headroom reads are garbage).
-        Task { @MainActor in
+        // Reconcile ONCE after connect/disconnect storms settle (mirrors the
+        // panel's own debounce; mid-reconfig geometry and headroom reads are
+        // garbage): cancel any reconcile a previous notification scheduled.
+        reapplyAfterReconfigTask?.cancel()
+        reapplyAfterReconfigTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 1_000_000_000)
+            guard !Task.isCancelled else { return }
             self.reapplyAll()
         }
     }

@@ -692,8 +692,9 @@ final class BrightnessService: @unchecked Sendable {
         ddcAvailableLock.withLock { ddcAvailable[displayID] }
     }
 
-    /// Clears DDC availability and max brightness cache for a disconnected display.
+    /// Clears all per-display state for a disconnected display.
     /// Call this when a display is removed so stale state cannot pollute a reconnect.
+    @MainActor
     func invalidateDDCState(for displayID: CGDirectDisplayID) {
         ddcAvailableLock.withLock {
             ddcAvailable.removeValue(forKey: displayID)
@@ -702,6 +703,21 @@ final class BrightnessService: @unchecked Sendable {
             // display's software-dimming routing would stick to whatever
             // display inherits its ID next.
             hdrDimmedDisplays.remove(displayID)
+        }
+        // Same ID-reuse hazard for the rest: reapplySoftwareBrightnessIfNeeded
+        // reads the in-memory factor first, so a display inheriting this ID
+        // would silently get the departed display's dimming factor.
+        animators[displayID]?.cancel()
+        animators.removeValue(forKey: displayID)
+        softwareBrightnessLock.withLock {
+            _ = softwareBrightnessFactors.removeValue(forKey: displayID)
+        }
+        ddcPumpLock.withLock {
+            pendingDDCPercent.removeValue(forKey: displayID)
+            ddcFailStreak.removeValue(forKey: displayID)
+            lastDDCWriteInstant.removeValue(forKey: displayID)
+            // ddcPumpActive stays: the pump owns it and removes itself once it
+            // sees no pending value.
         }
     }
 

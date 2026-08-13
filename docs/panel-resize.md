@@ -89,7 +89,11 @@ Every rule, with the observation that forced it:
    callback arrived 65.9ms late, rendering as freeze-then-24pt-step even with
    gap clamping. The link is created once at panel warm-up; idle ticks are
    no-ops. It IS recreated when the panel opens on a different screen (a link
-   latched to a 120Hz screen feeds a 165Hz screen unevenly).
+   latched to a 120Hz screen feeds a 165Hz screen unevenly). While the panel
+   is hidden the link is PAUSED (not invalidated): the object survives, and
+   unpausing at showPanel (in-flight animations only start on a later user
+   toggle) gives it the same warm-up window the recreate-at-open path relies
+   on, without paying vsync wakeups all day for a closed panel.
 3. **Advance the spring by wall time clamped to a 21ms catch-up window.**
    Frame-paced time (one refresh period per tick) ran at HALF speed through
    sustained lower-rate stretches and snapped to full speed on recovery, which

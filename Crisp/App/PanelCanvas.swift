@@ -116,6 +116,15 @@ final class FrameSpring: NSObject {
         velocity = 0
     }
 
+    var isAnimating: Bool { active }
+
+    /// Park/unpark the vsync tick while the panel is hidden. Pausing (not
+    /// invalidating) keeps the never-create-on-demand rule: the link object
+    /// survives, so resuming at open has it hot long before the first toggle.
+    func setPaused(_ paused: Bool) {
+        link?.isPaused = paused
+    }
+
     @objc private func tick(_ l: CADisplayLink) {
         let now = CACurrentMediaTime()
         let gap = (now - lastTick) * 1000
@@ -707,6 +716,19 @@ final class PanelCanvas {
         spring.retarget(view: v)
         linkScreen = screen
         PanelCanvas.log.log("link fps=\(screen.maximumFramesPerSecond)")
+    }
+
+    /// Stop the vsync wakeups while the panel is hidden: idle ticks are no-ops,
+    /// but 60-165 process wakeups per second all day are not free. Snap any
+    /// in-flight animation first so a paused link cannot strand onSettle's
+    /// cleanup (unmuting, window tighten).
+    func parkSpring() {
+        if spring.isAnimating { snapToTargets() }
+        spring.setPaused(true)
+    }
+
+    func wakeSpring() {
+        spring.setPaused(false)
     }
 
     /// Warm-up pre-paint: draw every block once while the panel is invisible

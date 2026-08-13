@@ -48,6 +48,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     /// rectangle) on every reopen. Hidden = alpha 0 + click-through instead,
     /// so track shown-ness ourselves; isVisible stays true.
     private var isPanelShown = false
+    /// Mirrors external state changes (Control Center, brightness keys, other
+    /// apps) into the sliders while the panel is open. Started by showPanel,
+    /// cancelled by closePanel: nothing polls while the panel is hidden;
+    /// showPanel's click-time refresh covers state that drifted while closed.
+    private var externalStatePollTask: Task<Void, Never>?
 
     /// Called after wake-from-sleep; wired in setupStartupBehavior.
     var onWake: (() -> Void)?
@@ -192,14 +197,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // the split-canvas migration.
         Task { await UpdateService.shared.checkForUpdates() }
 
-        // Mirror changes made elsewhere (Control Center, brightness keys,
-        // other apps) while the panel is visible. Poll forever but only touch
-        // hardware when shown.
-        Task { [weak self] in
-            while !Task.isCancelled {
-                self?.pollExternalState()
-                try? await Task.sleep(nanoseconds: 1_000_000_000)
-            }
+    }
+
+    /// One-shot re-sync of everything that can drift while the panel is closed
+    /// (Night Shift/True Tone via Control Center, DDC brightness changed by the
+    /// monitor's own buttons or another app). All reads run off the main
+    /// thread; called at the click in showPanel.
+    private func refreshExternalState() {
+        CoreBrightnessService.shared.refresh()
+        for display in displayManager.displays {
+            Task { await BrightnessService.shared.refreshBrightness(for: display) }
         }
     }
 
@@ -479,6 +486,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         p.ignoresMouseEvents = true
         p.orderFrontRegardless()
         canvas.prePaint()
+        // Warm-up done, panel hidden: no vsync ticks until the first open.
+        canvas.parkSpring()
     }
 
     /// Displays that get their own section, in panel order (screen the panel
@@ -798,10 +807,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         warmPanel()
         guard let p = panel else { return }
 
+        // Kick the refresh of everything that can drift while the panel is
+        // closed NOW, at the click: the reads run off the main thread and land
+        // during the fade-in, so the sliders are correct by the time the panel
+        // is readable instead of visibly jumping shortly after it opened.
+        refreshExternalState()
+
         // Native menus appear at full size with all content visible at once;
         // only size changes AFTER opening animate.
         positionPanel(p)
         canvas.retargetLinkIfNeeded()
+        canvas.wakeSpring()
         // The display order can differ per open (panel-screen-first sort);
         // rebuild happens hidden, before the fade.
         rebuildBlocksIfNeeded()
@@ -859,11 +875,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // .task can't). checkForUpdates() self-throttles to one network call per
         // hour, so opening the menu repeatedly costs nothing.
         Task { await UpdateService.shared.checkForUpdates() }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
-            guard let self, self.isPanelShown else { return }
-            CoreBrightnessService.shared.refresh()
-            for display in self.displayManager.displays {
-                Task { await BrightnessService.shared.refreshBrightness(for: display) }
+
+        // Mirror changes made elsewhere while the panel stays open (the
+        // click-time refresh above covered the open itself). Cancelled on
+        // close: a hidden panel needs no heartbeat.
+        if externalStatePollTask == nil {
+            externalStatePollTask = Task { [weak self] in
+                while !Task.isCancelled {
+                    try? await Task.sleep(nanoseconds: 1_000_000_000)
+                    self?.pollExternalState()
+                }
             }
         }
 
@@ -907,6 +928,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         guard let p = panel, isPanelShown else { return }
         isPanelShown = false
         statusItem?.button?.highlight(false)
+        canvas.parkSpring()
+        externalStatePollTask?.cancel()
+        externalStatePollTask = nil
         // Hide with a quick fade, like native menus; never order out (see
         // isPanelShown comment). Click-through is immediate.
         p.ignoresMouseEvents = true

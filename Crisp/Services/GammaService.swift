@@ -139,6 +139,15 @@ final class GammaService: @unchecked Sendable {
             0.0, 1.0, 1.0)
     }
 
+    /// Drop the in-memory adjustment for a disconnected display. Display IDs
+    /// are reused, so a stale entry would otherwise be pushed onto whatever
+    /// display inherits the ID next (refreshDisplays reapplies unconditionally
+    /// for kept displays). The UUID-keyed persisted copy stays untouched;
+    /// reapplyIfNeeded restores it when the same physical display returns.
+    func invalidate(for displayID: CGDirectDisplayID) {
+        _ = adjustmentsLock.withLock { activeAdjustments.removeValue(forKey: displayID) }
+    }
+
     /// Restore all online displays to identity gamma (per-display, avoids global reset).
     func restoreColorSync() {
         adjustmentsLock.withLock { activeAdjustments.removeAll() }

@@ -109,6 +109,7 @@ class DisplayManager: ObservableObject {
         removedIDs.forEach {
             DDCService.shared.clearCache(for: $0)
             BrightnessService.shared.invalidateDDCState(for: $0)
+            GammaService.shared.invalidate(for: $0)
         }
 
         // Diff-based refresh: keep existing DisplayInfo objects (preserves @Published state)
