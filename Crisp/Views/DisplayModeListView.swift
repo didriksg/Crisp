@@ -247,10 +247,25 @@ final class DisplayModeController: ObservableObject {
         isSwitching = true
         let displayID = display.displayID
         Task { @MainActor in
-            var success = await ResolutionService.shared.setDisplayMode(mode, for: displayID)
-            if !success {
-                try? await Task.sleep(nanoseconds: 200_000_000)
+            var success: Bool
+            if mode.id < 0 {
+                // Synthetic beyond-cap stop (#65, negative id): no CG mode exists
+                // on the physical display; MirroredModeService renders the size on
+                // a hidden virtual display the panel hardware-mirrors.
+                success = await MirroredModeService.shared.apply(
+                    display: display, width: mode.width, height: mode.height)
+            } else {
+                // Leaving a mirrored stop for a real mode: unmirror and destroy
+                // first, otherwise the physical display is still a mirror target
+                // and the mode change would be redirected to the virtual source.
+                if MirroredModeService.shared.isActive(for: displayID) {
+                    await MirroredModeService.shared.restore(display: display)
+                }
                 success = await ResolutionService.shared.setDisplayMode(mode, for: displayID)
+                if !success {
+                    try? await Task.sleep(nanoseconds: 200_000_000)
+                    success = await ResolutionService.shared.setDisplayMode(mode, for: displayID)
+                }
             }
             if success {
                 // Optimistic: the reconfiguration callback's setModeFlag branch
@@ -318,7 +333,7 @@ final class DisplayModeController: ObservableObject {
         // native exists, so the dedup below keeps the crisp one for the "More Space" end.
         let hasNativeDefault = display.availableModes.contains { !$0.isHiDPI && $0.width == nativeW && $0.height == nativeH }
         var seen = Set<String>()
-        return display.availableModes
+        var ladder = display.availableModes
             .filter {
                 guard DisplayModeGeometry.hasSameOrientation(
                     width: $0.width, height: $0.height, as: nativeW, nativeH
@@ -338,7 +353,28 @@ final class DisplayModeController: ObservableObject {
                 return $0.refreshRate > $1.refreshRate
             }
             .filter { seen.insert("\($0.width)x\($0.height)").inserted }
-            .sorted { $0.width == $1.width ? $0.height < $1.height : $0.width < $1.width }
+        // Beyond-cap synthetic stops (#65): WindowServer refuses scaled backings
+        // above a per-display cap, so on 5K2K ultrawides the sizes between the
+        // enumerable ladder top (~looks-like 3360) and native exist as no HiDPI
+        // mode at all. Mint slider stops for them on the same 16px grid, with
+        // NEGATIVE ids so they can never collide with a real ioDisplayModeID or
+        // reach the CG apply path: switchTo routes them to MirroredModeService
+        // (a hidden virtual display renders the 2x backing, the panel hardware-
+        // mirrors it and downscales on scanout). Gated on the dense ladder being
+        // live, like the rest of smooth scaling; on uncapped panels the filter
+        // yields nothing and the slider is exactly what it was.
+        if !display.isBuiltin, smoothModesPresent {
+            let hidpiTop = display.availableModes.filter { $0.isHiDPI }.map(\.width).max() ?? 0
+            if hidpiTop > 0 {
+                ladder += HiDPIService.shared
+                    .smoothScaledLogicalSizes(nativeWidth: nativeW, nativeHeight: nativeH)
+                    .filter { $0.width > hidpiTop && $0.width < nativeW }
+                    .map { DisplayMode(id: -Int32($0.width), width: $0.width, height: $0.height,
+                                       pixelWidth: $0.width * 2, pixelHeight: $0.height * 2,
+                                       refreshRate: 0, isHiDPI: true, isNative: false) }
+            }
+        }
+        return ladder.sorted { $0.width == $1.width ? $0.height < $1.height : $0.width < $1.width }
     }
 
     /// Subtitle for the row while off: what smooth scaling does (the decision point), plus the
@@ -422,6 +458,11 @@ final class DisplayModeController: ObservableObject {
         let i = Int(sliderIndex.rounded())
         guard modes.indices.contains(i) else { return }
         let target = modes[i]
+        // Already rendering this synthetic size? Nothing to do. The id guard
+        // below can't catch it: while mirrored, currentMode carries the virtual
+        // display's real (positive) mode id, never the synthetic negative one.
+        if target.id < 0, let cur = currentMode,
+           cur.width == target.width, cur.height == target.height { return }
         // Keep the current refresh rate at that logical size and scaling kind when offered.
         // Tolerant match: CG reports fractional rates (59.94) where the CGS-surfaced modes
         // carry whole Hz.

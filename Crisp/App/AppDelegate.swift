@@ -239,6 +239,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // so no monitor is left bright with no boost and no DDC control.
         BrightnessBoostService.shared.prepareForTermination()
         // GammaService already handles CGDisplayRestoreColorSyncSettings via willTerminateNotification observer.
+        // Unmirror before the virtual displays die, so no panel is left showing
+        // a mirror of a display that just vanished.
+        MirroredModeService.shared.teardownAll()
         VirtualDisplayService.shared.destroyAll()
     }
 

@@ -49,6 +49,11 @@ final class ResolutionService: @unchecked Sendable {
     /// longer exists (mode list rebuilt, display swapped) it does nothing rather than forcing an
     /// off-aspect fallback. (w18z)
     func reapplySavedModeIfNeeded(for displayID: CGDirectDisplayID) {
+        // A mirrored beyond-cap size (#65) is not a saved mode: the physical
+        // reports the virtual master's looks-like mode, and a "correction" here
+        // would redirect to the virtual and fight the mirror. That state is
+        // MirroredModeService's to restore, not ours.
+        guard !MirroredModeService.shared.isActive(for: displayID) else { return }
         guard let saved = savedModes["\(displayID)"] else { return }
 
         // Already at the saved resolution? Nothing to do.
