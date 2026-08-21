@@ -14,6 +14,9 @@ final class DDCOperationQueuePool: @unchecked Sendable {
     }
 
     private let lock = NSLock()
+    /// Kept for the process lifetime: a display ID that gets reused after a
+    /// reconnect must land on the same queue, so a new operation cannot overlap
+    /// an in-flight one on a second queue.
     private var queues: [CGDirectDisplayID: DispatchQueue] = [:]
     private var activeHolds: [Hold] = []
 
@@ -36,10 +39,6 @@ final class DDCOperationQueuePool: @unchecked Sendable {
             queue.async { _ = hold.gate.wait(timeout: .now() + hold.timeout) }
         }
         return queue
-    }
-
-    func removeQueue(for displayID: CGDirectDisplayID) {
-        lock.withLock { _ = queues.removeValue(forKey: displayID) }
     }
 
     /// Parks every per-display queue, present and future, until the returned closure
