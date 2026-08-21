@@ -344,7 +344,7 @@ final class BrightnessService: @unchecked Sendable {
                         // only on the first seed, or when it differs enough to be a real
                         // external change (the monitor's own buttons), not read noise.
                         self.ddcPumpLock.withLock {
-                            guard self.ddcOperationGeneration.isCurrentTopology(
+                            guard self.ddcOperationGeneration.isLatestRequest(
                                 readToken, for: displayID
                             ) else { return }
                             if firstRead || abs(brightness - display.brightness) > 3.0 {

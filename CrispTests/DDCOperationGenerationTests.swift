@@ -3,9 +3,11 @@ import XCTest
 final class DDCOperationGenerationTests: XCTestCase {
     func testNewRequestMakesOlderRequestStaleWithinSameTopology() {
         var generations = DDCOperationGeneration()
+        let read = generations.currentToken(for: 5)
         let first = generations.nextRequest(for: 5)
         let second = generations.nextRequest(for: 5)
 
+        XCTAssertFalse(generations.isLatestRequest(read, for: 5))
         XCTAssertTrue(generations.isCurrentTopology(first, for: 5))
         XCTAssertFalse(generations.isLatestRequest(first, for: 5))
         XCTAssertTrue(generations.isLatestRequest(second, for: 5))
