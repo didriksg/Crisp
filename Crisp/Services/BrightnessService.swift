@@ -439,7 +439,6 @@ final class BrightnessService: @unchecked Sendable {
     /// slider drag can never build a queue of stale writes behind the slow I2C bus.
     private var pendingDDCPercent: [CGDirectDisplayID: Double] = [:]
     private var ddcPumpActive: Set<CGDirectDisplayID> = []
-    private var ddcFailStreak: [CGDirectDisplayID: Int] = [:]
     /// Timestamp of the last DDC brightness write per display, used to pace writes.
     private var lastDDCWriteInstant: [CGDirectDisplayID: DispatchTime] = [:]
     private let ddcPumpLock = NSLock()
@@ -488,24 +487,25 @@ final class BrightnessService: @unchecked Sendable {
         let alreadyPumping = ddcPumpActive.contains(displayID)
         if !alreadyPumping { ddcPumpActive.insert(displayID) }
         ddcPumpLock.unlock()
-        if !alreadyPumping { pumpDDCWrite(for: displayID) }
 
+        let ddcStatus = ddcAvailableLock.withLock { ddcAvailable[displayID] }
         queue.async { [weak self] in
             guard let self else { return }
-            if percent < self.gammaBlendThreshold {
-                self.setSoftwareBrightness(percent / self.gammaBlendThreshold * 100.0, for: displayID)
-            } else if let f = self.currentSoftwareBrightness(for: displayID), f < 1.0 {
-                // Only clear a software dim once DDC has actually succeeded on
-                // this display. While it is still unproven (nil), a display
-                // whose writes all fail (Dell without a DDC channel) would
-                // otherwise flash to full on every attempt, fighting the gamma
-                // fallback that is actually doing the dimming.
-                let proven = self.ddcAvailableLock.withLock { self.ddcAvailable[displayID] == true }
-                if proven {
+            if ddcStatus == nil {
+                self.setSoftwareBrightness(percent, for: displayID)
+            } else if ddcStatus == true {
+                if percent < self.gammaBlendThreshold {
+                    self.setSoftwareBrightness(
+                        percent / self.gammaBlendThreshold * 100.0,
+                        for: displayID
+                    )
+                } else if let factor = self.currentSoftwareBrightness(for: displayID), factor < 1.0 {
                     self.setSoftwareBrightness(100.0, for: displayID)
                 }
             }
         }
+        // Queue the visible preview before hardware work can complete and clear it.
+        if !alreadyPumping { pumpDDCWrite(for: displayID) }
     }
 
     private func pumpDDCWrite(for displayID: CGDirectDisplayID) {
@@ -563,24 +563,37 @@ final class BrightnessService: @unchecked Sendable {
             guard let self else { return }
             if success {
                 self.ddcAvailableLock.withLock { self.ddcAvailable[displayID] = true }
-                self.ddcPumpLock.withLock { self.ddcFailStreak[displayID] = 0 }
-            } else {
-                let streak = self.ddcPumpLock.withLock { () -> Int in
-                    let s = (self.ddcFailStreak[displayID] ?? 0) + 1
-                    self.ddcFailStreak[displayID] = s
-                    return s
+                let hasNewerTarget = self.ddcPumpLock.withLock {
+                    self.pendingDDCPercent[displayID] != nil
                 }
-                // A single flaky I2C write must not flip the display into gamma mode
-                // mid-drag (DDC + gamma dimming stack up and later "reset" visibly).
-                // Only give up on DDC after 3 consecutive failures.
-                if streak >= 3 {
-                    self.ddcAvailableLock.withLock { self.ddcAvailable[displayID] = false }
-                    DispatchQueue.main.async { [weak self] in
-                        self?.setSoftwareBrightness(percent, for: displayID)
+                if hasNewerTarget {
+                    self.pumpDDCWrite(for: displayID)
+                } else {
+                    self.queue.async {
+                        let stillCurrent = self.ddcPumpLock.withLock {
+                            self.pendingDDCPercent[displayID] == nil
+                        }
+                        if stillCurrent {
+                            let softwarePercent = percent < self.gammaBlendThreshold
+                                ? percent / self.gammaBlendThreshold * 100.0
+                                : 100.0
+                            self.setSoftwareBrightness(softwarePercent, for: displayID)
+                        }
+                        // Do not consume a newer target before the stale-preview check.
+                        self.pumpDDCWrite(for: displayID)
                     }
                 }
+            } else {
+                self.ddcAvailableLock.withLock { self.ddcAvailable[displayID] = false }
+                let fallbackPercent = self.ddcPumpLock.withLock { () -> Double in
+                    let latest = self.pendingDDCPercent.removeValue(forKey: displayID) ?? percent
+                    self.ddcPumpActive.remove(displayID)
+                    return latest
+                }
+                self.queue.async {
+                    self.setSoftwareBrightness(fallbackPercent, for: displayID)
+                }
             }
-            self.pumpDDCWrite(for: displayID)
         }
     }
 
@@ -754,7 +767,6 @@ final class BrightnessService: @unchecked Sendable {
         }
         ddcPumpLock.withLock {
             pendingDDCPercent.removeValue(forKey: displayID)
-            ddcFailStreak.removeValue(forKey: displayID)
             lastDDCWriteInstant.removeValue(forKey: displayID)
             // ddcPumpActive stays: the pump owns it and removes itself once it
             // sees no pending value.
