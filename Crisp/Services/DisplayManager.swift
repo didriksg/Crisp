@@ -151,6 +151,11 @@ class DisplayManager: ObservableObject {
 
         let currentIDs = Set(displays.map { $0.displayID })
         let newIDSet = Set((0..<Int(displayCount)).map { displayIDs[$0] })
+        let oldExternalIDs = Set(displays.lazy.filter { !$0.isBuiltin }.map { $0.displayID })
+        let newExternalIDs = Set(newIDSet.filter { CGDisplayIsBuiltin($0) == 0 })
+        BrightnessService.shared.invalidateDDCTopology(
+            for: oldExternalIDs.union(newExternalIDs)
+        )
 
         // Clean up DDC cache for removed displays to prevent stale entries accumulating
         let removedIDs = currentIDs.subtracting(newIDSet)

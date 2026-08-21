@@ -13,13 +13,15 @@ final class DDCOperationGenerationTests: XCTestCase {
 
     func testInvalidationRejectsCompletionFromPreviousTopology() {
         var generations = DDCOperationGeneration()
-        let beforeReconnect = generations.nextRequest(for: 5)
+        let readBeforeReconnect = generations.currentToken(for: 5)
+        let writeBeforeReconnect = generations.nextRequest(for: 5)
 
         generations.invalidate(displayID: 5)
         let afterReconnect = generations.nextRequest(for: 5)
 
-        XCTAssertFalse(generations.isCurrentTopology(beforeReconnect, for: 5))
-        XCTAssertFalse(generations.isLatestRequest(beforeReconnect, for: 5))
+        XCTAssertFalse(generations.isCurrentTopology(readBeforeReconnect, for: 5))
+        XCTAssertFalse(generations.isCurrentTopology(writeBeforeReconnect, for: 5))
+        XCTAssertFalse(generations.isLatestRequest(writeBeforeReconnect, for: 5))
         XCTAssertTrue(generations.isLatestRequest(afterReconnect, for: 5))
     }
 }

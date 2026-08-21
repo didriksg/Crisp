@@ -9,12 +9,16 @@ struct DDCOperationGeneration {
     private var topologies: [CGDirectDisplayID: UInt64] = [:]
     private var requests: [CGDirectDisplayID: UInt64] = [:]
 
-    mutating func nextRequest(for displayID: CGDirectDisplayID) -> Token {
-        requests[displayID, default: 0] &+= 1
-        return Token(
+    func currentToken(for displayID: CGDirectDisplayID) -> Token {
+        Token(
             topology: topologies[displayID, default: 0],
             request: requests[displayID, default: 0]
         )
+    }
+
+    mutating func nextRequest(for displayID: CGDirectDisplayID) -> Token {
+        requests[displayID, default: 0] &+= 1
+        return currentToken(for: displayID)
     }
 
     mutating func invalidate(displayID: CGDirectDisplayID) {
