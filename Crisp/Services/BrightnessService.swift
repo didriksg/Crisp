@@ -406,9 +406,7 @@ final class BrightnessService: @unchecked Sendable {
 
                 if currentStatus == false {
                     // DDC known unavailable, go straight to software fallback
-                    queue.async { [weak self] in
-                        self?.setSoftwareBrightness(hardware, for: displayID)
-                    }
+                    applyLatestSoftwareBrightness(hardware, for: displayID)
                 } else {
                     writeDDCBrightnessCoalesced(percent: hardware, for: displayID)
                 }
@@ -434,11 +432,17 @@ final class BrightnessService: @unchecked Sendable {
 
     // MARK: - Coalescing DDC Writer
 
-    /// Latest pending brightness percent per display. Only one DDC write is in flight
+    private struct PendingDDCTarget {
+        let percent: Double
+        let token: DDCOperationGeneration.Token
+    }
+
+    /// Latest pending brightness target per display. Only one DDC write is in flight
     /// per display and intermediate targets are dropped (latest wins), so a fast
     /// slider drag can never build a queue of stale writes behind the slow I2C bus.
-    private var pendingDDCPercent: [CGDirectDisplayID: Double] = [:]
+    private var pendingDDCTarget: [CGDirectDisplayID: PendingDDCTarget] = [:]
     private var ddcPumpActive: Set<CGDirectDisplayID> = []
+    private var ddcOperationGeneration = DDCOperationGeneration()
     /// Timestamp of the last DDC brightness write per display, used to pace writes.
     private var lastDDCWriteInstant: [CGDirectDisplayID: DispatchTime] = [:]
     private let ddcPumpLock = NSLock()
@@ -463,6 +467,20 @@ final class BrightnessService: @unchecked Sendable {
     /// auto-switch, and reconfiguration sync). Guarded by ddcAvailableLock.
     private var hdrDimmedDisplays: Set<CGDirectDisplayID> = []
 
+    private func applyLatestSoftwareBrightness(_ percent: Double, for displayID: CGDirectDisplayID) {
+        let token = ddcPumpLock.withLock {
+            ddcOperationGeneration.nextRequest(for: displayID)
+        }
+        queue.async { [weak self] in
+            guard let self else { return }
+            let isLatest = self.ddcPumpLock.withLock {
+                self.ddcOperationGeneration.isLatestRequest(token, for: displayID)
+            }
+            guard isLatest else { return }
+            self.setSoftwareBrightness(percent, for: displayID)
+        }
+    }
+
     func setHDRSoftwareDimming(_ on: Bool, for displayID: CGDirectDisplayID) {
         ddcAvailableLock.withLock {
             if on { hdrDimmedDisplays.insert(displayID) } else { hdrDimmedDisplays.remove(displayID) }
@@ -477,13 +495,12 @@ final class BrightnessService: @unchecked Sendable {
         // gamma reset below clears the leftover software dim.
         let hdrDimmed = ddcAvailableLock.withLock { hdrDimmedDisplays.contains(displayID) }
         if hdrDimmed {
-            queue.async { [weak self] in
-                self?.setSoftwareBrightness(percent, for: displayID)
-            }
+            applyLatestSoftwareBrightness(percent, for: displayID)
             return
         }
         ddcPumpLock.lock()
-        pendingDDCPercent[displayID] = percent
+        let token = ddcOperationGeneration.nextRequest(for: displayID)
+        pendingDDCTarget[displayID] = PendingDDCTarget(percent: percent, token: token)
         let alreadyPumping = ddcPumpActive.contains(displayID)
         if !alreadyPumping { ddcPumpActive.insert(displayID) }
         ddcPumpLock.unlock()
@@ -491,6 +508,10 @@ final class BrightnessService: @unchecked Sendable {
         let ddcStatus = ddcAvailableLock.withLock { ddcAvailable[displayID] }
         queue.async { [weak self] in
             guard let self else { return }
+            let isLatest = self.ddcPumpLock.withLock {
+                self.ddcOperationGeneration.isLatestRequest(token, for: displayID)
+            }
+            guard isLatest else { return }
             if ddcStatus == nil {
                 self.setSoftwareBrightness(percent, for: displayID)
             } else if ddcStatus == true {
@@ -513,7 +534,7 @@ final class BrightnessService: @unchecked Sendable {
         // Peek (don't consume yet): if we must wait to honour the pacing floor,
         // a newer drag value may arrive during the wait and should supersede this
         // one. Consuming only after the wait keeps "latest wins" intact.
-        guard pendingDDCPercent[displayID] != nil else {
+        guard pendingDDCTarget[displayID] != nil else {
             ddcPumpActive.remove(displayID)
             ddcPumpLock.unlock()
             return
@@ -540,13 +561,14 @@ final class BrightnessService: @unchecked Sendable {
 
         // Now consume the latest pending value (drops any intermediate drag steps).
         ddcPumpLock.lock()
-        guard let percent = pendingDDCPercent.removeValue(forKey: displayID) else {
+        guard let target = pendingDDCTarget.removeValue(forKey: displayID) else {
             ddcPumpActive.remove(displayID)
             ddcPumpLock.unlock()
             return
         }
         lastDDCWriteInstant[displayID] = .now()
         ddcPumpLock.unlock()
+        let percent = target.percent
 
         // Denormalize percentage to display's native DDC range.
         // If max is unknown, default to 100 (safe for most monitors).
@@ -561,17 +583,22 @@ final class BrightnessService: @unchecked Sendable {
             value: ddcValue
         ) { [weak self] success in
             guard let self else { return }
+            let currentTopology = self.ddcPumpLock.withLock {
+                self.ddcOperationGeneration.isCurrentTopology(target.token, for: displayID)
+            }
+            guard currentTopology else { return }
             if success {
                 self.ddcAvailableLock.withLock { self.ddcAvailable[displayID] = true }
                 let hasNewerTarget = self.ddcPumpLock.withLock {
-                    self.pendingDDCPercent[displayID] != nil
+                    self.pendingDDCTarget[displayID] != nil
                 }
                 if hasNewerTarget {
                     self.pumpDDCWrite(for: displayID)
                 } else {
                     self.queue.async {
                         let stillCurrent = self.ddcPumpLock.withLock {
-                            self.pendingDDCPercent[displayID] == nil
+                            self.ddcOperationGeneration.isLatestRequest(target.token, for: displayID)
+                                && self.pendingDDCTarget[displayID] == nil
                         }
                         if stillCurrent {
                             let softwarePercent = percent < self.gammaBlendThreshold
@@ -585,13 +612,17 @@ final class BrightnessService: @unchecked Sendable {
                 }
             } else {
                 self.ddcAvailableLock.withLock { self.ddcAvailable[displayID] = false }
-                let fallbackPercent = self.ddcPumpLock.withLock { () -> Double in
-                    let latest = self.pendingDDCPercent.removeValue(forKey: displayID) ?? percent
+                let fallback = self.ddcPumpLock.withLock { () -> PendingDDCTarget in
+                    let latest = self.pendingDDCTarget.removeValue(forKey: displayID) ?? target
                     self.ddcPumpActive.remove(displayID)
                     return latest
                 }
                 self.queue.async {
-                    self.setSoftwareBrightness(fallbackPercent, for: displayID)
+                    let isLatest = self.ddcPumpLock.withLock {
+                        self.ddcOperationGeneration.isLatestRequest(fallback.token, for: displayID)
+                    }
+                    guard isLatest else { return }
+                    self.setSoftwareBrightness(fallback.percent, for: displayID)
                 }
             }
         }
@@ -661,7 +692,7 @@ final class BrightnessService: @unchecked Sendable {
                     display.brightness = value
                     // Above 100 the boost sync owns the transfer table (see setBrightness).
                     if value <= 100 {
-                        self.queue.async { self.setSoftwareBrightness(value, for: displayID) }
+                        self.applyLatestSoftwareBrightness(value, for: displayID)
                     }
                     BrightnessBoostService.shared.syncOverlay(for: display)
                 }
@@ -724,9 +755,7 @@ final class BrightnessService: @unchecked Sendable {
     /// above 1.0 through here, on the same serial queue as the dim path, so
     /// slider motion above and below 100 is always one writer, one table.
     func setBoostFactor(_ factor: Double, for displayID: CGDirectDisplayID) {
-        queue.async { [weak self] in
-            self?.setSoftwareBrightness(factor * 100.0, for: displayID)
-        }
+        applyLatestSoftwareBrightness(factor * 100.0, for: displayID)
     }
 
     /// Resets the gamma table for a display back to the identity curve.
@@ -766,10 +795,10 @@ final class BrightnessService: @unchecked Sendable {
             _ = softwareBrightnessFactors.removeValue(forKey: displayID)
         }
         ddcPumpLock.withLock {
-            pendingDDCPercent.removeValue(forKey: displayID)
+            ddcOperationGeneration.invalidate(displayID: displayID)
+            pendingDDCTarget.removeValue(forKey: displayID)
+            ddcPumpActive.remove(displayID)
             lastDDCWriteInstant.removeValue(forKey: displayID)
-            // ddcPumpActive stays: the pump owns it and removes itself once it
-            // sees no pending value.
         }
     }
 

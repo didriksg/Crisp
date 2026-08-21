@@ -4,6 +4,8 @@ import CoreGraphics
 /// Keeps DDC operations serial per physical display without coupling displays.
 final class DDCOperationQueuePool: @unchecked Sendable {
     private let lock = NSLock()
+    // ponytail: keep this small map for the process lifetime so a reused display ID
+    // cannot overlap an in-flight operation on a second queue.
     private var queues: [CGDirectDisplayID: DispatchQueue] = [:]
 
     func queue(for displayID: CGDirectDisplayID) -> DispatchQueue {
@@ -16,9 +18,5 @@ final class DDCOperationQueuePool: @unchecked Sendable {
             queues[displayID] = queue
             return queue
         }
-    }
-
-    func removeQueue(for displayID: CGDirectDisplayID) {
-        lock.withLock { _ = queues.removeValue(forKey: displayID) }
     }
 }

@@ -55,6 +55,8 @@ final class DDCService: ObservableObject, @unchecked Sendable {
 #if arch(arm64)
     private var avServiceCache: [CGDirectDisplayID: IOAVServiceRef] = [:]
     private let avServiceLock = NSLock()
+    private let avServiceBuildLock = NSLock()
+    private var avServiceTopology: UInt64 = 0
     /// Ordered list of all external AVServices found during last enumeration.
     private var allExternalAVServices: [IOAVServiceRef] = []
 #endif
@@ -239,6 +241,18 @@ final class DDCService: ObservableObject, @unchecked Sendable {
         }
         avServiceLock.unlock()
 
+        // Only one registry walk may publish a channel map at a time.
+        avServiceBuildLock.lock()
+        defer { avServiceBuildLock.unlock() }
+
+        avServiceLock.lock()
+        if let cached = avServiceCache[displayID] {
+            avServiceLock.unlock()
+            return cached
+        }
+        let topology = avServiceTopology
+        avServiceLock.unlock()
+
         // Slow path: enumerate the IOService registry depth-first, pairing each external
         // DDC channel with the nearest preceding display identity.
         let (serviceMap, ordered) = buildAVServiceMapByProximity()
@@ -247,12 +261,10 @@ final class DDCService: ObservableObject, @unchecked Sendable {
             return nil
         }
 
-        // Re-check cache (double-checked locking) in case another thread enumerated
-        // and populated the cache while we were enumerating without the lock held.
         avServiceLock.lock()
-        if let cached = avServiceCache[displayID] {
+        guard topology == avServiceTopology else {
             avServiceLock.unlock()
-            return cached
+            return nil
         }
         allExternalAVServices = ordered
         for (extID, avService) in serviceMap {
@@ -267,6 +279,7 @@ final class DDCService: ObservableObject, @unchecked Sendable {
     /// Invalidates the cached IOAVService for the given display (e.g. after display reconnect).
     func invalidateAVServiceCache(for displayID: CGDirectDisplayID) {
         avServiceLock.lock()
+        avServiceTopology &+= 1
         avServiceCache.removeValue(forKey: displayID)
         avServiceLock.unlock()
     }
@@ -635,7 +648,6 @@ final class DDCService: ObservableObject, @unchecked Sendable {
             readFailStreak.removeValue(forKey: displayID)
             readQuarantineUntil.removeValue(forKey: displayID)
         }
-        operationQueues.removeQueue(for: displayID)
 #if arch(arm64)
         invalidateAVServiceCache(for: displayID)
 #endif
@@ -655,6 +667,7 @@ final class DDCService: ObservableObject, @unchecked Sendable {
         }
 #if arch(arm64)
         avServiceLock.lock()
+        avServiceTopology &+= 1
         avServiceCache.removeAll()
         allExternalAVServices.removeAll()
         avServiceLock.unlock()
