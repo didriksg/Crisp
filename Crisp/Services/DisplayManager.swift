@@ -93,6 +93,12 @@ class DisplayManager: ObservableObject {
     /// detail and Resolution section, landing the user back where they were. Cleared once applied.
     @Published var pendingResolutionExpandUUID: String?
 
+    /// What each external display ID named at the last refresh: vendor, product,
+    /// serial and channel location. A reconfiguration only invalidates the DDC
+    /// transport for the IDs whose fingerprint changed or went away, so an add or
+    /// move elsewhere cannot cancel a write in flight to an untouched display.
+    private var externalChannelFingerprints: [CGDirectDisplayID: String] = [:]
+
     // nonisolated(unsafe) allows deinit (which is nonisolated in Swift 6) to access this value.
     nonisolated(unsafe) private var callbackContext: UnsafeMutableRawPointer?
     nonisolated(unsafe) private var screenParamsObserver: NSObjectProtocol?
@@ -136,6 +142,36 @@ class DisplayManager: ObservableObject {
         }
     }
 
+    /// Invalidates the DDC transport only for the external IDs whose physical channel
+    /// changed: an ID that left the online list, a new one, or one that now names a
+    /// different panel (identity or location). Invalidating every online display instead
+    /// would cancel a pending write, a running fade, and the software fallback of a
+    /// display the user is dragging right now, just because another display was plugged,
+    /// unplugged or rearranged.
+    private func invalidateDDCTopologyForChangedChannels(online newIDSet: Set<CGDirectDisplayID>) {
+        var fingerprints: [CGDirectDisplayID: String] = [:]
+        for id in newIDSet where CGDisplayIsBuiltin(id) == 0 && !MirroredModeService.isMirrorVirtual(id) {
+            fingerprints[id] = externalChannelFingerprint(for: id)
+        }
+
+        let changed = DDCTopologyChange.changedChannels(
+            previous: externalChannelFingerprints,
+            current: fingerprints
+        )
+        externalChannelFingerprints = fingerprints
+
+        guard !changed.isEmpty else { return }
+        BrightnessService.shared.invalidateDDCTopology(for: changed)
+    }
+
+    /// Identity plus channel location. Two identical monitors share vendor, product and
+    /// (often) serial, so the location is what tells them apart when macOS swaps their IDs.
+    private func externalChannelFingerprint(for displayID: CGDirectDisplayID) -> String {
+        let location = DDCService.shared.channelLocation(for: displayID) ?? ""
+        return "\(CGDisplayVendorNumber(displayID))/\(CGDisplayModelNumber(displayID))"
+            + "/\(CGDisplaySerialNumber(displayID))/\(location)"
+    }
+
     func refreshDisplays() {
         // Display IDs can be reshuffled across a reconnect storm with no ID
         // ever leaving the online list (two panels swapping IDs), so the
@@ -151,6 +187,7 @@ class DisplayManager: ObservableObject {
 
         let currentIDs = Set(displays.map { $0.displayID })
         let newIDSet = Set((0..<Int(displayCount)).map { displayIDs[$0] })
+        invalidateDDCTopologyForChangedChannels(online: newIDSet)
 
         // Clean up DDC cache for removed displays to prevent stale entries accumulating
         let removedIDs = currentIDs.subtracting(newIDSet)

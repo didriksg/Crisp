@@ -91,6 +91,16 @@ final class DDCService: ObservableObject, @unchecked Sendable {
 
     private init() {}
 
+    /// Stable location of the physical channel behind a display ID, or nil when
+    /// CoreDisplay reports none. It survives an ID reshuffle, so a caller can tell a
+    /// reconfiguration that only renumbered displays from one that moved a panel to
+    /// another port.
+    func channelLocation(for displayID: CGDirectDisplayID) -> String? {
+        guard let dictionary = coreDisplayCreateInfoDictionary?(displayID)?.takeRetainedValue()
+                as NSDictionary? else { return nil }
+        return dictionary[kIODisplayLocationKey] as? String
+    }
+
     // MARK: - ARM64 IOAVService Path
 
 #if arch(arm64)
@@ -186,7 +196,7 @@ final class DDCService: ObservableObject, @unchecked Sendable {
                 vendor: CGDisplayVendorNumber($0),
                 product: CGDisplayModelNumber($0),
                 serial: CGDisplaySerialNumber($0),
-                location: coreDisplayLocation(for: $0)))
+                location: channelLocation(for: $0)))
         }
         let result = DDCServiceMatcher.match(services: identities, displays: displays)
 
@@ -234,12 +244,6 @@ final class DDCService: ObservableObject, @unchecked Sendable {
         DispatchQueue.main.async { self.mappingWarning = warning }
 
         return (map, ordered)
-    }
-
-    private func coreDisplayLocation(for displayID: CGDirectDisplayID) -> String? {
-        guard let dictionary = coreDisplayCreateInfoDictionary?(displayID)?.takeRetainedValue()
-                as NSDictionary? else { return nil }
-        return dictionary[kIODisplayLocationKey] as? String
     }
 
     private func ioRegistryPath(for entry: io_service_t) -> String? {
