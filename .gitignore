@@ -11,6 +11,7 @@ DerivedData/
 Crisp.xcodeproj/
 Crisp.dmg
 .superpowers/
+.worktrees/
 Crisp-bin
 
 # Working/internal docs kept local-only (research, release-note drafts)

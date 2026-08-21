@@ -124,6 +124,39 @@ final class DDCServiceMatcherTests: XCTestCase {
         XCTAssertFalse(result.ambiguous)
     }
 
+    func testLocationWinsWhenIdenticalDisplayOrderIsReversed() {
+        let serviceA = DDCServiceMatcher.Identity(
+            vendor: 1507, product: 12816, serial: 0, location: "IOService:/dispext0@B0000000"
+        )
+        let serviceB = DDCServiceMatcher.Identity(
+            vendor: 1507, product: 12816, serial: 0, location: "IOService:/dispext1@90000000"
+        )
+        let result = DDCServiceMatcher.match(
+            services: [serviceA, serviceB],
+            displays: [
+                (id: 2, identity: serviceB),
+                (id: 5, identity: serviceA)
+            ]
+        )
+
+        XCTAssertEqual(result.byDisplayID, [2: 1, 5: 0])
+        XCTAssertFalse(result.ambiguous)
+    }
+
+    func testMissingLocationsPreserveModelFallback() {
+        let service = DDCServiceMatcher.Identity(vendor: 1507, product: 12816, serial: 0)
+        let result = DDCServiceMatcher.match(
+            services: [service],
+            displays: [
+                (id: 5, identity: .init(vendor: 1507, product: 12816, serial: 0)),
+                (id: 2, identity: .init(vendor: 1, product: 2, serial: 0))
+            ]
+        )
+
+        XCTAssertEqual(result.byDisplayID, [5: 0])
+        XCTAssertFalse(result.ambiguous)
+    }
+
     // MARK: - Strategy 2: traversal-order fallback
 
     /// *Traversal-order fallback, two no-identity services.* leftovers are sorted
