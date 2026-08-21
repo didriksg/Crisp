@@ -9,6 +9,20 @@ import os.log
 @_silgen_name("CGDisplayIOServicePort")
 private func CGDisplayIOServicePort(_ display: CGDirectDisplayID) -> io_service_t
 
+private let coreDisplayCreateInfoDictionary:
+    (@convention(c) (CGDirectDisplayID) -> Unmanaged<CFDictionary>?)? = {
+        guard let handle = dlopen(
+            "/System/Library/Frameworks/CoreDisplay.framework/CoreDisplay",
+            RTLD_LAZY
+        ), let symbol = dlsym(handle, "CoreDisplay_DisplayCreateInfoDictionary") else {
+            return nil
+        }
+        return unsafeBitCast(
+            symbol,
+            to: (@convention(c) (CGDirectDisplayID) -> Unmanaged<CFDictionary>?).self
+        )
+    }()
+
 /// DDC/CI I2C communication service for external displays.
 /// Supports two hardware paths:
 ///   - ARM64 (Apple Silicon): IOAVService via DCPAVServiceProxy
@@ -40,7 +54,7 @@ final class DDCService: ObservableObject, @unchecked Sendable {
     private var lastPairingSummary = ""
     static let powerVCP: UInt8      = 0xD6
 
-    private let ddcQueue = DispatchQueue(label: "com.crisp.ddc", qos: .userInitiated)
+    private let operationQueues = DDCOperationQueuePool()
 
     // MARK: - VCP Read Cache (5-second TTL)
 
@@ -69,7 +83,7 @@ final class DDCService: ObservableObject, @unchecked Sendable {
     private var noChannelSince: [CGDirectDisplayID: Date] = [:]
     private let noChannelRetryInterval: TimeInterval = 20
     private let avServiceLock = NSLock()
-    /// Ordered list of all working external AVServices found during last enumeration.
+    /// Ordered list of all external AVServices found during last enumeration.
     private var allExternalAVServices: [IOAVServiceRef] = []
 #endif
 
@@ -97,13 +111,14 @@ final class DDCService: ObservableObject, @unchecked Sendable {
     /// same proximity strategy MonitorControl uses.
     ///
     /// Matching order:
-    ///   1. Identity: vendor+product+serial, then vendor+product, against CG displays.
-    ///   2. Traversal-order fallback for anything identity matching missed (e.g. two
+    ///   1. Stable CoreDisplay/IORegistry location.
+    ///   2. Identity: vendor+product+non-zero serial, then vendor+product.
+    ///   3. Traversal-order fallback for anything identity matching missed (e.g. two
     ///      identical monitors that share vendor/product/serial). This preserves correct
     ///      pairing far better than the old sorted-index because the AVService order
     ///      follows the framebuffer order within the same subtree.
     ///
-    /// Returns the map plus the working AVServices in traversal order.
+    /// Returns the map plus the external AVServices in traversal order.
     private func buildAVServiceMapByProximity() -> (map: [CGDirectDisplayID: IOAVServiceRef], ordered: [IOAVServiceRef]) {
         // External CG displays we need to map.
         var displayCount: UInt32 = 0
@@ -137,11 +152,12 @@ final class DDCService: ObservableObject, @unchecked Sendable {
                     entry, "DisplayAttributes" as CFString, kCFAllocatorDefault, 0
                )?.takeRetainedValue() as? [String: Any],
                let pa = da["ProductAttributes"] as? [String: Any],
-               let id = displayIdentity(from: pa) {
+               let id = displayIdentity(from: pa, location: ioRegistryPath(for: entry)) {
                 lastIdentity = id
             }
 
-            // A DCPAVServiceProxy that answers I2C is a live DDC channel.
+            // Enumerate external channels without probing them. Some monitors block an
+            // unsolicited read for seconds; real VCP operations decide capability.
             if ioClassName(entry) == "DCPAVServiceProxy" {
                 let location = IORegistryEntryCreateCFProperty(
                     entry, "Location" as CFString, kCFAllocatorDefault, 0
@@ -149,11 +165,8 @@ final class DDCService: ObservableObject, @unchecked Sendable {
                 // Some drivers omit "Location"; still attempt those. Skip explicit non-External.
                 if location == nil || location == "External",
                    let avService = IOAVServiceCreateWithService(kCFAllocatorDefault, entry) {
-                    var testBuf = [UInt8](repeating: 0, count: 32)
-                    if IOAVServiceReadI2C(avService, 0x37, 0x51, &testBuf, 32) == kIOReturnSuccess {
-                        ordered.append(avService)
-                        identities.append(lastIdentity)
-                    }
+                    ordered.append(avService)
+                    identities.append(lastIdentity)
                 }
             }
 
@@ -170,7 +183,8 @@ final class DDCService: ObservableObject, @unchecked Sendable {
             (id: $0, identity: DDCServiceMatcher.Identity(
                 vendor: CGDisplayVendorNumber($0),
                 product: CGDisplayModelNumber($0),
-                serial: CGDisplaySerialNumber($0)))
+                serial: CGDisplaySerialNumber($0),
+                location: coreDisplayLocation(for: $0)))
         }
         let result = DDCServiceMatcher.match(services: identities, displays: displays)
 
@@ -220,10 +234,28 @@ final class DDCService: ObservableObject, @unchecked Sendable {
         return (map, ordered)
     }
 
+    private func coreDisplayLocation(for displayID: CGDirectDisplayID) -> String? {
+        guard let dictionary = coreDisplayCreateInfoDictionary?(displayID)?.takeRetainedValue()
+                as NSDictionary? else { return nil }
+        return dictionary[kIODisplayLocationKey] as? String
+    }
+
+    private func ioRegistryPath(for entry: io_service_t) -> String? {
+        let path = UnsafeMutablePointer<CChar>.allocate(capacity: 1024)
+        defer { path.deallocate() }
+        guard IORegistryEntryGetPath(entry, kIOServicePlane, path) == KERN_SUCCESS else {
+            return nil
+        }
+        return String(cString: path)
+    }
+
     /// Extracts vendor/product/serial from a ProductAttributes dictionary. The numeric
     /// LegacyManufacturerID / ProductID / SerialNumber match CGDisplayVendorNumber /
     /// CGDisplayModelNumber / CGDisplaySerialNumber for the same physical display.
-    private func displayIdentity(from productAttributes: [String: Any]) -> DDCServiceMatcher.Identity? {
+    private func displayIdentity(
+        from productAttributes: [String: Any],
+        location: String? = nil
+    ) -> DDCServiceMatcher.Identity? {
         func u32(_ value: Any?) -> UInt32? {
             if let v = value as? UInt32 { return v }
             if let v = value as? Int { return UInt32(bitPattern: Int32(truncatingIfNeeded: v)) }
@@ -232,8 +264,12 @@ final class DDCService: ObservableObject, @unchecked Sendable {
         }
         guard let vendor = u32(productAttributes["LegacyManufacturerID"]),
               let product = u32(productAttributes["ProductID"]) else { return nil }
-        return DDCServiceMatcher.Identity(vendor: vendor, product: product,
-                                          serial: u32(productAttributes["SerialNumber"]) ?? 0)
+        return DDCServiceMatcher.Identity(
+            vendor: vendor,
+            product: product,
+            serial: u32(productAttributes["SerialNumber"]) ?? 0,
+            location: location
+        )
     }
 
     /// Returns the IOKit class name of a registry entry.
@@ -245,7 +281,7 @@ final class DDCService: ObservableObject, @unchecked Sendable {
     }
 
     /// Finds the IOAVService for the given display. Caches the result per display.
-    /// Returns nil if no working AVService is found (built-in displays, or displays
+    /// Returns nil if no AVService is found (built-in displays, or displays
     /// that don't support DDC over the Apple Silicon AV path).
     ///
     /// Matching strategy: depth-first IOService traversal that pairs each DDC channel
@@ -265,7 +301,7 @@ final class DDCService: ObservableObject, @unchecked Sendable {
         }
         avServiceLock.unlock()
 
-        // Slow path: enumerate the IOService registry depth-first, pairing each working
+        // Slow path: enumerate the IOService registry depth-first, pairing each external
         // DDC channel with the nearest preceding display identity.
         let (serviceMap, ordered) = buildAVServiceMapByProximity()
 
@@ -479,7 +515,7 @@ final class DDCService: ObservableObject, @unchecked Sendable {
         return cs
     }
 
-    // MARK: - Synchronous DDC I/O (called on ddcQueue)
+    // MARK: - Synchronous DDC I/O (called on a per-display queue)
 
     /// Synchronous DDC write (VCP Set). Returns true on success.
     /// On ARM64 uses the IOAVService path; on x86_64 uses the IOFramebuffer I2C path.
@@ -508,9 +544,9 @@ final class DDCService: ObservableObject, @unchecked Sendable {
     /// cache is cleared on reconnect. A wedged DDC controller (AOC Q27G3XMN)
     /// streams garbage and degrades further under retry hammering, so backing
     /// off protects both the monitor and the shared DCP I2C engine. Writes
-    /// are unaffected; they keep working on wedged controllers. Accessed only
-    /// on ddcQueue.
+    /// are unaffected; they keep working on wedged controllers.
     private var readFailStreak: [CGDirectDisplayID: Int] = [:]
+    private let readStateLock = NSLock()
     private let readQuarantineThreshold = 6
     /// Quarantine expiry per display: after it passes, one fresh probe window
     /// opens (streak resets); persistent failure re-quarantines. Without an
@@ -520,13 +556,24 @@ final class DDCService: ObservableObject, @unchecked Sendable {
     private let readQuarantineInterval: TimeInterval = 600
 
     /// Synchronous DDC read (VCP Get). Returns (current, max) or nil on failure.
-    private func readSynchronous(displayID: CGDirectDisplayID, command: UInt8) -> (current: UInt16, max: UInt16)? {
-        if let until = readQuarantineUntil[displayID] {
-            guard Date() >= until else { return nil }
+    private func readSynchronous(
+        displayID: CGDirectDisplayID,
+        command: UInt8
+    ) -> (current: UInt16, max: UInt16)? {
+        var quarantineExpired = false
+        let quarantined = readStateLock.withLock { () -> Bool in
+            guard let until = readQuarantineUntil[displayID] else { return false }
+            guard Date() >= until else { return true }
             readQuarantineUntil.removeValue(forKey: displayID)
             readFailStreak[displayID] = 0
+            quarantineExpired = true
+            return false
+        }
+        guard !quarantined else { return nil }
+        if quarantineExpired {
             Self.log.notice("display \(displayID, privacy: .public): read quarantine expired, probing again")
         }
+
         let start = DispatchTime.now()
 #if arch(arm64)
         let result = arm64Read(displayID: displayID, command: command)
@@ -537,15 +584,22 @@ final class DDCService: ObservableObject, @unchecked Sendable {
         if ms > Self.slowOpThresholdMs {
             Self.log.notice("slow read \(Self.hex(command), privacy: .public) display \(displayID, privacy: .public): \(Int(ms), privacy: .public) ms")
         }
-        if result == nil {
-            let streak = readFailStreak[displayID, default: 0] + 1
-            readFailStreak[displayID] = streak
-            if streak >= readQuarantineThreshold {
-                readQuarantineUntil[displayID] = Date().addingTimeInterval(readQuarantineInterval)
-                Self.log.notice("display \(displayID, privacy: .public): \(streak, privacy: .public) consecutive read failures, reads quarantined for \(Int(self.readQuarantineInterval), privacy: .public) s")
+
+        var quarantinedAt: Int?
+        readStateLock.withLock {
+            if result == nil {
+                let streak = readFailStreak[displayID, default: 0] + 1
+                readFailStreak[displayID] = streak
+                if streak >= readQuarantineThreshold {
+                    readQuarantineUntil[displayID] = Date().addingTimeInterval(readQuarantineInterval)
+                    quarantinedAt = streak
+                }
+            } else {
+                readFailStreak[displayID] = 0
             }
-        } else {
-            readFailStreak[displayID] = 0
+        }
+        if let streak = quarantinedAt {
+            Self.log.notice("display \(displayID, privacy: .public): \(streak, privacy: .public) consecutive read failures, reads quarantined for \(Int(self.readQuarantineInterval), privacy: .public) s")
         }
         return result
     }
@@ -680,10 +734,11 @@ final class DDCService: ObservableObject, @unchecked Sendable {
         cacheLock.lock()
         vcpCache.removeValue(forKey: displayID)
         cacheLock.unlock()
-        ddcQueue.async {
-            self.readFailStreak.removeValue(forKey: displayID)
-            self.readQuarantineUntil.removeValue(forKey: displayID)
+        readStateLock.withLock {
+            readFailStreak.removeValue(forKey: displayID)
+            readQuarantineUntil.removeValue(forKey: displayID)
         }
+        operationQueues.removeQueue(for: displayID)
 #if arch(arm64)
         invalidateAVServiceCache(for: displayID)
 #endif
@@ -698,9 +753,9 @@ final class DDCService: ObservableObject, @unchecked Sendable {
     /// one monitor's brightness into the other's channel.
     func invalidateAllChannelMappings() {
         Self.log.notice("display reconfiguration: channel map flushed, pairing re-runs on the next DDC op")
-        ddcQueue.async {
-            self.readFailStreak.removeAll()
-            self.readQuarantineUntil.removeAll()
+        readStateLock.withLock {
+            readFailStreak.removeAll()
+            readQuarantineUntil.removeAll()
         }
 #if arch(arm64)
         avServiceLock.lock()
@@ -712,21 +767,23 @@ final class DDCService: ObservableObject, @unchecked Sendable {
 #endif
     }
 
-    /// Keeps the DDC queue idle while the caller runs a display transaction: resolves once
-    /// every op queued before it has finished, and holds later ops until the returned
-    /// closure is called (or 15 s pass, so a lost release cannot wedge DDC for the session).
+    /// Keeps every display's DDC queue idle while the caller runs a display transaction:
+    /// resolves once every op queued before it has finished, and holds later ops until the
+    /// returned closure is called (or 15 s pass, so a lost release cannot wedge DDC for the
+    /// session). A display that gets its first op during the hold is held too.
     /// WindowServer's enable of a display waits behind an in-flight I2C transaction on the
     /// DCP, and the machine freezes with it, so PhysicalDisplayToggleService takes this
     /// around every enable and disable.
     func hold() async -> () -> Void {
-        let gate = DispatchSemaphore(value: 0)
+        let idle = DispatchSemaphore(value: 0)
+        let release = operationQueues.hold(timeout: 15) { idle.signal() }
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            ddcQueue.async {
+            DispatchQueue.global(qos: .userInitiated).async {
+                idle.wait()
                 continuation.resume()
-                _ = gate.wait(timeout: .now() + 15)
             }
         }
-        return { gate.signal() }
+        return release
     }
 
     // MARK: - Public Async API (with retry)
@@ -739,7 +796,7 @@ final class DDCService: ObservableObject, @unchecked Sendable {
         value: UInt16,
         completion: ((Bool) -> Void)? = nil
     ) {
-        ddcQueue.async {
+        operationQueues.queue(for: displayID).async {
             for attempt in 0..<3 {
                 if self.writeSynchronous(displayID: displayID, command: command, value: value) {
                     // Invalidate cached value so next read reflects the new setting.
@@ -773,7 +830,7 @@ final class DDCService: ObservableObject, @unchecked Sendable {
         }
         cacheLock.unlock()
 
-        ddcQueue.async {
+        operationQueues.queue(for: displayID).async {
             for attempt in 0..<3 {
                 if let r = self.readSynchronous(displayID: displayID, command: command) {
                     self.cacheLock.lock()
@@ -814,7 +871,7 @@ final class DDCService: ObservableObject, @unchecked Sendable {
         }
 
         return await withCheckedContinuation { continuation in
-            ddcQueue.async {
+            operationQueues.queue(for: displayID).async {
                 var result: [UInt8: UInt16?] = [:]
                 var cachedCodes = Set<UInt8>()
 
