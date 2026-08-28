@@ -70,6 +70,7 @@ Completely optional, but you'll have my heartfelt thanks.
 
 Thank you to the people chipping in toward keeping Crisp signed and notarized:
 
+- **Arnor Ingthorsson** ([@arnor-ingthorsson](https://github.com/arnor-ingthorsson))
 - **Barry** ([@BarryBarrywu](https://github.com/BarryBarrywu))
 - **[@kuldipmaharjan](https://github.com/kuldipmaharjan)**
 - **Volodymyr Dombrovskyi** ([@rebelvg](https://github.com/rebelvg))
