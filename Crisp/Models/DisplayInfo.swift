@@ -31,6 +31,9 @@ class DisplayInfo: ObservableObject, Identifiable {
     let vendorNumber: UInt32
     let modelNumber: UInt32
     let serialNumber: UInt32
+    /// Nominal SDR luminance ceiling in nits. Used only to normalize the
+    /// combined brightness control across unlike display classes.
+    let nominalMaxNits: Double?
 
     /// A stable identifier for the physical display that persists across sleep/wake
     /// even if macOS reassigns the CGDirectDisplayID.
@@ -84,9 +87,17 @@ class DisplayInfo: ObservableObject, Identifiable {
         self.currentDisplayMode = DisplayMode.currentMode(for: displayID)
         let vendor = CGDisplayVendorNumber(displayID)
         let model = CGDisplayModelNumber(displayID)
+        let serial = CGDisplaySerialNumber(displayID)
         self.vendorNumber = vendor
         self.modelNumber = model
-        self.serialNumber = CGDisplaySerialNumber(displayID)
+        self.serialNumber = serial
+        self.nominalMaxNits = DisplayLuminanceService.maximumSDRNits(
+            displayID: displayID,
+            isBuiltin: builtin,
+            vendor: vendor,
+            model: model,
+            serial: serial
+        )
 
         if builtin {
             self.name = String(localized: "Built-in Display")

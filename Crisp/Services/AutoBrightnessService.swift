@@ -11,7 +11,6 @@ private let _DisplayServices_GetBrightness: (@convention(c) (CGDirectDisplayID, 
     guard let sym = dlsym(handle, "DisplayServicesGetBrightness") else { return nil }
     return unsafeBitCast(sym, to: (@convention(c) (CGDirectDisplayID, UnsafeMutablePointer<Float>) -> Int32).self)
 }()
-
 // CoreDisplay private API, reads the user-set brightness of a display (0.0–1.0).
 // Loaded via dlsym at runtime to avoid linking against the private CoreDisplay framework.
 private let _CoreDisplay_GetBrightness: (@convention(c) (CGDirectDisplayID) -> Double)? = {
@@ -253,6 +252,10 @@ final class AutoBrightnessService: ObservableObject, @unchecked Sendable {
         needsRebaseline = false
 
         let snapshot = DisplayManagerAccessor.shared.displays
+        let builtinDisplay = snapshot.first(where: { $0.isBuiltin })
+        let builtinLinear = builtinDisplay.flatMap {
+            BrightnessService.shared.linearBrightness(for: $0.displayID)
+        }
         for display in snapshot {
             // Only sync to external (non-builtin) displays.
             guard !display.isBuiltin else { continue }
@@ -270,8 +273,20 @@ final class AutoBrightnessService: ObservableObject, @unchecked Sendable {
                 // in the boost region, and capping at 100 would silently drag a
                 // boosted display back down on every built-in change.
                 target = min(display.maxBrightness, max(0.0, builtinPct + offset))
+            } else if let builtinLinear,
+                      let builtinMaxNits = builtinDisplay?.nominalMaxNits,
+                      let externalMaxNits = display.nominalMaxNits {
+                // Absolute means absolute luminance, not equal slider percentages.
+                // The built-in curve is highly nonlinear, so derive DDC percent
+                // from estimated nits using the same calibration as Combined.
+                let matched = CombinedBrightnessMath.externalBrightnessMatchingBuiltin(
+                    builtinLinear: builtinLinear,
+                    builtinMaxNits: builtinMaxNits,
+                    externalMaxNits: externalMaxNits,
+                    builtinAdjustment: SettingsService.shared.combinedBuiltinBrightnessFactor)
+                target = min(100.0, max(0.0, matched * sensitivity))
             } else {
-                // Absolute mirror (old behavior): external tracks the built-in's level.
+                // Missing luminance metadata: preserve the old percentage mirror.
                 target = min(100.0, max(0.0, builtin * sensitivity * 100.0))
             }
 
