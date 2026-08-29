@@ -73,6 +73,7 @@ targets:
       - path: Crisp/Models/GammaPersistenceKey.swift
       - path: Crisp/Models/VariableRefreshModes.swift
       - path: Crisp/Models/KeyboardShortcut.swift
+      - path: Crisp/Utilities/CombinedBrightnessMath.swift
       - path: Crisp/Models/DisplayPreset.swift
       - path: Crisp/Models/CrispControlModel.swift
     settings:

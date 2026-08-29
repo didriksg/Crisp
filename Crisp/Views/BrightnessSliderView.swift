@@ -260,18 +260,76 @@ struct BrightnessSliderView: View {
 
 struct CombinedBrightnessView: View {
     let displays: [DisplayInfo]
+    @ObservedObject private var settings = SettingsService.shared
     @State private var combinedBrightness: Double = 50
     @State private var isDragging: Bool = false
     @State private var dragConfirmed: Bool = false
     @State private var deferredFirstChange: Bool = false
     @State private var clickGliding: Bool = false
 
+    /// Externals define the shared scale; unlike the built-in panel, their
+    /// current DDC percentage is already the combined control's reference.
+    private var referenceDisplays: [DisplayInfo] {
+        let externals = displays.filter { !$0.isBuiltin }
+        return externals.isEmpty ? displays : externals
+    }
+
+    private var referenceMaxNits: Double? {
+        let values = referenceDisplays.compactMap(\.nominalMaxNits)
+        guard !values.isEmpty else { return nil }
+        return values.reduce(0, +) / Double(values.count)
+    }
+
     private var averageBrightness: Double {
-        guard !displays.isEmpty else { return 50 }
-        // Proportional: each display contributes its position within its own
-        // range, so a boosted display at 160/160 and a plain one at 100/100
-        // both read as 100%.
-        return displays.map { $0.brightness / $0.maxBrightness * 100.0 }.reduce(0, +) / Double(displays.count)
+        guard !referenceDisplays.isEmpty else { return 50 }
+        return referenceDisplays.map {
+            CombinedBrightnessMath.controlValue(
+                brightness: $0.brightness,
+                maxBrightness: $0.maxBrightness,
+                displayMaxNits: $0.nominalMaxNits,
+                referenceMaxNits: referenceMaxNits)
+        }.reduce(0, +) / Double(referenceDisplays.count)
+    }
+
+    private func targetBrightness(_ combined: Double, for display: DisplayInfo) -> Double {
+        guard !display.isBuiltin else {
+            return combined / 100.0 * display.maxBrightness
+        }
+        return CombinedBrightnessMath.targetBrightness(
+            combined: combined,
+            maxBrightness: display.maxBrightness,
+            displayMaxNits: display.nominalMaxNits,
+            referenceMaxNits: referenceMaxNits)
+    }
+
+    private func builtinLinearTarget(_ combined: Double, for display: DisplayInfo) -> Double? {
+        guard display.isBuiltin, display.maxBrightness <= 100.5,
+              let referenceMaxNits,
+              let builtinMaxNits = display.nominalMaxNits else { return nil }
+        return CombinedBrightnessMath.builtinLinearTarget(
+            combined: combined,
+            referenceMaxNits: referenceMaxNits,
+            builtinMaxNits: builtinMaxNits,
+            adjustment: settings.combinedBuiltinBrightnessFactor)
+    }
+
+    private func setSmooth(_ combined: Double, for display: DisplayInfo) {
+        if let linear = builtinLinearTarget(combined, for: display) {
+            BrightnessService.shared.setBuiltinLinearBrightnessSmooth(linear, for: display)
+        } else {
+            BrightnessService.shared.setBrightnessSmooth(
+                targetBrightness(combined, for: display), for: display)
+        }
+    }
+
+    private func setImmediate(_ combined: Double, for display: DisplayInfo) async {
+        if let linear = builtinLinearTarget(combined, for: display) {
+            await BrightnessService.shared.setBuiltinLinearBrightness(linear, for: display)
+        } else {
+            let target = targetBrightness(combined, for: display)
+            display.brightness = target
+            await BrightnessService.shared.setBrightness(target, for: display)
+        }
     }
 
     var body: some View {
@@ -302,8 +360,7 @@ struct CombinedBrightnessView: View {
                             // probe sync would snap it back down through the fade.
                             clickGliding = true
                             for display in displays {
-                                BrightnessService.shared.setBrightnessSmooth(
-                                    combinedBrightness / 100.0 * display.maxBrightness, for: display)
+                                setSmooth(combinedBrightness, for: display)
                             }
                             Task { @MainActor in
                                 try? await Task.sleep(nanoseconds: 600_000_000)  // fallback release
@@ -313,8 +370,7 @@ struct CombinedBrightnessView: View {
                             // Drag ended, flush final value to all displays.
                             Task { @MainActor in
                                 for display in displays {
-                                    await BrightnessService.shared.setBrightness(
-                                        combinedBrightness / 100.0 * display.maxBrightness, for: display)
+                                    await setImmediate(combinedBrightness, for: display)
                                 }
                             }
                         }
@@ -335,9 +391,7 @@ struct CombinedBrightnessView: View {
                     }
                     Task { @MainActor in
                         for display in displays {
-                            let target = newValue / 100.0 * display.maxBrightness
-                            display.brightness = target
-                            await BrightnessService.shared.setBrightness(target, for: display)
+                            await setImmediate(newValue, for: display)
                         }
                     }
                 }
@@ -355,14 +409,23 @@ struct CombinedBrightnessView: View {
             ForEach(displays) { display in
                 BrightnessProbe(display: display) {
                     // While a click-glide runs, hold the handle at the click target and
-                    // release once the fading average reaches it (mirrors the per-display
-                    // slider's clickGliding hold).
+                    // release once the fading reference average reaches it (mirrors the
+                    // per-display slider's clickGliding hold).
                     if clickGliding {
                         if abs(averageBrightness - combinedBrightness) < 0.75 { clickGliding = false }
                         return
                     }
                     if !isDragging { combinedBrightness = averageBrightness }
                 }
+            }
+        }
+        .onChange(of: settings.combinedBuiltinBrightnessFactor) { _, _ in
+            // Changing the calibration should be visible immediately. Keep the
+            // external reference fixed and re-aim the built-in around it.
+            guard !isDragging else { return }
+            combinedBrightness = averageBrightness
+            for display in displays where display.isBuiltin {
+                setSmooth(combinedBrightness, for: display)
             }
         }
         .onAppear {
@@ -377,7 +440,7 @@ struct CombinedBrightnessView: View {
         // the displays' real brightness via BrightnessProbe, so it glides in exact
         // sync with the per-display handles instead of lagging a separate ramp.
         for display in displays {
-            BrightnessService.shared.setBrightnessSmooth(target / 100.0 * display.maxBrightness, for: display)
+            setSmooth(target, for: display)
         }
     }
 }
