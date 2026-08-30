@@ -19,7 +19,10 @@ final class MenuPanel: NSPanel {
 @MainActor
 class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private static let log = Logger(subsystem: "com.crisp.app", category: "app")
-    private var wakeObserver: NSObjectProtocol?
+    private var wakeObservers: [NSObjectProtocol] = []
+    /// Coalesces the wake chain: a full system wake posts didWake and
+    /// screensDidWake both, and one pass covers both.
+    private var wakeTask: Task<Void, Never>?
     private var screenObserver: NSObjectProtocol?
     /// Debounces panel re-anchoring across the storm of screen-param changes a
     /// display connect/disconnect fires (see screenObserver).
@@ -129,13 +132,18 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             BrightnessBoostService.shared.reapplyAll()
         }
 
-        wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.didWakeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            // Delivered on `queue: .main`, so the main actor is current.
-            MainActor.assumeIsolated { self?.onWake?() }
+        // screensDidWake counts as much as didWake: displays that sleep on their
+        // own (display idle timeout, Mac stays awake) come back with the transfer
+        // table reset, and no didWake ever fires to restore it (issue #82).
+        for name in [NSWorkspace.didWakeNotification, NSWorkspace.screensDidWakeNotification] {
+            wakeObservers.append(NSWorkspace.shared.notificationCenter.addObserver(
+                forName: name,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                // Delivered on `queue: .main`, so the main actor is current.
+                MainActor.assumeIsolated { self?.onWake?() }
+            })
         }
 
         setupStartupBehavior()
@@ -240,7 +248,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         controlServer.stop()
-        if let obs = wakeObserver {
+        for obs in wakeObservers {
             NSWorkspace.shared.notificationCenter.removeObserver(obs)
         }
         BrightnessKeyService.shared.stop()
@@ -260,8 +268,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // Launching must never touch display state the user didn't ask for
         // (the inherited auto-arrange-external-above-builtin is gone).
         onWake = { [weak self] in
-            guard let dm = self?.displayManager else { return }
-            Task { @MainActor in
+            guard let self, self.wakeTask == nil else { return }
+            let dm = self.displayManager
+            self.wakeTask = Task { @MainActor [weak self] in
+                defer { self?.wakeTask = nil }
                 // Give WindowServer 2 seconds to stabilize after wake before
                 // touching display state.
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
