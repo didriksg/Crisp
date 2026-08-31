@@ -14,20 +14,30 @@ struct MenuItemIcon: View {
     /// Optical size compensation. Sparse glyphs (a bare `plus`) read smaller than
     /// dense ones (`gearshape.fill`) at the same point size, so a few call sites
     /// nudge theirs up to match the rest of the column. Leave it alone otherwise.
-    var glyphSize: CGFloat = 12
+    var glyphSize: CGFloat = 13
+
+    /// Colored chips keep the filled glyph (white on accent, as the native menus do);
+    /// the gray inactive chip takes the outline twin so it reads as line art instead of
+    /// a solid shape. Not every symbol has one, and Image(systemName:) draws nothing when
+    /// the name is missing, so fall back to the filled name.
+    private var glyph: String {
+        guard !active else { return systemName }
+        let outline = systemName.replacingOccurrences(of: ".fill", with: "")
+        return NSImage(systemSymbolName: outline, accessibilityDescription: nil) != nil ? outline : systemName
+    }
 
     var body: some View {
         // One view, not two branches, so active<->inactive cross-fades the glyph
         // and fill instead of hard-swapping. Inactive keeps the same chip footprint
         // with a faint gray fill (Wi-Fi non-selected style); active fills with the
         // accent. Color still marks state, the change just animates.
-        Image(systemName: systemName)
-            .font(.system(size: glyphSize, weight: .medium))
+        Image(systemName: glyph)
+            .font(.system(size: glyphSize, weight: .regular))
             // Inactive glyph at full label strength (not .secondary) so it stays legible
             // on the faint chip; the lack of color, not a dimmer glyph, marks it inactive.
             .foregroundColor(active ? .white : .primary)
             .frame(width: 26, height: 26)
-            .background(Circle().fill(active ? color : Color.primary.opacity(0.12)))
+            .background(Circle().fill(active ? color : Color.primary.opacity(0.10)))
             // Same curve as the panel's section reveal, so a toggle that recolors its
             // icon and glides a section open move together.
             .animation(.panelResize, value: active)
