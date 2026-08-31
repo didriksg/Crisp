@@ -13,6 +13,8 @@ import SwiftUI
 final class DisplayProfileController: ObservableObject {
     let display: DisplayInfo
     @Published var presetName: String = ""
+    @Published var presets: [DisplayPresetService.Preset] = []
+    @Published var activePresetIndex: Int?
     @Published var activeProfileName: String = ""
 
     init(display: DisplayInfo) {
@@ -22,12 +24,17 @@ final class DisplayProfileController: ObservableObject {
     func reload() {
         activeProfileName = ColorProfileService.shared.currentColorSpaceName(for: display.displayID)
         let svc = DisplayPresetService.shared
-        if let idx = svc.activePresetIndex(for: display.displayID) {
-            presetName = svc.presets(for: display.displayID)
-                .first(where: { $0.index == idx })?.name ?? ""
-        } else {
-            presetName = ""
-        }
+        // MonitorPanel's KVC getters can spin the main run loop. Never invoke
+        // them from a SwiftUI body: a screen-parameter notification delivered
+        // by that nested run loop re-enters AttributeGraph mid-update and macOS
+        // aborts on its value_set precondition. Cache one snapshot here instead.
+        let newPresets = svc.presets(for: display.displayID)
+        let newActiveIndex = svc.activePresetIndex(for: display.displayID)
+        presets = newPresets
+        activePresetIndex = newActiveIndex
+        presetName = newActiveIndex.flatMap { idx in
+            newPresets.first(where: { $0.index == idx })?.name
+        } ?? ""
     }
 
     func refreshActiveProfileName() {
@@ -85,7 +92,7 @@ struct ProfileBodyBlock: View {
 
     var body: some View {
         if !controller.presetName.isEmpty {
-            DisplayPresetView(displayID: controller.display.displayID, activeName: $controller.presetName)
+            DisplayPresetView(controller: controller)
         } else {
             ColorProfileView(display: controller.display, activeProfileName: $controller.activeProfileName)
         }
