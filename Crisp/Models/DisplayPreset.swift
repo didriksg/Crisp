@@ -60,3 +60,41 @@ enum PresetCapture: String, CaseIterable, Identifiable {
         }
     }
 }
+
+/// Pure routing decision for preset resolution restoration. Beyond-cap HiDPI
+/// sizes must use the mirror path even when the physical display exposes a
+/// same-size 1× fallback mode.
+struct PresetModeCandidate: Equatable {
+    let width: Int
+    let height: Int
+    let isHiDPI: Bool
+}
+
+enum PresetResolutionRoute: Equatable {
+    case physical(index: Int)
+    case mirror
+    case unavailable
+}
+
+enum PresetResolutionRouter {
+    static func route(width: Int, height: Int, isHiDPI: Bool,
+                      candidates: [PresetModeCandidate],
+                      beyondCapStops: [PanelResolution]) -> PresetResolutionRoute {
+        if isHiDPI, beyondCapStops.contains(where: {
+            $0.width == width && $0.height == height
+        }) {
+            return .mirror
+        }
+        if let index = candidates.firstIndex(where: {
+            $0.width == width && $0.height == height && $0.isHiDPI == isHiDPI
+        }) {
+            return .physical(index: index)
+        }
+        if let index = candidates.firstIndex(where: {
+            $0.width == width && $0.height == height
+        }) {
+            return .physical(index: index)
+        }
+        return .unavailable
+    }
+}

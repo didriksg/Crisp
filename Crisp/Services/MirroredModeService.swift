@@ -1,5 +1,6 @@
 import CoreGraphics
 import Foundation
+import ApplicationServices
 import os.log
 
 /// True HiDPI past WindowServer's scaled-backing cap (issue #65). On 5K2K
@@ -29,6 +30,47 @@ final class MirroredModeService: ObservableObject {
     /// Live CGVirtualDisplay per mirrored physical display. Releasing a value
     /// is what destroys its virtual display, so this dictionary IS the state.
     private var active: [CGDirectDisplayID: CGVirtualDisplay] = [:]
+    /// Stops declared on each active virtual. A request outside the bounded
+    /// window can rebuild immediately instead of waiting through mode retries.
+    private var declaredStops: [CGDirectDisplayID: Set<PanelResolution>] = [:]
+    /// Virtual IDs whose strong reference was dropped but whose asynchronous
+    /// WindowServer teardown has not yet been confirmed. Stable identity must
+    /// not be recreated until these IDs leave the online list.
+    private var retiringVirtualIDs: [UInt32: CGDirectDisplayID] = [:]
+    /// The descriptor identity associated with each (volatile) physical ID.
+    /// Kept across disconnects so a reconnect under a new CGDirectDisplayID
+    /// still finds teardown state keyed by the stable virtual product ID.
+    private var identityKeysByPhysicalID: [CGDirectDisplayID: UInt32] = [:]
+    private struct PhysicalFingerprint: Equatable {
+        let vendor: UInt32
+        let model: UInt32
+        let serial: UInt32
+        let uuid: String
+    }
+    /// Guards against macOS reusing a numeric display ID for different
+    /// hardware during a reconnect storm.
+    private var fingerprintsByPhysicalID: [CGDirectDisplayID: PhysicalFingerprint] = [:]
+
+    private struct OperationTail {
+        let token: UUID
+        let task: Task<Bool, Never>
+    }
+    /// Serializes every apply/restore/native-size mutation per physical panel.
+    /// MainActor alone is insufficient because these operations await and are
+    /// therefore reentrant.
+    private var operationTails: [UInt32: OperationTail] = [:]
+    /// Physical displays with a mandatory unmirror queued behind a timed-out
+    /// WindowServer call. New operations fail fast until its late completion
+    /// repairs state, while the caller that requested teardown stays bounded.
+    private var deferredCleanupIdentityKeys: Set<UInt32> = []
+    /// Stable identities whose CGVirtualDisplay.apply is still queued/running
+    /// after its caller timed out. No second object with the same descriptor
+    /// identity may be constructed until the late result has been retired.
+    private var deferredCreationIdentityKeys: Set<UInt32> = []
+    /// Failed/timed-out creations kept alive during a bounded registration
+    /// settle. The stable identity lease remains held until the object is
+    /// explicitly released and the online descriptor list is rescanned.
+    private var failedCreationObjects: [UInt32: CGVirtualDisplay] = [:]
 
     /// Published mirror of `active`'s keys so views can observe activity.
     @Published private(set) var activePhysicalIDs: Set<CGDirectDisplayID> = []
@@ -38,6 +80,10 @@ final class MirroredModeService: ObservableObject {
     /// isVirtualDisplay filter treating these as virtual). Lets launch recovery
     /// recognize a stray mirror virtual left by a crash.
     static let mirrorSerialMarker: UInt32 = 0x4D49_5252
+
+    /// Each stop becomes two CGVirtualDisplayMode declarations. Stay below the
+    /// observed ~400-object applySettings ceiling with a little safety margin.
+    private static let maximumVirtualStops = 190
 
     // MARK: - Queries
 
@@ -67,43 +113,99 @@ final class MirroredModeService: ObservableObject {
     func apply(display: DisplayInfo, width: Int, height: Int) async -> Bool {
         guard !display.isBuiltin else { return false }
         let physicalID = display.displayID
+        guard await prepareIdentity(for: display) else { return false }
+
+        return await enqueueOperation(for: physicalID) { [self] in
+            await performApply(display: display, width: width, height: height)
+        }
+    }
+
+    private func performApply(display: DisplayInfo, width: Int, height: Int) async -> Bool {
+        let physicalID = display.displayID
+        let identityKey = Self.mirrorIdentityKey(for: display)
+        guard !deferredCleanupIdentityKeys.contains(identityKey) else {
+            Self.log.error("apply \(width)x\(height): mandatory unmirror is still queued")
+            return false
+        }
+        guard !deferredCreationIdentityKeys.contains(identityKey) else {
+            Self.log.error("apply \(width)x\(height): virtual creation cleanup is still pending")
+            return false
+        }
+        guard await confirmRetiredVirtual(for: physicalID) else {
+            Self.log.error("apply \(width)x\(height): previous virtual is still online")
+            return false
+        }
 
         if let vdID = active[physicalID]?.displayID {
-            guard await setLooksLike(width: width, height: height, on: vdID) else {
-                Self.log.error("apply \(width)x\(height): setLooksLike failed on existing virtual \(vdID)")
-                return false
+            let requested = PanelResolution(width: width, height: height)
+            let isDeclared = declaredStops[physicalID]?.contains(requested) == true
+            if isDeclared, await setLooksLike(width: width, height: height, on: vdID) {
+                // Re-arm the mirror if something dropped it under us (a wake or a
+                // WindowServer reset can collapse a mirror set without telling us).
+                if CGDisplayMirrorsDisplay(physicalID) != vdID {
+                    Self.log.info("apply \(width)x\(height): reused virtual \(vdID), re-arming mirror")
+                    let enabled = await MirrorService.shared.enableMirror(
+                        source: vdID, target: physicalID,
+                        expectedTargetUUID: display.displayUUID)
+                    if !enabled { _ = await performRestore(physicalID: physicalID) }
+                    return enabled
+                }
+                Self.log.info("apply \(width)x\(height): reused virtual \(vdID)")
+                return true
             }
-            // Re-arm the mirror if something dropped it under us (a wake or a
-            // WindowServer reset can collapse a mirror set without telling us).
-            if CGDisplayMirrorsDisplay(physicalID) != vdID {
-                Self.log.info("apply \(width)x\(height): reused virtual \(vdID), re-arming mirror")
-                return await MirrorService.shared.enableMirror(source: vdID, target: physicalID)
-            }
-            Self.log.info("apply \(width)x\(height): reused virtual \(vdID)")
-            return true
+
+            // A manual native-size correction, or movement outside a bounded
+            // very-wide mode window, makes the old virtual's grid obsolete.
+            // Tear it down and rebuild around the requested stop.
+            Self.log.info("apply \(width)x\(height): rebuilding virtual \(vdID), requested stop declared: \(isDeclared)")
+            guard await performRestore(physicalID: physicalID) else { return false }
         }
 
-        guard let virtualDisplay = await createMirrorVirtual(for: display,
-                                                             mustInclude: (width, height))
-        else {
-            Self.log.error("apply \(width)x\(height): createMirrorVirtual failed")
+        // Retirement bookkeeping is process-local. A previous crashed process
+        // can briefly leave the same stable virtual identity online, so verify
+        // the authoritative display list immediately before constructing one.
+        guard await confirmNoUntrackedVirtual(for: physicalID) else {
+            Self.log.error("apply \(width)x\(height): matching mirror virtual is still online")
             return false
         }
-        active[physicalID] = virtualDisplay
+
+        var pendingCreation = await createMirrorVirtual(
+            for: display, mustInclude: (width, height))
+        guard pendingCreation != nil else {
+            Self.log.error("apply \(width)x\(height): createMirrorVirtual failed")
+            // applySettings may have timed out while its serialized blocking
+            // body continued. If it gave the virtual an ID, do not permit the
+            // next attempt to reuse this monitor's stable identity until that
+            // failed object has actually left WindowServer.
+            _ = await confirmRetiredVirtual(for: physicalID)
+            return false
+        }
+        let virtualID: CGDirectDisplayID
+        do {
+            // Limit the local strong reference to this scope. After assigning
+            // `active`, that dictionary must be the sole owner so a failure
+            // cleanup can actually destroy the display before confirming it.
+            guard let created = pendingCreation else { return false }
+            virtualID = created.display.displayID
+            active[physicalID] = created.display
+            declaredStops[physicalID] = created.stops
+        }
+        pendingCreation = nil
         activePhysicalIDs.insert(physicalID)
 
-        guard await setLooksLike(width: width, height: height, on: virtualDisplay.displayID) else {
-            Self.log.error("apply \(width)x\(height): setLooksLike failed on fresh virtual \(virtualDisplay.displayID)")
-            await restore(physicalID: physicalID)
+        guard await setLooksLike(width: width, height: height, on: virtualID) else {
+            Self.log.error("apply \(width)x\(height): setLooksLike failed on fresh virtual \(virtualID)")
+            _ = await performRestore(physicalID: physicalID)
             return false
         }
-        guard await MirrorService.shared.enableMirror(source: virtualDisplay.displayID,
-                                                      target: physicalID) else {
-            Self.log.error("apply \(width)x\(height): enableMirror failed (virtual \(virtualDisplay.displayID) -> physical \(physicalID))")
-            await restore(physicalID: physicalID)
+        guard await MirrorService.shared.enableMirror(source: virtualID,
+                                                      target: physicalID,
+                                                      expectedTargetUUID: display.displayUUID) else {
+            Self.log.error("apply \(width)x\(height): enableMirror failed (virtual \(virtualID) -> physical \(physicalID))")
+            _ = await performRestore(physicalID: physicalID)
             return false
         }
-        Self.log.info("apply \(width)x\(height): mirrored physical \(physicalID) onto virtual \(virtualDisplay.displayID)")
+        Self.log.info("apply \(width)x\(height): mirrored physical \(physicalID) onto virtual \(virtualID)")
         return true
     }
 
@@ -113,27 +215,155 @@ final class MirroredModeService: ObservableObject {
     /// always unmirror first (the probe's verified-safe order).
     @discardableResult
     func restore(display: DisplayInfo) async -> Bool {
-        await restore(physicalID: display.displayID)
+        guard await prepareIdentity(for: display) else { return false }
+        return await restore(physicalID: display.displayID)
     }
 
     @discardableResult
     func restore(physicalID: CGDirectDisplayID) async -> Bool {
+        if identityKeysByPhysicalID[physicalID] == nil,
+           let virtualID = active[physicalID]?.displayID {
+            identityKeysByPhysicalID[physicalID] = CGDisplayModelNumber(virtualID)
+        }
+        return await enqueueOperation(for: physicalID) { [self] in
+            await performRestore(physicalID: physicalID)
+        }
+    }
+
+    /// Changes the panel-resolution source only after any mirror virtual has
+    /// been safely retired. The mutation and the ensuing detail reload stay in
+    /// the same per-display operation, so an apply cannot race in between and
+    /// rebuild from stale dimensions.
+    @discardableResult
+    func updatePanelResolution(
+        for display: DisplayInfo,
+        change: @escaping @MainActor () async -> Void
+    ) async -> Bool {
+        guard await prepareIdentity(for: display) else { return false }
+        return await enqueueOperation(for: display.displayID) { [self] in
+            guard await performRestore(physicalID: display.displayID) else { return false }
+            await change()
+            return true
+        }
+    }
+
+    /// Runs a physical-display mode change after teardown, without allowing a
+    /// new mirror apply to slip between those two steps.
+    @discardableResult
+    func withMirrorRestored(
+        for display: DisplayInfo,
+        operation: @escaping @MainActor () async -> Bool
+    ) async -> Bool {
+        guard await prepareIdentity(for: display) else { return false }
+        return await enqueueOperation(for: display.displayID) { [self] in
+            guard await performRestore(physicalID: display.displayID) else { return false }
+            return await operation()
+        }
+    }
+
+    private func performRestore(physicalID: CGDirectDisplayID) async -> Bool {
+        guard let identityKey = identityKeysByPhysicalID[physicalID],
+              !deferredCleanupIdentityKeys.contains(identityKey) else { return false }
+        guard await confirmRetiredVirtual(for: physicalID) else { return false }
         guard let vdID = active[physicalID]?.displayID else { return true }
+        guard let expectedTargetUUID = fingerprintsByPhysicalID[physicalID]?.uuid else {
+            return false
+        }
         Self.log.info("restore: unmirroring physical \(physicalID), destroying virtual \(vdID)")
-        // Only a confirmed unmirror may let the virtual go. disableMirror's false
-        // covers both a refused transaction and a slow one still in flight
-        // (runWithTimeout's fallback), and in either case the panel may still be
-        // mirroring this virtual; keep the entry, so the master stays alive and
-        // the next slider move or reconcile() gets another go.
-        guard await MirrorService.shared.disableMirror(displayID: physicalID) else {
+        // Only a confirmed unmirror may let the virtual go. Mandatory teardown
+        // waits for older timed-out transactions to drain before it runs, so a
+        // late enable cannot escape this cleanup. If CG still refuses it and the
+        // panel remains a target, keep the master alive for the next retry.
+        deferredCleanupIdentityKeys.insert(identityKey)
+        let disableResult = await MirrorService.shared.disableMirror(
+            displayID: physicalID,
+            expectedSource: vdID,
+            expectedTargetUUID: expectedTargetUUID,
+            lateCompletion: { [weak self] disabled in
+                Task { @MainActor [weak self] in
+                    await self?.finishDeferredRestore(
+                        identityKey: identityKey, physicalID: physicalID,
+                        virtualID: vdID, disabled: disabled)
+                }
+            })
+        switch disableResult {
+        case .timedOut:
+            Self.log.error("restore: unmirror of physical \(physicalID) timed out; cleanup remains queued")
+            return false
+        case .completed(let disabled):
+            deferredCleanupIdentityKeys.remove(identityKey)
+            guard disabled else {
+                Self.log.error("restore: unmirror of physical \(physicalID) failed (result \(disabled)), keeping virtual \(vdID)")
+                return false
+            }
+        }
+
+        guard beginVirtualRetirement(physicalID: physicalID, virtualID: vdID) else {
             Self.log.error("restore: unmirror of physical \(physicalID) failed, keeping virtual \(vdID)")
             return false
         }
-        // Dropping the last reference starts WindowServer's async teardown.
+        return await confirmRetiredVirtual(for: physicalID)
+    }
+
+    private func finishDeferredRestore(
+        identityKey: UInt32,
+        physicalID: CGDirectDisplayID,
+        virtualID: CGDirectDisplayID,
+        disabled: Bool
+    ) async {
+        guard deferredCleanupIdentityKeys.contains(identityKey) else { return }
+        defer { deferredCleanupIdentityKeys.remove(identityKey) }
+
+        guard disabled else {
+            Self.log.error("restore: deferred unmirror of physical \(physicalID) failed (result \(disabled))")
+            return
+        }
+        guard beginVirtualRetirement(physicalID: physicalID, virtualID: virtualID) else {
+            return
+        }
+        _ = await confirmRetiredVirtual(for: physicalID)
+    }
+
+    private func beginVirtualRetirement(
+        physicalID: CGDirectDisplayID,
+        virtualID: CGDirectDisplayID
+    ) -> Bool {
+        guard active[physicalID]?.displayID == virtualID,
+              let identityKey = identityKeysByPhysicalID[physicalID] else { return false }
+        // Dropping the last strong reference starts WindowServer's async teardown.
         active.removeValue(forKey: physicalID)
+        declaredStops.removeValue(forKey: physicalID)
         activePhysicalIDs.remove(physicalID)
-        await waitForDisplayOffline(vdID)
+        retiringVirtualIDs[identityKey] = virtualID
         return true
+    }
+
+    private func enqueueOperation(
+        for physicalID: CGDirectDisplayID,
+        operation: @escaping @MainActor () async -> Bool
+    ) async -> Bool {
+        guard let identityKey = identityKeysByPhysicalID[physicalID] else { return false }
+        let previous = operationTails[identityKey]?.task
+        let token = UUID()
+        let task = Task { @MainActor in
+            _ = await previous?.value
+            guard await prepareQueuedState(for: physicalID, identityKey: identityKey) else {
+                return false
+            }
+            return await operation()
+        }
+        operationTails[identityKey] = OperationTail(token: token, task: task)
+        let result = await task.value
+        if operationTails[identityKey]?.token == token {
+            operationTails.removeValue(forKey: identityKey)
+            // reconcile() deliberately leaves in-flight state alone. Re-read
+            // the online set after the final queued operation so an unplug that
+            // happened during an await cannot leave the virtual retained.
+            if let online = currentOnlineDisplayIDs() {
+                reconcile(online: online)
+            }
+        }
+        return result
     }
 
     /// Keeps the bookkeeping truthful against the fresh online list (called from
@@ -145,10 +375,31 @@ final class MirroredModeService: ObservableObject {
     /// Set-based rather than per removed ID because the mirror virtual is never
     /// in `DisplayManager.displays`, so its death never shows in that diff.
     func reconcile(online: Set<CGDirectDisplayID>) {
-        for (physicalID, virtualDisplay) in active
-        where !online.contains(physicalID) || !online.contains(virtualDisplay.displayID) {
+        for (physicalID, virtualDisplay) in active {
+            let identityKey = identityKeysByPhysicalID[physicalID]
+            guard identityKey.flatMap({ operationTails[$0] }) == nil else { continue }
+            if online.contains(physicalID),
+               let expected = fingerprintsByPhysicalID[physicalID],
+               currentFingerprint(for: physicalID) != expected {
+                // The numeric ID now names different hardware. Keep the master
+                // alive and run the verified unmirror-first path asynchronously.
+                Task { _ = await self.restore(physicalID: physicalID) }
+                continue
+            }
+            guard !online.contains(physicalID)
+                    || !online.contains(virtualDisplay.displayID) else { continue }
+            if online.contains(virtualDisplay.displayID) {
+                if let identityKey {
+                    retiringVirtualIDs[identityKey] = virtualDisplay.displayID
+                }
+            }
             active.removeValue(forKey: physicalID)
+            declaredStops.removeValue(forKey: physicalID)
             activePhysicalIDs.remove(physicalID)
+            if let identityKey { deferredCleanupIdentityKeys.remove(identityKey) }
+        }
+        for (identityKey, virtualID) in retiringVirtualIDs where !online.contains(virtualID) {
+            retiringVirtualIDs.removeValue(forKey: identityKey)
         }
     }
 
@@ -176,7 +427,9 @@ final class MirroredModeService: ObservableObject {
         let hidpiTop = display.availableModes.filter { $0.isHiDPI }.map(\.width).max() ?? 0
         guard hidpiTop > 0 else { return [] }
         return HiDPIService.shared
-            .smoothScaledLogicalSizes(nativeWidth: nativeW, nativeHeight: nativeH)
+            .smoothScaledLogicalSizes(
+                nativeWidth: nativeW, nativeHeight: nativeH,
+                enforcePlatformBackingLimit: false)
             .filter { $0.width > hidpiTop && $0.width < nativeW }
     }
 
@@ -196,7 +449,12 @@ final class MirroredModeService: ObservableObject {
             && CGDisplaySerialNumber(id) == Self.mirrorSerialMarker
             && !active.values.contains(where: { $0.displayID == id }) {
             guard let target = MirrorService.shared.mirrorTargets(of: id) else { continue }
-            Task { await MirrorService.shared.disableMirror(displayID: target) }
+            let targetUUID = Self.displayUUID(for: target)
+            Task {
+                await MirrorService.shared.disableMirror(
+                    displayID: target, expectedSource: id,
+                    expectedTargetUUID: targetUUID)
+            }
         }
     }
 
@@ -206,6 +464,10 @@ final class MirroredModeService: ObservableObject {
     /// also collapse the mirror set, this just makes it orderly.)
     func teardownAll() {
         for physicalID in active.keys {
+            guard let virtualID = active[physicalID]?.displayID,
+                  let expectedUUID = fingerprintsByPhysicalID[physicalID]?.uuid,
+                  Self.displayUUID(for: physicalID) == expectedUUID,
+                  CGDisplayMirrorsDisplay(physicalID) == virtualID else { continue }
             var config: CGDisplayConfigRef?
             guard CGBeginDisplayConfiguration(&config) == .success, let cfg = config else { continue }
             CGConfigureDisplayMirrorOfDisplay(cfg, physicalID, kCGNullDirectDisplay)
@@ -214,6 +476,13 @@ final class MirroredModeService: ObservableObject {
             }
         }
         active.removeAll()
+        declaredStops.removeAll()
+        retiringVirtualIDs.removeAll()
+        identityKeysByPhysicalID.removeAll()
+        fingerprintsByPhysicalID.removeAll()
+        deferredCleanupIdentityKeys.removeAll()
+        deferredCreationIdentityKeys.removeAll()
+        failedCreationObjects.removeAll()
         activePhysicalIDs.removeAll()
     }
 
@@ -228,8 +497,13 @@ final class MirroredModeService: ObservableObject {
     /// (verified live on a 5K2K panel). One refresh rate keeps the dense
     /// ladder under the ~400-object ceiling where applySettings rejects the
     /// whole set.
+    private struct CreatedMirror {
+        let display: CGVirtualDisplay
+        let stops: Set<PanelResolution>
+    }
+
     private func createMirrorVirtual(for display: DisplayInfo,
-                                     mustInclude: (width: Int, height: Int)) async -> CGVirtualDisplay? {
+                                     mustInclude: (width: Int, height: Int)) async -> CreatedMirror? {
         let (nativeW, nativeH) = display.nativeResolution
         guard nativeW > 0, nativeH > 0 else { return nil }
 
@@ -258,17 +532,19 @@ final class MirroredModeService: ObservableObject {
         descriptor.vendorID = VirtualDisplayService.crispVirtualVendorID
         // Stable per monitor; the serial carries the mirror marker. Two
         // identical monitors mirroring at once would collide, accepted edge.
-        let panelIdentity = display.vendorNumber ^ display.modelNumber
-        descriptor.productID = panelIdentity != 0 ? panelIdentity : 0x4D52
+        let panelIdentity = Self.mirrorIdentityKey(for: display)
+        descriptor.productID = panelIdentity
         descriptor.serialNum = Self.mirrorSerialMarker
 
         // Every beyond-cap stop on the smooth-scaling grid, in the same
         // (rotated) space as availableModes and the slider; the requested size
         // is force-included in case it sits off that grid.
-        var stops = Self.beyondCapStops(for: display)
-        if !stops.contains(where: { $0.width == mustInclude.width && $0.height == mustInclude.height }) {
-            stops.append((width: mustInclude.width, height: mustInclude.height))
+        let required = PanelResolution(width: mustInclude.width, height: mustInclude.height)
+        let candidates = Self.beyondCapStops(for: display).map {
+            PanelResolution(width: $0.width, height: $0.height)
         }
+        let stops = MirrorModeGeometry.boundedStops(
+            candidates, including: required, maximumCount: Self.maximumVirtualStops)
 
         // One rate only (the panel's own, 60 when unreadable): every stop costs
         // TWO mode objects below, and a second rate would put a dense ladder
@@ -308,15 +584,28 @@ final class MirroredModeService: ObservableObject {
         // CG transaction (same as VirtualDisplayService.create).
         let vd = virtualDisplay
         let s = settings
-        let applied: Bool = await CGHelpers.runWithTimeout(seconds: 10, fallback: false) {
-            vd.apply(s)
+        deferredCreationIdentityKeys.insert(panelIdentity)
+        let applyResult = await CGHelpers.runMandatoryWithTimeout(
+            seconds: 10,
+            operation: { vd.apply(s) },
+            lateCompletion: { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.stageFailedCreation(
+                        identityKey: panelIdentity, virtualDisplay: vd)
+                }
+            })
+        guard case .completed(let applied) = applyResult else {
+            Self.log.error("createMirrorVirtual: applySettings timed out; identity lease retained")
+            return nil
         }
         guard applied, virtualDisplay.displayID != kCGNullDirectDisplay else {
             Self.log.error("createMirrorVirtual: applySettings \(applied ? "ok but null displayID" : "failed") (\(modes.count) modes)")
+            stageFailedCreation(identityKey: panelIdentity, virtualDisplay: virtualDisplay)
             return nil
         }
+        deferredCreationIdentityKeys.remove(panelIdentity)
         Self.log.info("createMirrorVirtual: virtual \(virtualDisplay.displayID) up, \(modes.count) modes declared")
-        return virtualDisplay
+        return CreatedMirror(display: virtualDisplay, stops: Set(stops))
     }
 
     // MARK: - Helpers
@@ -351,12 +640,215 @@ final class MirroredModeService: ObservableObject {
     /// Waits (bounded) for a torn-down virtual display to leave the online
     /// list; same event-driven pattern as VirtualDisplayService, duplicated
     /// because both keep it private to their own teardown story.
-    private func waitForDisplayOffline(_ displayID: CGDirectDisplayID) async {
+    private func confirmRetiredVirtual(for physicalID: CGDirectDisplayID) async -> Bool {
+        guard let identityKey = identityKeysByPhysicalID[physicalID],
+              let virtualID = retiringVirtualIDs[identityKey] else { return true }
+        guard await waitForDisplayOffline(virtualID) else {
+            Self.log.error("restore: virtual \(virtualID) is still online; refusing stable-identity reuse")
+            return false
+        }
+        retiringVirtualIDs.removeValue(forKey: identityKey)
+        return true
+    }
+
+    private func stageFailedCreation(
+        identityKey: UInt32,
+        virtualDisplay: CGVirtualDisplay
+    ) {
+        guard deferredCreationIdentityKeys.contains(identityKey) else { return }
+        failedCreationObjects[identityKey] = virtualDisplay
+        Task { @MainActor [weak self] in
+            await self?.settleFailedCreation(identityKey: identityKey)
+        }
+    }
+
+    private func settleFailedCreation(identityKey: UInt32) async {
+        guard deferredCreationIdentityKeys.contains(identityKey) else { return }
+
+        // apply(_:) can return before WindowServer publishes displayID. Hold the
+        // object and lease through a bounded registration window.
+        var virtualID = kCGNullDirectDisplay
+        for _ in 0..<15 {
+            virtualID = failedCreationObjects[identityKey]?.displayID ?? kCGNullDirectDisplay
+            if virtualID != kCGNullDirectDisplay { break }
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+        if virtualID != kCGNullDirectDisplay {
+            retiringVirtualIDs[identityKey] = virtualID
+        }
+
+        // Explicitly release the failed display, then rescan its stable
+        // descriptor identity in case registration raced the last ID sample.
+        failedCreationObjects.removeValue(forKey: identityKey)
+        await Task.yield()
+        if virtualID == kCGNullDirectDisplay {
+            for _ in 0..<15 {
+                let scan = matchingOnlineMirrorVirtual(identityKey: identityKey)
+                if let conflict = scan.displayID {
+                    virtualID = conflict
+                    retiringVirtualIDs[identityKey] = conflict
+                    break
+                }
+                try? await Task.sleep(nanoseconds: 100_000_000)
+            }
+            if virtualID == kCGNullDirectDisplay {
+                // Only a successful scan at the END of the settle window can
+                // prove that a late registration did not appear. An earlier
+                // empty result becomes stale if the trailing queries fail.
+                let finalScan = matchingOnlineMirrorVirtual(identityKey: identityKey)
+                if let conflict = finalScan.displayID {
+                    virtualID = conflict
+                    retiringVirtualIDs[identityKey] = conflict
+                } else if !finalScan.succeeded {
+                    Self.log.error("createMirrorVirtual: final online rescan failed; identity lease retained")
+                    Task { @MainActor [weak self] in
+                        try? await Task.sleep(nanoseconds: 1_000_000_000)
+                        await self?.settleFailedCreation(identityKey: identityKey)
+                    }
+                    return
+                }
+            }
+        }
+
+        deferredCreationIdentityKeys.remove(identityKey)
+        guard virtualID != kCGNullDirectDisplay else { return }
+        guard await waitForDisplayOffline(virtualID) else {
+            Self.log.error("createMirrorVirtual: failed virtual \(virtualID) remains online")
+            return
+        }
+        if retiringVirtualIDs[identityKey] == virtualID {
+            retiringVirtualIDs.removeValue(forKey: identityKey)
+        }
+    }
+
+    private func matchingOnlineMirrorVirtual(
+        identityKey: UInt32
+    ) -> (succeeded: Bool, displayID: CGDirectDisplayID?) {
+        guard let online = currentOnlineDisplayIDs() else { return (false, nil) }
+        let conflict = online.first { candidate in
+            Self.isMirrorVirtual(candidate) && CGDisplayModelNumber(candidate) == identityKey
+                && !active.values.contains(where: { $0.displayID == candidate })
+        }
+        return (true, conflict)
+    }
+
+    private func confirmNoUntrackedVirtual(for physicalID: CGDirectDisplayID) async -> Bool {
+        guard let identityKey = identityKeysByPhysicalID[physicalID] else { return false }
+        guard !deferredCreationIdentityKeys.contains(identityKey) else { return false }
+        while true {
+            guard let online = currentOnlineDisplayIDs() else { return false }
+            let currentPhysicalVirtualID = active[physicalID]?.displayID
+            let conflicts = online.filter {
+                $0 != currentPhysicalVirtualID
+                    && Self.isMirrorVirtual($0)
+                    && CGDisplayModelNumber($0) == identityKey
+            }
+            guard let conflict = conflicts.first else { return true }
+
+            // Another physical panel with the same descriptor identity may own
+            // one of these virtuals. Reject without poisoning its retirement
+            // record; its owner must remain able to restore itself.
+            if conflicts.contains(where: { conflictID in
+                active.values.contains(where: { $0.displayID == conflictID })
+            }) {
+                Self.log.error("createMirrorVirtual: identity \(identityKey) is owned by another active virtual")
+                return false
+            }
+
+            retiringVirtualIDs[identityKey] = conflict
+            guard await confirmRetiredVirtual(for: physicalID) else { return false }
+            // Re-read the authoritative list: more than one crash stray can
+            // share the same descriptor identity.
+        }
+    }
+
+    private static func mirrorIdentityKey(for display: DisplayInfo) -> UInt32 {
+        let panelIdentity = display.vendorNumber ^ display.modelNumber
+        return panelIdentity != 0 ? panelIdentity : 0x4D52
+    }
+
+    private func prepareIdentity(for display: DisplayInfo) async -> Bool {
+        let physicalID = display.displayID
+        let fingerprint = Self.fingerprint(for: display)
+        guard currentFingerprint(for: physicalID) == fingerprint else {
+            Self.log.error("operation rejected: physical ID \(physicalID) now names different hardware")
+            return false
+        }
+
+        if let previousFingerprint = fingerprintsByPhysicalID[physicalID],
+           previousFingerprint != fingerprint {
+            guard identityKeysByPhysicalID[physicalID] != nil else { return false }
+            let cleaned = await enqueueOperation(for: physicalID) { [self] in
+                await performRestore(physicalID: physicalID)
+            }
+            guard cleaned else { return false }
+        }
+
+        identityKeysByPhysicalID[physicalID] = Self.mirrorIdentityKey(for: display)
+        fingerprintsByPhysicalID[physicalID] = fingerprint
+        return true
+    }
+
+    private static func fingerprint(for display: DisplayInfo) -> PhysicalFingerprint {
+        PhysicalFingerprint(vendor: display.vendorNumber, model: display.modelNumber,
+                            serial: display.serialNumber, uuid: display.displayUUID)
+    }
+
+    private func currentFingerprint(for physicalID: CGDirectDisplayID) -> PhysicalFingerprint {
+        PhysicalFingerprint(vendor: CGDisplayVendorNumber(physicalID),
+                            model: CGDisplayModelNumber(physicalID),
+                            serial: CGDisplaySerialNumber(physicalID),
+                            uuid: Self.displayUUID(for: physicalID))
+    }
+
+    private func prepareQueuedState(
+        for physicalID: CGDirectDisplayID,
+        identityKey: UInt32
+    ) async -> Bool {
+        guard let online = currentOnlineDisplayIDs() else { return false }
+        for (storedID, _) in active
+        where identityKeysByPhysicalID[storedID] == identityKey {
+            let storedPanelStillLive = online.contains(storedID)
+                && fingerprintsByPhysicalID[storedID] == currentFingerprint(for: storedID)
+            // A distinct, still-live identical panel is a real identity-key
+            // collision. Leave its mirror alone; the conflict scan will reject
+            // creating a second descriptor with that key.
+            if storedPanelStillLive { continue }
+            if !(await performRestore(physicalID: storedID)) {
+                return false
+            }
+        }
+        return true
+    }
+
+    private static func displayUUID(for displayID: CGDirectDisplayID) -> String {
+        if let cf = CGDisplayCreateUUIDFromDisplayID(displayID),
+           let value = CFUUIDCreateString(nil, cf.takeRetainedValue()) {
+            return value as String
+        }
+        return "v\(CGDisplayVendorNumber(displayID))-m\(CGDisplayModelNumber(displayID))"
+            + "-s\(CGDisplaySerialNumber(displayID))"
+    }
+
+    private func isDisplayOnline(_ displayID: CGDirectDisplayID) -> Bool {
+        // A failed query is not evidence of removal; conservatively retain the
+        // identity and let a later callback/retry confirm it.
+        currentOnlineDisplayIDs()?.contains(displayID) ?? true
+    }
+
+    private func currentOnlineDisplayIDs() -> Set<CGDirectDisplayID>? {
         var count: UInt32 = 0
-        CGGetOnlineDisplayList(0, nil, &count)
+        guard CGGetOnlineDisplayList(0, nil, &count) == .success else { return nil }
         var ids = [CGDirectDisplayID](repeating: 0, count: Int(count))
-        CGGetOnlineDisplayList(count, &ids, &count)
-        guard ids.contains(displayID) else { return }
+        guard CGGetOnlineDisplayList(count, &ids, &count) == .success else { return nil }
+        return Set(ids.prefix(Int(count)))
+    }
+
+    /// The remove event is only a wake-up hint: always re-read the authoritative
+    /// online list before allowing the stable identity to be created again.
+    private func waitForDisplayOffline(_ displayID: CGDirectDisplayID) async -> Bool {
+        guard isDisplayOnline(displayID) else { return true }
         await ReconfigEvents.shared.next(for: displayID, matching: .removeFlag, timeout: 1.5)
+        return !isDisplayOnline(displayID)
     }
 }

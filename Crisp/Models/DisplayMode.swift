@@ -2,7 +2,7 @@ import Foundation
 import CoreGraphics
 
 /// Represents a single display mode (resolution + refresh rate + HiDPI flag).
-struct DisplayMode: Identifiable, Equatable {
+struct DisplayMode: Identifiable, Equatable, Sendable {
     /// Unique identifier: IODisplayModeID
     let id: Int32
     /// Logical width in points
@@ -45,20 +45,47 @@ struct DisplayMode: Identifiable, Equatable {
             ?? rawModes.map { $0.pixelWidth }.max() ?? 0
     }
 
+    /// One WindowServer enumeration, resolved after native-resolution detection
+    /// supplies a better aspect ratio. Keeping the unfiltered hidden candidates
+    /// lets registry detection and mode discovery run concurrently.
+    struct Enumeration: Sendable {
+        fileprivate let visibleModes: [DisplayMode]
+        fileprivate let hiddenHiDPIModes: [DisplayMode]
+        fileprivate let inferredNativeAspect: Double
+
+        func resolved(nativeAspect overrideNativeAspect: Double? = nil) -> [DisplayMode] {
+            let nativeAspect = overrideNativeAspect.flatMap { $0 > 0 ? $0 : nil }
+                ?? inferredNativeAspect
+            let hidden = hiddenHiDPIModes.filter { mode in
+                guard nativeAspect > 0 else { return true }
+                let aspect = Double(mode.width) / Double(mode.height)
+                return abs(aspect - nativeAspect) / nativeAspect < 0.02
+            }
+            return DisplayMode.sorted(visibleModes + hidden)
+        }
+    }
+
     /// Returns all display modes for the given display, sorted by logical width descending.
     /// Pass `includeHiDPI: true` (default) to include all scaled modes.
-    static func availableModes(for displayID: CGDirectDisplayID) -> [DisplayMode] {
+    static func availableModes(for displayID: CGDirectDisplayID,
+                               nativeAspect overrideNativeAspect: Double? = nil) -> [DisplayMode] {
+        enumerateModes(for: displayID).resolved(nativeAspect: overrideNativeAspect)
+    }
+
+    /// Enumerates visible and CGS-hidden modes without committing to an aspect
+    /// filter. The caller can resolve the snapshot once metadata detection ends.
+    static func enumerateModes(for displayID: CGDirectDisplayID) -> Enumeration {
         let options: CFDictionary = [kCGDisplayShowDuplicateLowResolutionModes: true] as CFDictionary
         guard let rawModes = CGDisplayCopyAllDisplayModes(displayID, options) as? [CGDisplayMode],
               !rawModes.isEmpty else {
-            return []
+            return Enumeration(visibleModes: [], hiddenHiDPIModes: [], inferredNativeAspect: 0)
         }
 
         let maxPixelWidth = nativePixelWidth(from: rawModes)
         let variableIDs = VariableRefreshModes.variableModeIDs(from: cgsModeRecords(for: displayID))
 
         var seen = Set<Int32>()
-        var modes: [DisplayMode] = rawModes.compactMap { mode -> DisplayMode? in
+        let modes: [DisplayMode] = rawModes.compactMap { mode -> DisplayMode? in
             let modeID = mode.ioDisplayModeID
             guard seen.insert(modeID).inserted else { return nil }  // deduplicate
             guard mode.isUsableForDesktopGUI() else { return nil }
@@ -86,15 +113,19 @@ struct DisplayMode: Identifiable, Equatable {
         // clean scaled resolutions (1600x900, 2048x1152, full 2560x1440 refresh set, ...) that
         // CGS carries without any override, so we can offer and apply them directly like BetterDisplay.
         let knownIDs = Set(modes.map { $0.id })
-        let nativeAR = DisplayModeGeometry.nativeAspect(from: rawModes.map {
+        let inferredNativeAspect = DisplayModeGeometry.nativeAspect(from: rawModes.map {
             DisplayModeGeometry(width: $0.width, height: $0.height,
                                 pixelWidth: $0.pixelWidth, pixelHeight: $0.pixelHeight)
         })
-        modes += cgsHiddenHiDPIModes(for: displayID, excludingIDs: knownIDs,
-                                     maxPixelWidth: maxPixelWidth, nativeAspect: nativeAR,
-                                     variableIDs: variableIDs)
+        let hiddenModes = cgsHiddenHiDPIModes(
+            for: displayID, excludingIDs: knownIDs,
+            maxPixelWidth: maxPixelWidth, variableIDs: variableIDs)
+        return Enumeration(visibleModes: modes, hiddenHiDPIModes: hiddenModes,
+                           inferredNativeAspect: inferredNativeAspect)
+    }
 
-        return modes.sorted { lhs, rhs in
+    private static func sorted(_ modes: [DisplayMode]) -> [DisplayMode] {
+        modes.sorted { lhs, rhs in
             if lhs.width != rhs.width { return lhs.width > rhs.width }
             if lhs.height != rhs.height { return lhs.height > rhs.height }
             if lhs.refreshRate != rhs.refreshRate { return lhs.refreshRate > rhs.refreshRate }
@@ -133,7 +164,6 @@ struct DisplayMode: Identifiable, Equatable {
     private static func cgsHiddenHiDPIModes(for displayID: CGDirectDisplayID,
                                             excludingIDs known: Set<Int32>,
                                             maxPixelWidth: Int,
-                                            nativeAspect: Double,
                                             variableIDs: Set<Int32>) -> [DisplayMode] {
         var count: Int32 = 0
         guard CGSGetNumberOfDisplayModes(displayID, &count) == .success, count > 0 else { return [] }
@@ -148,9 +178,6 @@ struct DisplayMode: Identifiable, Equatable {
             let id = Int32(bitPattern: d.modeNumber)
             if known.contains(id) { continue }            // already surfaced by CG
             let w = Int(d.width), h = Int(d.height)
-            // Panel aspect only: CGS also lists off-aspect HiDPI modes (e.g. 4:3 on a 16:9 panel)
-            // that render pillar-boxed; drop them, the way the built-in notch filter does.
-            if nativeAspect > 0, abs(Double(w) / Double(h) - nativeAspect) / nativeAspect >= 0.02 { continue }
             let pw = Int((Float(d.width) * d.density).rounded())
             let ph = Int((Float(d.height) * d.density).rounded())
             out.append(DisplayMode(id: id, width: w, height: h,

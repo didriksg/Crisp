@@ -4,6 +4,96 @@
     "" : {
 
     },
+    "Detected from display metadata" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "从显示器元数据检测"
+          }
+        }
+      }
+    },
+    "Detected from EDID" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "从 EDID 检测"
+          }
+        }
+      }
+    },
+    "Enter a valid panel size from 640×480 up to 16384×16384." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请输入从 640×480 到 16384×16384 的有效面板尺寸。"
+          }
+        }
+      }
+    },
+    "Inferred from current mode" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "根据当前模式推断"
+          }
+        }
+      }
+    },
+    "Inferred from display modes" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "根据显示模式推断"
+          }
+        }
+      }
+    },
+    "Manual" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "手动"
+          }
+        }
+      }
+    },
+    "Native resolution" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "原生分辨率"
+          }
+        }
+      }
+    },
+    "Use detected resolution" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "使用检测到的分辨率"
+          }
+        }
+      }
+    },
+    "Use this only when the detected panel size is wrong." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "仅在检测到的面板尺寸不正确时使用此设置。"
+          }
+        }
+      }
+    },
     ", collapsed" : {
       "localizations" : {
         "zh-Hans" : {

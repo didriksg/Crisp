@@ -31,27 +31,25 @@ class DisplayInfo: ObservableObject, Identifiable {
     let vendorNumber: UInt32
     let modelNumber: UInt32
     let serialNumber: UInt32
+    /// Captured while this object is created. Do not resolve this lazily from
+    /// `displayID`: macOS may reuse that numeric ID for different hardware.
+    let displayUUID: String
+    /// EDID/IORegistry evidence in unrotated panel space. Loaded with the mode list.
+    @Published private(set) var detectedPanelResolution: DetectedPanelResolution?
+    /// User fallback for displays whose EDID is unavailable or wrong.
+    @Published private(set) var manualPanelResolution: PanelResolution?
 
     /// A stable identifier for the physical display that persists across sleep/wake
     /// even if macOS reassigns the CGDirectDisplayID.
-    var displayUUID: String {
-        if let cfUUID = CGDisplayCreateUUIDFromDisplayID(displayID),
-           let uuidStr = CFUUIDCreateString(nil, cfUUID.takeRetainedValue()) {
-            return uuidStr as String
-        }
-        // Fallback: vendor+model+serial hash is more stable than raw displayID
-        return "v\(vendorNumber)-m\(modelNumber)-s\(serialNumber)"
+    /// Physical native resolution in CG's rotated space. EDID/native-format metadata
+    /// wins over WindowServer's mode list, whose largest non-HiDPI entry can be a
+    /// compatibility fallback (for example 1024x768 on a 4K panel).
+    var nativeResolution: (width: Int, height: Int) {
+        let panel = resolvedPanelResolution.resolution
+        return isRotated ? (panel.height, panel.width) : (panel.width, panel.height)
     }
 
-    /// The native (highest non-HiDPI) resolution, used for HiDPI enablement and presets.
-    /// Reported in CG's rotated space: on a 90/270-rotated display this is portrait,
-    /// matching availableModes.
-    var nativeResolution: (width: Int, height: Int) {
-        let nativeMode = availableModes
-            .filter { !$0.isHiDPI }
-            .max(by: { ($0.width * $0.height) < ($1.width * $1.height) })
-        return (nativeMode?.width ?? pixelWidth, nativeMode?.height ?? pixelHeight)
-    }
+    var panelResolutionSource: PanelResolutionSource { resolvedPanelResolution.source }
 
     /// Whether macOS renders this display rotated 90/270 (portrait on a landscape panel).
     var isRotated: Bool {
@@ -63,8 +61,26 @@ class DisplayInfo: ObservableObject, Identifiable {
     /// so plist writes and checks must use these dims; mode-list comparisons stay in
     /// the rotated space of nativeResolution/availableModes.
     var panelNativeResolution: (width: Int, height: Int) {
-        let (w, h) = nativeResolution
-        return isRotated ? (h, w) : (w, h)
+        let resolution = resolvedPanelResolution.resolution
+        return (resolution.width, resolution.height)
+    }
+
+    private var resolvedPanelResolution: ResolvedPanelResolution {
+        let unscaledModes = availableModes.filter { !$0.isHiDPI }.map {
+            isRotated
+                ? PanelResolution(width: $0.height, height: $0.width)
+                : PanelResolution(width: $0.width, height: $0.height)
+        }
+        let current = isRotated
+            ? PanelResolution(width: pixelHeight, height: pixelWidth)
+            : PanelResolution(width: pixelWidth, height: pixelHeight)
+        return PanelResolutionResolver.resolve(
+            manual: manualPanelResolution,
+            edid: detectedPanelResolution?.edid,
+            registry: detectedPanelResolution?.registry,
+            unscaledModes: unscaledModes,
+            currentPixels: current
+        )
     }
 
     init(displayID: CGDirectDisplayID) {
@@ -87,6 +103,16 @@ class DisplayInfo: ObservableObject, Identifiable {
         self.vendorNumber = vendor
         self.modelNumber = model
         self.serialNumber = CGDisplaySerialNumber(displayID)
+        if let cfUUID = CGDisplayCreateUUIDFromDisplayID(displayID),
+           let uuidStr = CFUUIDCreateString(nil, cfUUID.takeRetainedValue()) {
+            self.displayUUID = uuidStr as String
+        } else {
+            // Fallback: vendor+model+serial is more stable than raw displayID.
+            self.displayUUID = "v\(vendor)-m\(model)-s\(self.serialNumber)"
+        }
+        self.detectedPanelResolution = nil
+        self.manualPanelResolution = SettingsService.shared.panelResolutionOverride(
+            vendor: vendor, product: model, serial: self.serialNumber)
 
         if builtin {
             self.name = String(localized: "Built-in Display")
@@ -100,11 +126,34 @@ class DisplayInfo: ObservableObject, Identifiable {
 
     func loadDetails() async {
         let displayID = self.displayID
+        let vendor = vendorNumber
+        let product = modelNumber
+        let serial = serialNumber
+        let builtin = isBuiltin
 
-        let modes = await Task.detached(priority: .userInitiated) {
-            DisplayMode.availableModes(for: displayID)
+        async let detectionTask = Task.detached(priority: .utility) {
+            builtin ? nil : PanelResolutionDetector.detect(
+                vendor: vendor, product: product, serial: serial)
+        }.value
+        async let modeTask = Task.detached(priority: .userInitiated) {
+            DisplayMode.enumerateModes(for: displayID)
         }.value
 
-        self.availableModes = modes
+        let detection = await detectionTask
+        let enumeration = await modeTask
+        self.detectedPanelResolution = detection
+
+        let evidence = manualPanelResolution ?? detection?.edid ?? detection?.registry
+        let aspect = evidence.map {
+            isRotated ? Double($0.height) / Double($0.width)
+                : Double($0.width) / Double($0.height)
+        }
+        self.availableModes = enumeration.resolved(nativeAspect: aspect)
+    }
+
+    func setManualPanelResolution(_ resolution: PanelResolution?) {
+        SettingsService.shared.setPanelResolutionOverride(
+            resolution, vendor: vendorNumber, product: modelNumber, serial: serialNumber)
+        manualPanelResolution = resolution
     }
 }

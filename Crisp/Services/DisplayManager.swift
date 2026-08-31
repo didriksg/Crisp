@@ -2,6 +2,15 @@ import Foundation
 import CoreGraphics
 import AppKit
 
+private func currentDisplayUUID(_ displayID: CGDirectDisplayID) -> String {
+    if let cf = CGDisplayCreateUUIDFromDisplayID(displayID),
+       let value = CFUUIDCreateString(nil, cf.takeRetainedValue()) {
+        return value as String
+    }
+    return "v\(CGDisplayVendorNumber(displayID))-m\(CGDisplayModelNumber(displayID))"
+        + "-s\(CGDisplaySerialNumber(displayID))"
+}
+
 // Global C-compatible callback for display reconfiguration.
 // Must be a top-level function (not a closure) to be used as a C function pointer.
 private func displayReconfigCallback(
@@ -137,6 +146,13 @@ class DisplayManager: ObservableObject {
     }
 
     func refreshDisplays() {
+        var displayCount: UInt32 = 0
+        guard CGGetOnlineDisplayList(0, nil, &displayCount) == .success else { return }
+        var displayIDs = [CGDirectDisplayID](repeating: 0, count: Int(displayCount))
+        guard CGGetOnlineDisplayList(displayCount, &displayIDs, &displayCount) == .success else {
+            return
+        }
+
         // Display IDs can be reshuffled across a reconnect storm with no ID
         // ever leaving the online list (two panels swapping IDs), so the
         // per-removed-ID cleanup below can miss a now-crossed channel map.
@@ -144,17 +160,20 @@ class DisplayManager: ObservableObject {
         // matching on the next DDC operation.
         DDCService.shared.invalidateAllChannelMappings()
 
-        var displayCount: UInt32 = 0
-        CGGetOnlineDisplayList(0, nil, &displayCount)
-        var displayIDs = [CGDirectDisplayID](repeating: 0, count: Int(displayCount))
-        CGGetOnlineDisplayList(displayCount, &displayIDs, &displayCount)
-
-        let currentIDs = Set(displays.map { $0.displayID })
+        let existingByID = Dictionary(uniqueKeysWithValues: displays.map { ($0.displayID, $0) })
+        let currentIDs = Set(existingByID.keys)
         let newIDSet = Set((0..<Int(displayCount)).map { displayIDs[$0] })
 
         // Clean up DDC cache for removed displays to prevent stale entries accumulating
         let removedIDs = currentIDs.subtracting(newIDSet)
-        removedIDs.forEach {
+        let replacedIDs = currentIDs.intersection(newIDSet).filter { id in
+            guard let existing = existingByID[id] else { return false }
+            return existing.vendorNumber != CGDisplayVendorNumber(id)
+                || existing.modelNumber != CGDisplayModelNumber(id)
+                || existing.serialNumber != CGDisplaySerialNumber(id)
+                || existing.displayUUID != currentDisplayUUID(id)
+        }
+        removedIDs.union(replacedIDs).forEach {
             DDCService.shared.clearCache(for: $0)
             BrightnessService.shared.invalidateDDCState(for: $0)
             GammaService.shared.invalidate(for: $0)
@@ -168,8 +187,6 @@ class DisplayManager: ObservableObject {
         MirroredModeService.shared.reconcile(online: newIDSet)
 
         // Diff-based refresh: keep existing DisplayInfo objects (preserves @Published state)
-        let existingByID = Dictionary(uniqueKeysWithValues: displays.map { ($0.displayID, $0) })
-
         var updatedDisplays: [DisplayInfo] = []
         var addedDisplays: [DisplayInfo] = []
 
@@ -178,7 +195,13 @@ class DisplayManager: ObservableObject {
             // A mirror virtual (#65) is a rendering trick, not a display: keep it out
             // so no view, preset, brightness path, or the arranger ever sees one.
             if MirroredModeService.isMirrorVirtual(id) { continue }
-            if let existing = existingByID[id] {
+            let sameHardware = existingByID[id].map {
+                $0.vendorNumber == CGDisplayVendorNumber(id)
+                    && $0.modelNumber == CGDisplayModelNumber(id)
+                    && $0.serialNumber == CGDisplaySerialNumber(id)
+                    && $0.displayUUID == currentDisplayUUID(id)
+            } ?? false
+            if let existing = existingByID[id], sameHardware {
                 updatedDisplays.append(existing)
             } else {
                 let info = DisplayInfo(displayID: id)

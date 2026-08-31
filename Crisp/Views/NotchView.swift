@@ -77,10 +77,14 @@ struct NotchView: View {
         Task { @MainActor in
             // One retry like DisplayModeController.switchTo: a transient CG
             // config failure right after another reconfig is common.
-            var success = await ResolutionService.shared.setDisplayMode(target, for: display.displayID)
+            var success = await ResolutionService.shared.setDisplayMode(
+                target, for: display.displayID,
+                expectedDisplayUUID: display.displayUUID)
             if !success {
                 try? await Task.sleep(nanoseconds: 200_000_000)
-                success = await ResolutionService.shared.setDisplayMode(target, for: display.displayID)
+                success = await ResolutionService.shared.setDisplayMode(
+                    target, for: display.displayID,
+                    expectedDisplayUUID: display.displayUUID)
             }
             if success {
                 // Optimistic, like DisplayModeController: the reconfig callback

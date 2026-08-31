@@ -137,7 +137,13 @@ final class HotkeyService {
         }
         Self.log.info("hidpi toggle: switching display \(displayID) to \(target.width)x\(target.height) hidpi=\(target.isHiDPI)")
         Task { @MainActor in
-            _ = await ResolutionService.shared.setDisplayMode(target, for: displayID)
+            // A beyond-cap HiDPI mode makes the physical panel a mirror target.
+            // Keep teardown and the twin switch atomic, or ResolutionService
+            // would redirect the LoDPI mode onto the virtual source.
+            _ = await MirroredModeService.shared.withMirrorRestored(for: display) {
+                await ResolutionService.shared.setDisplayMode(
+                    target, for: displayID, expectedDisplayUUID: display.displayUUID)
+            }
         }
     }
 

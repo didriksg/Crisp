@@ -119,6 +119,11 @@ xcodegen generate   # generates Crisp.xcodeproj from project.yml
 open Crisp.xcodeproj
 ```
 
+If macOS reports a compatibility mode as a display's native size, Crisp prefers
+validated EDID/native-format metadata and also offers a per-display manual fallback
+under Resolution > Native resolution. See [Native panel resolution](docs/native-resolution.md)
+for the inference order and smooth-scaling limits.
+
 For a distributable DMG (Command Line Tools only, no full Xcode) and the fast edit-compile-run dev loop, see [docs/BUILDING.md](docs/BUILDING.md).
 
 ## Contributing

@@ -1,5 +1,6 @@
 import Foundation
 @preconcurrency import CoreGraphics
+import ApplicationServices
 
 /// Service responsible for reading and changing display resolution modes.
 @MainActor
@@ -38,7 +39,7 @@ final class ResolutionService: @unchecked Sendable {
     /// CGS-surfaced hidden modes carry whole-Hz uint16 rates while CG modes carry fractional
     /// ones). A 0 means "display default"; treat it as a wildcard so it never blocks an
     /// otherwise exact resolution match.
-    static func refreshMatches(_ a: Double, _ b: Double) -> Bool {
+    nonisolated static func refreshMatches(_ a: Double, _ b: Double) -> Bool {
         if a == 0 || b == 0 { return true }
         return abs(a - b) < 1.0
     }
@@ -108,8 +109,31 @@ final class ResolutionService: @unchecked Sendable {
     ///   2. Find the matching CGDisplayMode on the source by logical size + HiDPI attributes.
     ///   3. Apply via CGConfigureDisplayWithDisplayMode on the source display.
     ///   4. Fallback: try CGSConfigureDisplayMode (private API) on the source.
-    func setDisplayMode(_ mode: DisplayMode, for displayID: CGDirectDisplayID) async -> Bool {
+    func setDisplayMode(
+        _ requestedMode: DisplayMode,
+        for capturedDisplayID: CGDirectDisplayID,
+        expectedDisplayUUID: String
+    ) async -> Bool {
         PresetService.shared.noteManualChange()
+        // Both the numeric display ID and every mode ID can be reassigned by a
+        // reconnect. Resolve the panel and requested attributes only after any
+        // preceding queued operation has finished.
+        guard let displayID = Self.onlineDisplayID(
+            for: expectedDisplayUUID, preferred: capturedDisplayID
+        ) else { return false }
+        let requestedAspect = requestedMode.height > 0
+            ? Double(requestedMode.width) / Double(requestedMode.height) : nil
+        let freshModes = await Task.detached(priority: .userInitiated) {
+            DisplayMode.enumerateModes(for: displayID).resolved(nativeAspect: requestedAspect)
+        }.value
+        guard let mode = freshModes.first(where: {
+            Self.sameModeAttributes($0, requestedMode)
+        }) else { return false }
+
+        if let current = DisplayMode.currentMode(for: displayID),
+           Self.sameModeAttributes(current, mode) {
+            return true
+        }
         // Resolve mirror source, the physical display may mirror a virtual display
         let (targetID, isMirrorRedirect) = resolvedTargetDisplayID(for: displayID)
 
@@ -160,6 +184,40 @@ final class ResolutionService: @unchecked Sendable {
             persistMode(mode, for: displayID)
         }
         return fallbackSuccess
+    }
+
+    nonisolated private static func sameModeAttributes(
+        _ lhs: DisplayMode,
+        _ rhs: DisplayMode
+    ) -> Bool {
+        lhs.width == rhs.width && lhs.height == rhs.height
+            && lhs.pixelWidth == rhs.pixelWidth && lhs.pixelHeight == rhs.pixelHeight
+            && lhs.isHiDPI == rhs.isHiDPI
+            && lhs.isVariableRefresh == rhs.isVariableRefresh
+            && refreshMatches(lhs.refreshRate, rhs.refreshRate)
+    }
+
+    nonisolated private static func onlineDisplayID(
+        for expectedUUID: String,
+        preferred: CGDirectDisplayID
+    ) -> CGDirectDisplayID? {
+        var count: UInt32 = 0
+        guard CGGetOnlineDisplayList(0, nil, &count) == .success else { return nil }
+        var ids = [CGDirectDisplayID](repeating: 0, count: Int(count))
+        guard CGGetOnlineDisplayList(count, &ids, &count) == .success else { return nil }
+        let online = Array(ids.prefix(Int(count)))
+        return ([preferred] + online).first {
+            online.contains($0) && displayUUID(for: $0) == expectedUUID
+        }
+    }
+
+    nonisolated private static func displayUUID(for displayID: CGDirectDisplayID) -> String {
+        if let cf = CGDisplayCreateUUIDFromDisplayID(displayID),
+           let value = CFUUIDCreateString(nil, cf.takeRetainedValue()) {
+            return value as String
+        }
+        return "v\(CGDisplayVendorNumber(displayID))-m\(CGDisplayModelNumber(displayID))"
+            + "-s\(CGDisplaySerialNumber(displayID))"
     }
 
     // MARK: - Mirror resolution
@@ -242,7 +300,7 @@ final class ResolutionService: @unchecked Sendable {
     /// id segfaults in checkCapacity() on macOS 26. It must run inside a real
     /// CGBegin/CGCompleteDisplayConfiguration transaction (verified against BetterDisplay on Tahoe).
     private func cgsFallback(modeID: UInt32, on displayID: CGDirectDisplayID) async -> Bool {
-        let committed = await Task.detached(priority: .userInitiated) {
+        let committed = await CGHelpers.runWithTimeout(seconds: 10, fallback: false) {
             var config: CGDisplayConfigRef?
             guard CGBeginDisplayConfiguration(&config) == .success, let cfg = config else {
                 return false
@@ -255,7 +313,7 @@ final class ResolutionService: @unchecked Sendable {
             }
 
             return CGCompleteDisplayConfiguration(cfg, .forSession) == .success
-        }.value
+        }
         guard committed else { return false }
         // The commit propagates async. Fast path: already active. Otherwise wait
         // for the mode-change event instead of a blind 100ms sleep (0.5s ceiling
