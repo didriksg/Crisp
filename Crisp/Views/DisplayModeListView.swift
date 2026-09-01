@@ -38,6 +38,7 @@ final class DisplayModeController: ObservableObject {
     private var isSwitching: Bool = false
     private var cachedGroups: [ResolutionGroup]?
     private var cachedSliderModes: [DisplayMode]?
+    private var panelResolutionReloadTask: Task<Void, Never>?
     /// Panel's adaptive-sync floor (48 on a 48-180Hz panel), for the Variable row label.
     private lazy var vrrMinimumRate: Int? = VariableRefreshRange.minimumRate(
         vendorNumber: display.vendorNumber, modelNumber: display.modelNumber)
@@ -50,11 +51,13 @@ final class DisplayModeController: ObservableObject {
         // so relay exactly those instead of having the views observe the whole
         // DisplayInfo: its brightness publishes at 125Hz during a click-glide,
         // and re-rendering six hosting views per step (each regrouping the
-        // AOC's ~100-mode list) was the glide jank. dropFirst(2) skips the
-        // initial replays both @Published publishers emit on subscribe.
+        // AOC's ~100-mode list) was the glide jank. dropFirst(4) skips the
+        // initial replays these four @Published publishers emit on subscribe.
         displayRelay = display.$currentDisplayMode.map { _ in }
             .merge(with: display.$availableModes.map { _ in })
-            .dropFirst(2)
+            .merge(with: display.$detectedPanelResolution.map { _ in })
+            .merge(with: display.$manualPanelResolution.map { _ in })
+            .dropFirst(4)
             .sink { [weak self] _ in
                 self?.cachedGroups = nil
                 self?.cachedSliderModes = nil
@@ -246,6 +249,7 @@ final class DisplayModeController: ObservableObject {
         guard !isSwitching else { done(); return }
         isSwitching = true
         let displayID = display.displayID
+        let displayUUID = display.displayUUID
         Task { @MainActor in
             var success: Bool
             if mode.id < 0 {
@@ -261,18 +265,15 @@ final class DisplayModeController: ObservableObject {
                 // A failed unmirror keeps the mirror up (restore leaves the
                 // bookkeeping alone then), so report failure instead of pushing
                 // a mode change at a panel that is still a target.
-                var unmirrored = true
-                if MirroredModeService.shared.isActive(for: displayID) {
-                    unmirrored = await MirroredModeService.shared.restore(display: display)
-                }
-                if unmirrored {
-                    success = await ResolutionService.shared.setDisplayMode(mode, for: displayID)
-                    if !success {
+                success = await MirroredModeService.shared.withMirrorRestored(for: display) {
+                    var applied = await ResolutionService.shared.setDisplayMode(
+                        mode, for: displayID, expectedDisplayUUID: displayUUID)
+                    if !applied {
                         try? await Task.sleep(nanoseconds: 200_000_000)
-                        success = await ResolutionService.shared.setDisplayMode(mode, for: displayID)
+                        applied = await ResolutionService.shared.setDisplayMode(
+                            mode, for: displayID, expectedDisplayUUID: displayUUID)
                     }
-                } else {
-                    success = false
+                    return applied
                 }
             }
             if success {
@@ -499,16 +500,33 @@ final class DisplayModeController: ObservableObject {
         // this to ask the rebuilt menu to re-expand the same display afterward.
         let targetUUID = display.displayUUID
         Task { @MainActor in
-            let err: String?
-            if on {
-                err = HiDPIService.shared.enableSmoothScaling(
-                    vendor: display.vendorNumber, product: display.modelNumber,
-                    nativeWidth: nativeW, nativeHeight: nativeH)
-            } else {
-                err = HiDPIService.shared.disableHiDPI(
-                    vendor: display.vendorNumber, product: display.modelNumber)
+            var operationError: String?
+            var reconnected = false
+            let mirrorRestored = await MirroredModeService.shared.withMirrorRestored(for: display) { [self] in
+                if on {
+                    operationError = HiDPIService.shared.enableSmoothScaling(
+                        vendor: display.vendorNumber, product: display.modelNumber,
+                        nativeWidth: nativeW, nativeHeight: nativeH)
+                } else {
+                    operationError = HiDPIService.shared.disableHiDPI(
+                        vendor: display.vendorNumber, product: display.modelNumber)
+                }
+                guard operationError == nil else { return true }
+
+                // The reconnect must stay in the same per-display operation as
+                // teardown and the plist mutation. Otherwise an apply can make
+                // the panel a mirror target again before it is blinked.
+                PanelOpenGuard.suppressAutoDismiss = true
+                defer { PanelOpenGuard.suppressAutoDismiss = false }
+                reconnected = await PhysicalDisplayToggleService.shared.softReconnect(display)
+                HiDPIService.shared.refreshModes(for: display)
+                try? await Task.sleep(nanoseconds: 800_000_000)
+                return true
             }
-            if let err {
+            if !mirrorRestored {
+                operationError = String(localized: "Failed to apply. Please try again.")
+            }
+            if let err = operationError {
                 withAnimation { errorMessage = err }
                 smoothOn = smoothModesPresent   // failed: snap back to reality
                 Task { @MainActor in
@@ -522,13 +540,6 @@ final class DisplayModeController: ObservableObject {
                 // back to the top. Suppress the resign/outside-click dismissal for the
                 // duration so the panel stays put on this display's Resolution section;
                 // nothing to restore because it never closes.
-                PanelOpenGuard.suppressAutoDismiss = true
-                defer { PanelOpenGuard.suppressAutoDismiss = false }
-                // Re-read the override change in software (screen blanks ~1s) instead of
-                // asking for a physical reconnect.
-                let reconnected = await PhysicalDisplayToggleService.shared.softReconnect(display)
-                HiDPIService.shared.refreshModes(for: display)
-                try? await Task.sleep(nanoseconds: 800_000_000)  // let refreshModes land
                 smoothOn = smoothModesPresent
                 refreshSmoothWouldPrompt()
                 if !reconnected && smoothOn != on {
@@ -561,6 +572,45 @@ final class DisplayModeController: ObservableObject {
                 PanelOpenGuard.resignKeyGraceUntil = Date().addingTimeInterval(5)
             }
             smoothBusy = false
+        }
+    }
+
+    /// Persist a physical panel-size fallback after safely retiring any active
+    /// mirror virtual, then rebuild this display's mode data from the new size.
+    func setPanelResolutionOverride(width: Int, height: Int) -> Bool {
+        let resolution = PanelResolution(width: width, height: height)
+        guard resolution.isPlausible else { return false }
+        queuePanelResolutionChange(resolution)
+        return true
+    }
+
+    func clearPanelResolutionOverride() {
+        queuePanelResolutionChange(nil)
+    }
+
+    private func queuePanelResolutionChange(_ resolution: PanelResolution?) {
+        let previous = panelResolutionReloadTask
+        panelResolutionReloadTask = Task { [weak self] in
+            await previous?.value
+            guard let self else { return }
+            let applied = await MirroredModeService.shared.updatePanelResolution(for: display) {
+                self.display.setManualPanelResolution(resolution)
+                await self.display.loadDetails()
+            }
+            guard applied else {
+                withAnimation {
+                    self.errorMessage = String(localized: "Failed to apply. Please try again.")
+                }
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 3_000_000_000)
+                    withAnimation { self.errorMessage = nil }
+                }
+                return
+            }
+            self.cachedGroups = nil
+            self.cachedSliderModes = nil
+            self.refreshSmoothWouldPrompt()
+            self.objectWillChange.send()
         }
     }
 }
@@ -826,6 +876,7 @@ struct ModeTailBlock: View {
             // steps through. External displays only (built-ins already scale via System Settings).
             if !display.isBuiltin {
                 smoothScalingSection
+                PanelResolutionOverrideSection(controller: controller)
             }
 
             if let msg = controller.errorMessage {
@@ -905,6 +956,122 @@ struct ModeTailBlock: View {
             // Adopt external truth (reconnect, another app) unless our own toggle is settling.
             if !controller.smoothBusy { controller.smoothOn = present }
         }
+    }
+}
+
+/// Compact fallback editor for panels whose EDID/native-format metadata is absent or wrong.
+/// Dimensions are panel-space (unrotated), matching the override plist and monitor spec sheet.
+private struct PanelResolutionOverrideSection: View {
+    @ObservedObject var controller: DisplayModeController
+    @State private var editing = false
+    @State private var width = ""
+    @State private var height = ""
+    @State private var validationFailed = false
+    @State private var hovered = false
+
+    private var display: DisplayInfo { controller.display }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Button {
+                guard PanelOpenGuard.allowsActivation else { return }
+                loadCurrentValues()
+                withAnimation(.panelResize) { editing.toggle() }
+            } label: {
+                HStack(spacing: 8) {
+                    MenuItemIcon(systemName: "rectangle.on.rectangle", color: .blue,
+                                 active: display.manualPanelResolution != nil)
+                        .accessibilityHidden(true)
+                    Text("Native resolution")
+                        .font(.body)
+                        .lineLimit(1)
+                    Spacer()
+                    Text(resolutionSubtitle)
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                    Image(systemName: editing ? "chevron.up" : "chevron.down")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundColor(.secondary)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 3)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .menuRowHover(hovered)
+            .onHover { hovered = $0 }
+
+            if editing {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Use this only when the detected panel size is wrong.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Text(resolutionSourceLabel)
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                    HStack(spacing: 5) {
+                        PanelNumericField(text: $width, placeholder: String(localized: "Width"))
+                        Text("×").foregroundColor(.secondary)
+                        PanelNumericField(text: $height, placeholder: String(localized: "Height"))
+                        Button("Save") { save() }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                    }
+                    if display.manualPanelResolution != nil {
+                        Button("Use detected resolution") {
+                            controller.clearPanelResolutionOverride()
+                            loadCurrentValues()
+                            validationFailed = false
+                        }
+                        .buttonStyle(.link)
+                        .font(.caption)
+                    }
+                    if validationFailed {
+                        Text("Enter a valid panel size from 640×480 up to 16384×16384.")
+                            .font(.caption2)
+                            .foregroundColor(.red)
+                    }
+                }
+                .padding(.horizontal, 44)
+                .padding(.bottom, 5)
+                .transition(.opacity)
+            }
+        }
+    }
+
+    private var resolutionSubtitle: String {
+        let (width, height) = display.panelNativeResolution
+        return "\(width) × \(height)"
+    }
+
+    private var resolutionSourceLabel: String {
+        switch display.panelResolutionSource {
+        case .manual: String(localized: "Manual")
+        case .edid: String(localized: "Detected from EDID")
+        case .registry: String(localized: "Detected from display metadata")
+        case .displayModes: String(localized: "Inferred from display modes")
+        case .currentPixels: String(localized: "Inferred from current mode")
+        }
+    }
+
+    private func loadCurrentValues() {
+        let resolution = display.manualPanelResolution
+            ?? PanelResolution(width: display.panelNativeResolution.width,
+                               height: display.panelNativeResolution.height)
+        width = String(resolution.width)
+        height = String(resolution.height)
+        validationFailed = false
+    }
+
+    private func save() {
+        guard let width = Int(width), let height = Int(height),
+              controller.setPanelResolutionOverride(width: width, height: height) else {
+            validationFailed = true
+            return
+        }
+        validationFailed = false
+        withAnimation(.panelResize) { editing = false }
     }
 }
 

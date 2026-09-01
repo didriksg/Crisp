@@ -178,6 +178,7 @@ final class PresetService: ObservableObject, @unchecked Sendable {
         }
 
         let displays = DisplayManagerAccessor.shared.displays
+        var resolutionsApplied = true
 
         for entry in preset.displays {
             guard let display = displays.first(where: { $0.displayUUID == entry.displayUUID }) else { continue }
@@ -190,38 +191,44 @@ final class PresetService: ObservableObject, @unchecked Sendable {
             // alreadyActive no-op below. Brightness and arrangement apply regardless.
             if let w = entry.width, let h = entry.height {
                 let hiDPI = entry.isHiDPI ?? false
-                let targetMode = display.availableModes.first(where: {
-                    $0.width == w && $0.height == h && $0.isHiDPI == hiDPI
-                }) ?? display.availableModes.first(where: {
-                    $0.width == w && $0.height == h
-                })
+                let beyondCapStops = MirroredModeService.beyondCapStops(for: display).map {
+                    PanelResolution(width: $0.width, height: $0.height)
+                }
+                let route = PresetResolutionRouter.route(
+                    width: w, height: h, isHiDPI: hiDPI,
+                    candidates: display.availableModes.map {
+                        PresetModeCandidate(width: $0.width, height: $0.height,
+                                            isHiDPI: $0.isHiDPI)
+                    },
+                    beyondCapStops: beyondCapStops)
 
-                if let mode = targetMode {
-                    let currentMode = display.currentDisplayMode
-                    let alreadyActive = currentMode?.width == mode.width
-                        && currentMode?.height == mode.height
-                        && currentMode?.isHiDPI == mode.isHiDPI
-                    if !alreadyActive {
-                        // A real mode while the panel is a mirror target (#65): unmirror
-                        // first, or WindowServer redirects the change to the virtual source.
-                        // A failed unmirror keeps the mirror up; leave the resolution alone.
-                        var unmirrored = true
-                        if MirroredModeService.shared.isActive(for: displayID) {
-                            unmirrored = await MirroredModeService.shared.restore(display: display)
-                        }
-                        if unmirrored, await ResolutionService.shared.setDisplayMode(mode, for: displayID) {
+                switch route {
+                case .mirror:
+                    // Route before the physical fallback: beyond-cap sizes often
+                    // have a same-size 1× mode, but restoring that would be blurry.
+                    let applied = await MirroredModeService.shared.apply(
+                        display: display, width: w, height: h)
+                    resolutionsApplied = resolutionsApplied && applied
+                case let .physical(index):
+                    let mode = display.availableModes[index]
+                    // Keep teardown and the physical mode transaction atomic
+                    // against a concurrent mirror request. Even an apparently
+                    // already-active physical mode must first leave mirror mode.
+                    let applied = await MirroredModeService.shared.withMirrorRestored(for: display) {
+                        let changed = await ResolutionService.shared.setDisplayMode(
+                            mode, for: displayID,
+                            expectedDisplayUUID: display.displayUUID)
+                        if changed {
                             // refreshDisplays() doesn't re-read the current mode for
                             // already-present displays, so write it back here (as the manual
                             // switch does) or the panel keeps showing the old resolution.
                             display.currentDisplayMode = mode
                         }
+                        return changed
                     }
-                } else if hiDPI, MirroredModeService.beyondCapStops(for: display)
-                            .contains(where: { $0.width == w && $0.height == h }) {
-                    // A beyond-cap size captured while mirrored (#65): it never
-                    // enumerates on the physical panel, so the lookup above cannot
-                    // find it. Mirror mode is the only route there.
-                    await MirroredModeService.shared.apply(display: display, width: w, height: h)
+                    resolutionsApplied = resolutionsApplied && applied
+                case .unavailable:
+                    resolutionsApplied = false
                 }
             }
 
@@ -244,7 +251,7 @@ final class PresetService: ObservableObject, @unchecked Sendable {
             }
         }
 
-        activePresetID = preset.id
+        activePresetID = resolutionsApplied ? preset.id : nil
         // DisplayManager is not a singleton; callers with a DisplayManager ref can call refreshDisplays().
     }
 

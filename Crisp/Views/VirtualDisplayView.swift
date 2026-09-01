@@ -399,9 +399,9 @@ struct CreateVirtualDisplayForm: View {
 
                 if selectedPreset == customTag {
                     HStack(spacing: 6) {
-                        customField(text: $customWidth, placeholder: String(localized: "Width"))
+                        PanelNumericField(text: $customWidth, placeholder: String(localized: "Width"))
                         Text("×").foregroundColor(.secondary)
-                        customField(text: $customHeight, placeholder: String(localized: "Height"))
+                        PanelNumericField(text: $customHeight, placeholder: String(localized: "Height"))
                         Spacer()
                     }
                 }
@@ -464,24 +464,6 @@ struct CreateVirtualDisplayForm: View {
         guard let w = Int(customWidth), let h = Int(customHeight),
               (640...8192).contains(w), (480...8192).contains(h) else { return nil }
         return (w, h)
-    }
-
-    private func customField(text: Binding<String>, placeholder: String) -> some View {
-        TextField(placeholder, text: text)
-            .textFieldStyle(.plain)
-            .font(.body)
-            .multilineTextAlignment(.center)
-            .frame(width: 72)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(Color.primary.opacity(0.07))
-            )
-            .onChange(of: text.wrappedValue) { _, v in
-                let digits = v.filter(\.isNumber)
-                if digits != v { text.wrappedValue = digits }
-            }
     }
 
     private func confirm() {

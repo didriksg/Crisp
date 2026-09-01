@@ -65,6 +65,8 @@ final class SettingsService: ObservableObject, @unchecked Sendable {
         // Per-display keys use prefix + displayID
         static let brightnessPrefix       = "crisp.brightness_"
         static let contrastPrefix         = "crisp.contrast_"
+        // Stable physical identity, not CGDirectDisplayID (which changes on reconnect).
+        static let panelResolutionPrefix  = "crisp.panelResolution_"
     }
 
     // MARK: - Published Settings
@@ -150,6 +152,30 @@ final class SettingsService: ObservableObject, @unchecked Sendable {
 
     func setContrast(_ value: Double, for displayID: CGDirectDisplayID) {
         defaults.set(value, forKey: Keys.contrastPrefix + "\(displayID)")
+    }
+
+    func panelResolutionOverride(vendor: UInt32, product: UInt32,
+                                 serial: UInt32) -> PanelResolution? {
+        guard let values = defaults.array(forKey: panelResolutionKey(
+            vendor: vendor, product: product, serial: serial
+        )) as? [Int], values.count == 2 else { return nil }
+        let resolution = PanelResolution(width: values[0], height: values[1])
+        return resolution.isPlausible ? resolution : nil
+    }
+
+    func setPanelResolutionOverride(_ resolution: PanelResolution?, vendor: UInt32,
+                                    product: UInt32, serial: UInt32) {
+        let key = panelResolutionKey(vendor: vendor, product: product, serial: serial)
+        if let resolution, resolution.isPlausible {
+            defaults.set([resolution.width, resolution.height], forKey: key)
+        } else {
+            defaults.removeObject(forKey: key)
+        }
+    }
+
+    private func panelResolutionKey(vendor: UInt32, product: UInt32,
+                                    serial: UInt32) -> String {
+        Keys.panelResolutionPrefix + "\(vendor)-\(product)-\(serial)"
     }
 
     // MARK: - Color History

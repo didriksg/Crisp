@@ -1,5 +1,6 @@
 import CoreGraphics
 import Foundation
+import ApplicationServices
 
 /// Provides hardware-level screen mirroring via CGDisplayConfiguration API.
 final class MirrorService: @unchecked Sendable {
@@ -25,24 +26,33 @@ final class MirrorService: @unchecked Sendable {
     /// Makes `target` mirror `source`.
     /// The entire Begin→Mirror→Complete transaction runs inside `CGHelpers.runWithTimeout`
     /// so `CGCompleteDisplayConfiguration` cannot block indefinitely on WindowServer IPC.
-    /// - Returns: true on success.
+    /// - Returns: true when both configuration and commit succeed.
     @discardableResult
-    func enableMirror(source: CGDirectDisplayID, target: CGDirectDisplayID) async -> Bool {
+    func enableMirror(
+        source: CGDirectDisplayID,
+        target: CGDirectDisplayID,
+        expectedTargetUUID: String
+    ) async -> Bool {
         // Mirroring a display onto itself is invalid and causes undefined CG behaviour.
         guard source != target else {
             return false
         }
         return await CGHelpers.runWithTimeout(seconds: 10, fallback: false) {
+            // The numeric ID is volatile. A queued transaction must not attach
+            // the virtual to different hardware that inherited the ID.
+            guard Self.displayUUID(for: target) == expectedTargetUUID else { return false }
             var config: CGDisplayConfigRef?
             guard CGBeginDisplayConfiguration(&config) == .success,
                   let cfg = config else { return false }
-            CGConfigureDisplayMirrorOfDisplay(cfg, target, source)
-            let result = CGCompleteDisplayConfiguration(cfg, .forSession)
-            if result != .success {
+            guard CGConfigureDisplayMirrorOfDisplay(cfg, target, source) == .success else {
                 CGCancelDisplayConfiguration(cfg)
                 return false
             }
-            return true
+            guard CGCompleteDisplayConfiguration(cfg, .forSession) == .success else {
+                return false
+            }
+            return Self.displayUUID(for: target) == expectedTargetUUID
+                && CGDisplayMirrorsDisplay(target) == source
         }
     }
 
@@ -67,22 +77,67 @@ final class MirrorService: @unchecked Sendable {
     // MARK: - Disable
 
     /// Stops `displayID` from mirroring.
-    /// The entire Begin→Mirror→Complete transaction runs inside `CGHelpers.runWithTimeout`
-    /// so `CGCompleteDisplayConfiguration` cannot block indefinitely on WindowServer IPC.
-    /// - Returns: true on success.
+    /// This is mandatory compensating teardown: it may time out for the caller,
+    /// but remains queued and reports its eventual result through the callback.
+    /// - Returns: the completed result, or `.timedOut` while cleanup remains queued.
     @discardableResult
-    func disableMirror(displayID: CGDirectDisplayID) async -> Bool {
-        return await CGHelpers.runWithTimeout(seconds: 10, fallback: false) {
-            var config: CGDisplayConfigRef?
-            guard CGBeginDisplayConfiguration(&config) == .success,
-                  let cfg = config else { return false }
-            CGConfigureDisplayMirrorOfDisplay(cfg, displayID, kCGNullDirectDisplay)
-            let result = CGCompleteDisplayConfiguration(cfg, .forSession)
-            if result != .success {
-                CGCancelDisplayConfiguration(cfg)
-                return false
-            }
-            return true
+    func disableMirror(
+        displayID: CGDirectDisplayID,
+        expectedSource: CGDirectDisplayID,
+        expectedTargetUUID: String,
+        lateCompletion: @escaping @Sendable (Bool) -> Void = { _ in }
+    ) async -> CGHelpers.TimedResult<Bool> {
+        return await CGHelpers.runMandatoryWithTimeout(
+            seconds: 10,
+            operation: {
+                // Resolve the stable physical target only when this mandatory
+                // body reaches the front of the process-global queue. The ID
+                // captured by the caller may have been reassigned meanwhile.
+                guard let online = Self.onlineDisplayIDs() else { return false }
+                guard let liveTarget = ([displayID] + online).first(where: {
+                    online.contains($0) && Self.displayUUID(for: $0) == expectedTargetUUID
+                }) else {
+                    // The intended panel is gone, so it can no longer depend on
+                    // our virtual master.
+                    return true
+                }
+                // Do not disturb an unrelated mirror relationship. If the
+                // intended panel no longer mirrors this exact virtual, the
+                // requested pair is already dismantled.
+                guard CGDisplayMirrorsDisplay(liveTarget) == expectedSource else { return true }
+                var config: CGDisplayConfigRef?
+                guard CGBeginDisplayConfiguration(&config) == .success,
+                      let cfg = config else { return false }
+                guard CGConfigureDisplayMirrorOfDisplay(
+                    cfg, liveTarget, kCGNullDirectDisplay) == .success else {
+                    CGCancelDisplayConfiguration(cfg)
+                    return false
+                }
+                guard CGCompleteDisplayConfiguration(cfg, .forSession) == .success else {
+                    return false
+                }
+                guard let refreshed = Self.onlineDisplayIDs() else { return false }
+                guard let currentTarget = refreshed.first(where: {
+                    Self.displayUUID(for: $0) == expectedTargetUUID
+                }) else { return true }
+                return CGDisplayMirrorsDisplay(currentTarget) != expectedSource
+            }, lateCompletion: lateCompletion)
+    }
+
+    private static func displayUUID(for displayID: CGDirectDisplayID) -> String {
+        if let cf = CGDisplayCreateUUIDFromDisplayID(displayID),
+           let value = CFUUIDCreateString(nil, cf.takeRetainedValue()) {
+            return value as String
         }
+        return "v\(CGDisplayVendorNumber(displayID))-m\(CGDisplayModelNumber(displayID))"
+            + "-s\(CGDisplaySerialNumber(displayID))"
+    }
+
+    private static func onlineDisplayIDs() -> [CGDirectDisplayID]? {
+        var count: UInt32 = 0
+        guard CGGetOnlineDisplayList(0, nil, &count) == .success else { return nil }
+        var ids = [CGDirectDisplayID](repeating: 0, count: Int(count))
+        guard CGGetOnlineDisplayList(count, &ids, &count) == .success else { return nil }
+        return Array(ids.prefix(Int(count)))
     }
 }

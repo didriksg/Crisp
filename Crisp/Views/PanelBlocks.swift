@@ -89,6 +89,31 @@ struct BlockHost<Content: View>: View {
     }
 }
 
+/// Compact numeric field shared by inline panel editors. It matches the soft
+/// fill used throughout the panel and strips non-digit input as the user types.
+struct PanelNumericField: View {
+    @Binding var text: String
+    let placeholder: String
+
+    var body: some View {
+        TextField(placeholder, text: $text)
+            .textFieldStyle(.plain)
+            .font(.body)
+            .multilineTextAlignment(.center)
+            .frame(width: 72)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color.primary.opacity(0.07))
+            )
+            .onChange(of: text) { _, value in
+                let digits = value.filter(\.isNumber)
+                if digits != value { text = digits }
+            }
+    }
+}
+
 /// An ExpandableRow bound to a PanelSectionState flag. Observes the state so
 /// the chevron re-renders when the flag flips (a plain ad-hoc Binding inside
 /// a static block closure would never re-render).

@@ -124,7 +124,9 @@ struct ResolutionSliderView: View {
         guard selected.id != display.currentDisplayMode?.id else { return }
         isSwitching = true
         Task { @MainActor in
-            let success = await ResolutionService.shared.setDisplayMode(selected, for: display.displayID)
+            let success = await ResolutionService.shared.setDisplayMode(
+                selected, for: display.displayID,
+                expectedDisplayUUID: display.displayUUID)
             if success {
                 display.currentDisplayMode = selected
                 errorMessage = nil
