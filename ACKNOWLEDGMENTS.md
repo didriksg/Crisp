@@ -38,6 +38,7 @@ SOFTWARE.
 - [@YuriNachos](https://github.com/YuriNachos) ([#27](https://github.com/didriksg/Crisp/pull/27), [#35](https://github.com/didriksg/Crisp/pull/35), [#36](https://github.com/didriksg/Crisp/pull/36))
 - [@crayonlu](https://github.com/crayonlu) ([#53](https://github.com/didriksg/Crisp/pull/53))
 - [@Juns-g](https://github.com/Juns-g) ([#75](https://github.com/didriksg/Crisp/pull/75))
+- [@dboleslawski](https://github.com/dboleslawski) ([#87](https://github.com/didriksg/Crisp/pull/87))
 
 ## Translations
 
