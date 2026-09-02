@@ -120,6 +120,16 @@
     "%lld%%" : {
       "shouldTranslate" : false
     },
+    "Stays disconnected until you reconnect it here." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "将保持断开，直到你在这里重新连接。"
+          }
+        }
+      }
+    },
     "×" : {
       "shouldTranslate" : false
     },
