@@ -76,6 +76,12 @@ final class PhysicalDisplayToggleService: ObservableObject {
     /// this keeps the recovery path and the sweep from re-enabling a display out from under
     /// its own retry loop. Per-display, so concurrent blinks don't mask each other.
     private var softReconnectInFlight: Set<String> = []
+    /// UUIDs whose reconnect is running right now. `reconnect` only clears the record once
+    /// `setEnabled(true)` returns, and a reconfiguration callback inside that window runs
+    /// `refreshDisplays`, and therefore `reconcile`, which would find the display online with
+    /// its record still in place and switch it straight back off: the user clicks Reconnect
+    /// and nothing happens. The record is the wrong thing to read there, so read this instead.
+    private var reconnectInFlight: Set<String> = []
 
     private func pendingSoftReconnectUUIDs() -> [String] {
         UserDefaults.standard.stringArray(forKey: softReconnectPendingKey) ?? []
@@ -266,6 +272,8 @@ final class PhysicalDisplayToggleService: ObservableObject {
         // The CGDirectDisplayID can be reassigned; re-resolve by UUID against the full list.
         let targetID = resolveCurrentID(for: record) ?? record.displayID
         Self.log.notice("reconnect requested: \(uuid, privacy: .public) id \(targetID, privacy: .public)")
+        reconnectInFlight.insert(uuid)
+        defer { reconnectInFlight.remove(uuid) }
         let result = await setEnabled(true, displayID: targetID)
         if case .success = result {
             disconnected.removeAll { $0.uuid == uuid }
@@ -581,19 +589,74 @@ final class PhysicalDisplayToggleService: ObservableObject {
 
     // MARK: - Reconcile / Wake restore
 
-    /// Drops records for displays that are back online (e.g. physically re-plugged, or macOS
-    /// re-enabled them). Called from DisplayManager.refreshDisplays so the UI stays honest.
+    /// Re-applies the disconnect for records whose display is back online (a reboot, a
+    /// relaunch, a replug, or macOS re-enabling it), and drops the record when that does not
+    /// take. Called from DisplayManager.refreshDisplays.
+    ///
+    /// A disconnect is a choice about one specific display, already stored by UUID, and it
+    /// used to last only until that display next showed up. A monitor kept switched off but
+    /// still cabled enumerates as an ordinary display at every boot, so the same disconnect
+    /// had to be redone by hand every time (issue #93); re-applying it here is what makes
+    /// the choice stick. It only ever touches displays the user disconnected themselves, and
+    /// only while it is safe to: `wouldLeaveNoActiveDisplay` refuses to take the last screen
+    /// and `restoreIfNoActiveDisplay` stays underneath as the backstop. A re-apply that is
+    /// refused, fails, or does not verifiably land drops the record exactly as before, so
+    /// the list never claims a display is disconnected while it is lit.
     func reconcile() {
         guard !disconnected.isEmpty else { return }
-        var onlineCount: UInt32 = 0
-        CGGetOnlineDisplayList(0, nil, &onlineCount)
-        var onlineIDs = [CGDirectDisplayID](repeating: 0, count: Int(onlineCount))
-        CGGetOnlineDisplayList(onlineCount, &onlineIDs, &onlineCount)
-        let onlineUUIDs = Set(onlineIDs.prefix(Int(onlineCount)).map { uuid(for: $0) })
+        let onlineUUIDs = Set(onlineDisplayIDs().map { uuid(for: $0) })
+        let resurfaced = disconnected.filter { onlineUUIDs.contains($0.uuid) }
+        guard !resurfaced.isEmpty else { return }
+        // Intel has no working disconnect to re-apply, so there the old behaviour is all
+        // that is available: forget the record and keep the UI honest.
+        guard isSupported else {
+            disconnected.removeAll { onlineUUIDs.contains($0.uuid) }
+            saveDesired()
+            return
+        }
+        for record in resurfaced {
+            // A blink (softReconnect) puts its own display back online on purpose, and a
+            // reconnect in flight is the user (or the restore path) asking for exactly that.
+            guard !reapplyInFlight.contains(record.uuid),
+                  !softReconnectInFlight.contains(record.uuid),
+                  !reconnectInFlight.contains(record.uuid) else { continue }
+            reapplyInFlight.insert(record.uuid)
+            Task { [weak self] in
+                guard let self else { return }
+                await self.reapplyRemembered(record.uuid)
+                self.reapplyInFlight.remove(record.uuid)
+            }
+        }
+    }
 
-        let before = disconnected.count
-        disconnected.removeAll { onlineUUIDs.contains($0.uuid) }
-        if disconnected.count != before { saveDesired() }
+    /// Displays whose remembered disconnect is being re-applied right now. A reconfiguration
+    /// burst refreshes the display list several times over, and each refresh must not stack
+    /// another attempt on the same display.
+    private var reapplyInFlight: Set<String> = []
+
+    /// One display's half of reconcile: put it back the way the user left it, or forget it.
+    private func reapplyRemembered(_ recordUUID: String) async {
+        guard !reconnectInFlight.contains(recordUUID) else { return }
+        guard let liveID = onlineDisplayIDs().first(where: { uuid(for: $0) == recordUUID })
+        else { return }  // gone again by itself; the record still stands for next time
+        var applied = false
+        if !wouldLeaveNoActiveDisplay(liveID),
+           case .success = await setEnabled(false, displayID: liveID) {
+            // The API's own answer is not proof (see verifyBackOnline for the same problem
+            // in the other direction), and a display still lit behind a lying success would
+            // have this run again at every refresh. Enumeration is the proof.
+            for _ in 0..<10 {
+                if !onlineDisplayIDs().contains(liveID) { applied = true; break }
+                try? await Task.sleep(nanoseconds: 100_000_000)
+            }
+        }
+        guard let idx = disconnected.firstIndex(where: { $0.uuid == recordUUID }) else { return }
+        if applied {
+            disconnected[idx].displayID = liveID
+        } else {
+            disconnected.remove(at: idx)
+        }
+        saveDesired()
     }
 
     /// Guards against overlapping recovery runs from reconfiguration-callback bursts, same
@@ -732,25 +795,6 @@ final class PhysicalDisplayToggleService: ObservableObject {
         }
     }
 
-    /// Re-applies disconnect for displays macOS re-enabled after wake-from-sleep. Called from
-    /// AppDelegate.onWake after WindowServer settles.
-    func reapplyOnWake() async {
-        guard isSupported, !disconnected.isEmpty else { return }
-        var onlineCount: UInt32 = 0
-        CGGetOnlineDisplayList(0, nil, &onlineCount)
-        var onlineIDs = [CGDirectDisplayID](repeating: 0, count: Int(onlineCount))
-        CGGetOnlineDisplayList(onlineCount, &onlineIDs, &onlineCount)
-        let onlineByUUID = Dictionary(uniqueKeysWithValues:
-            onlineIDs.prefix(Int(onlineCount)).map { (uuid(for: $0), $0) })
-
-        for record in disconnected {
-            // Only re-disconnect ones macOS brought back online, and never the last screen.
-            guard let liveID = onlineByUUID[record.uuid] else { continue }
-            guard !wouldLeaveNoActiveDisplay(liveID) else { continue }
-            _ = await setEnabled(false, displayID: liveID)
-        }
-    }
-
     // MARK: - Persistence
 
     private func saveDesired() {
@@ -763,9 +807,10 @@ final class PhysicalDisplayToggleService: ObservableObject {
               let decoded = try? JSONDecoder().decode([DisconnectedDisplay].self, from: data)
         else { return }
         disconnected = decoded
-        // By design we do NOT auto-disconnect on launch, restarting the app must never
-        // black out a screen on its own. The loaded list only populates the "Disconnected"
-        // UI so the user can reconnect (or ignore) at their choice. Only the sleep/wake path
-        // re-applies disconnect, via reapplyOnWake().
+        // Nothing is disconnected from here: the loaded list only populates the
+        // "Disconnected" UI. The first display-list refresh after launch re-applies it
+        // through reconcile(), which is where the safety rails are (it never takes the last
+        // screen, and forgets any record it cannot honour). Wake goes through the same
+        // path: the wake chain's refresh runs reconcile like any other.
     }
 }
