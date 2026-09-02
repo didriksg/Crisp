@@ -47,6 +47,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     /// Drives the menu-bar Keep Awake indicator (keep-awake indicator).
     private var keepAwakeCancellable: AnyCancellable?
     private var keepAwakeBadge: NSView?
+    private var disconnectedCancellable: AnyCancellable?
+    private var disconnectedBadge: NSView?
     private var panel: MenuPanel?
     /// The panel is NEVER ordered out once warmed: taking the backdrop surface
     /// off screen makes WindowServer replay its materialize bloom (the growing
@@ -155,6 +157,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         setupStartupBehavior()
         setupStatusItem()
+        DisconnectNoticeService.shared.start()
 
         // Re-anchor the open panel when screens change: switching the main
         // display re-origins global coordinates, which would otherwise leave
@@ -282,9 +285,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 // Give WindowServer 2 seconds to stabilize after wake before
                 // touching display state.
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
-                dm.refreshDisplays()
-                // Re-disconnect any physical displays macOS re-enabled on wake.
-                await PhysicalDisplayToggleService.shared.reapplyOnWake()
+                // The refresh also re-disconnects any display macOS re-enabled on wake:
+                // it runs reconcile, which puts a remembered disconnect back.
                 dm.refreshDisplays()
                 try? await Task.sleep(nanoseconds: 500_000_000)
                 // WindowServer keeps settling for several seconds after wake: ICC
@@ -345,6 +347,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         updateStatusIcon(active: KeepAwakeService.shared.isActive, animated: false)
         keepAwakeCancellable = KeepAwakeService.shared.$isActive
             .sink { [weak self] active in self?.updateStatusIcon(active: active, animated: true) }
+
+        // And a second dot, opposite corner, while any display is disconnected. A disconnected
+        // display shows no signal and does not appear in System Settings > Displays, so with
+        // the disconnect now outliving a replug and a reboot, this is the only thing on screen
+        // that says a display is being held off — and it is the thing a puzzled user clicks,
+        // which is where the Reconnect row is.
+        updateDisconnectedIcon(any: !PhysicalDisplayToggleService.shared.disconnected.isEmpty, animated: false)
+        disconnectedCancellable = PhysicalDisplayToggleService.shared.$disconnected
+            .map { !$0.isEmpty }
+            .removeDuplicates()
+            .sink { [weak self] any in self?.updateDisconnectedIcon(any: any, animated: true) }
     }
 
     /// Renders the status-bar icon for the given Keep Awake state. A hidden default
@@ -354,9 +367,21 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     /// Only the dot animates; the base symbol stays put. (keep-awake indicator)
     private func updateStatusIcon(active: Bool, animated: Bool) {
         guard let button = statusItem?.button else { return }
-        let badge = keepAwakeBadge ?? makeKeepAwakeBadge(on: button)
+        let badge = keepAwakeBadge ?? makeBadge(on: button, color: .systemOrange, trailing: true)
         keepAwakeBadge = badge
-        let target: CGFloat = active ? 1 : 0
+        fade(badge, to: active ? 1 : 0, animated: animated)
+    }
+
+    /// The same treatment for "a display is disconnected", in the opposite corner and a
+    /// different colour so the two states can be told apart, and read at once.
+    private func updateDisconnectedIcon(any: Bool, animated: Bool) {
+        guard let button = statusItem?.button else { return }
+        let badge = disconnectedBadge ?? makeBadge(on: button, color: .systemBlue, trailing: false)
+        disconnectedBadge = badge
+        fade(badge, to: any ? 1 : 0, animated: animated)
+    }
+
+    private func fade(_ badge: NSView, to target: CGFloat, animated: Bool) {
         guard animated else { badge.alphaValue = target; return }
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = 0.25
@@ -365,22 +390,25 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
 
-    /// A small orange dot pinned to the icon's bottom-right corner, layer-backed so its alpha can
-    /// animate. Starts hidden (alpha 0); updateStatusIcon fades it in when Keep Awake turns on.
-    /// (keep-awake indicator)
-    private func makeKeepAwakeBadge(on button: NSStatusBarButton) -> NSView {
+    /// A small dot pinned to one bottom corner of the icon, layer-backed so its alpha can
+    /// animate. Starts hidden (alpha 0); the update methods above fade it in. Trailing/orange is
+    /// Keep Awake (keep-awake indicator), leading/blue is "a display is disconnected".
+    private func makeBadge(on button: NSStatusBarButton, color: NSColor, trailing: Bool) -> NSView {
         let d: CGFloat = 6
         let dot = NSView()
         dot.wantsLayer = true
-        dot.layer?.backgroundColor = NSColor.systemOrange.cgColor
+        dot.layer?.backgroundColor = color.cgColor
         dot.layer?.cornerRadius = d / 2
         dot.alphaValue = 0
         dot.translatesAutoresizingMaskIntoConstraints = false
         button.addSubview(dot)
+        let side = trailing
+            ? dot.trailingAnchor.constraint(equalTo: button.trailingAnchor, constant: -1)
+            : dot.leadingAnchor.constraint(equalTo: button.leadingAnchor, constant: 1)
         NSLayoutConstraint.activate([
             dot.widthAnchor.constraint(equalToConstant: d),
             dot.heightAnchor.constraint(equalToConstant: d),
-            dot.trailingAnchor.constraint(equalTo: button.trailingAnchor, constant: -1),
+            side,
             dot.bottomAnchor.constraint(equalTo: button.bottomAnchor, constant: -2)
         ])
         return dot
