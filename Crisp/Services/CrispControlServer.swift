@@ -80,20 +80,62 @@ final class CrispControlServer {
     }
 
     private func response(to request: Data) async -> Data {
-        let displays = displayManager.displays.map {
-            CrispControlDisplay(
-                id: $0.displayID, name: $0.name,
-                brightness: min($0.brightness, 100), isBuiltin: $0.isBuiltin
-            )
-        }
-        let result = CrispControlModel.handle(request, displays: displays)
+        let result = CrispControlModel.handle(request, displays: knownDisplays())
         if let change = result.brightnessChange {
             guard let display = displayManager.displays.first(where: { $0.displayID == change.displayID }) else {
                 return CrispControlModel.encode(.failure("display not found"))
             }
             await BrightnessService.shared.setBrightness(change.brightness, for: display)
         }
+        if let change = result.connectionChange, let error = await apply(change) {
+            return CrispControlModel.encode(.failure(error))
+        }
         return CrispControlModel.encode(result.response)
+    }
+
+    /// Online displays plus the ones Crisp is holding disconnected. A disconnected
+    /// display is gone from DisplayManager (CGGetOnlineDisplayList omits it), so
+    /// without the second half `connect` could never name its target.
+    private func knownDisplays() -> [CrispControlDisplay] {
+        let online = displayManager.displays.map {
+            CrispControlDisplay(
+                id: $0.displayID, name: $0.name,
+                brightness: min($0.brightness, 100), isBuiltin: $0.isBuiltin,
+                uuid: $0.displayUUID, connected: true
+            )
+        }
+        let live = Set(online.map(\.uuid))
+        let offline = PhysicalDisplayToggleService.shared.disconnected
+            .filter { !live.contains($0.uuid) }
+            .map {
+                CrispControlDisplay(
+                    id: $0.displayID, name: $0.name,
+                    brightness: 0, isBuiltin: false,
+                    uuid: $0.uuid, connected: false
+                )
+            }
+        return online + offline
+    }
+
+    /// Applies a resolved connection change. Returns nil on success, or the reason
+    /// the window server refused. Unlike brightness this is not fire-and-forget:
+    /// disconnecting can be legitimately refused (it would leave no active display),
+    /// and a caller wiring this to a button needs to hear that.
+    private func apply(_ change: CrispControlConnectionChange) async -> String? {
+        let service = PhysicalDisplayToggleService.shared
+        if change.connect {
+            if case let .failure(error) = await service.reconnect(uuid: change.uuid) {
+                return error.description
+            }
+            return nil
+        }
+        guard let display = displayManager.displays.first(where: { $0.displayUUID == change.uuid }) else {
+            return "display not found"
+        }
+        if case let .failure(error) = await service.disconnect(display) {
+            return error.description
+        }
+        return nil
     }
 
     private nonisolated static func read(_ client: Int32) -> CrispControlFrame.Result {
