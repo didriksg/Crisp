@@ -541,6 +541,7 @@ final class PhysicalDisplayToggleService: ObservableObject {
             // display with no way back through the UI, and replugging cannot undo it because
             // the window server holds the state, not the cable.
             disconnected[idx].displayID = liveID
+            DisconnectNoticeService.shared.displayKeptDisconnected(disconnected[idx])
         }
         saveDesired()
     }

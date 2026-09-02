@@ -120,6 +120,16 @@
     "%lld%%" : {
       "shouldTranslate" : false
     },
+    "Crisp is keeping this display disconnected. Choose Reconnect to bring it back." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Crisp 正在让这台显示器保持断开。选择「重新连接」即可恢复。"
+          }
+        }
+      }
+    },
     "Stays disconnected until you reconnect it here." : {
       "localizations" : {
         "zh-Hans" : {

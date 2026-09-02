@@ -157,6 +157,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         setupStartupBehavior()
         setupStatusItem()
+        DisconnectNoticeService.shared.start()
 
         // Re-anchor the open panel when screens change: switching the main
         // display re-origins global coordinates, which would otherwise leave
