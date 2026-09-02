@@ -102,12 +102,13 @@ It supports exactly three commands:
 crispctl displays list
 crispctl brightness get <display-id>
 crispctl brightness set <display-id> <percent>
+crispctl display connect|disconnect|toggle <display>
 crispctl help
 ```
 
 `crispctl help` is the full reference (output format, display ids, exit codes); point an agent at it before it does anything else.
 
-Crisp must already be running. Display selectors are numeric runtime IDs from `displays list`, and output is JSON by default. `brightness set` is a manual change like using the slider and clears the active preset. A successful request means the change was accepted and queued, not independently verified; it is not retried automatically.
+Crisp must already be running. Display selectors are numeric runtime IDs from `displays list`, and output is JSON by default. The connection commands also accept a uuid, which is the selector to use for anything scripted: a disconnected display is absent from every macOS display list, so its runtime id is only a last-known value. `brightness set` is a manual change like using the slider and clears the active preset. A successful request means the change was accepted and queued, not independently verified; it is not retried automatically.
 
 The current public Crisp 1.5.0 release, normal DMG, and Homebrew cask do not include `crispctl`.
 
