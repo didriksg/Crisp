@@ -49,6 +49,17 @@ struct DisconnectDisplayRow: View {
                     }
                 }
 
+                // The disconnect outlives a replug and a reboot (see
+                // PhysicalDisplayToggleService.reconcile), and a display that is switched off
+                // at the window server shows no signal and is absent from System Settings, so
+                // there is nothing outside this menu to say what happened to it. Said here,
+                // where the choice is made, rather than left to be rediscovered later.
+                Text("Stays disconnected until you reconnect it here.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 4)
+
                 if let msg = errorMessage {
                     Text(msg)
                         .font(.caption)
