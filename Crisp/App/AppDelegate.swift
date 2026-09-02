@@ -282,9 +282,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 // Give WindowServer 2 seconds to stabilize after wake before
                 // touching display state.
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
-                dm.refreshDisplays()
-                // Re-disconnect any physical displays macOS re-enabled on wake.
-                await PhysicalDisplayToggleService.shared.reapplyOnWake()
+                // The refresh also re-disconnects any display macOS re-enabled on wake:
+                // it runs reconcile, which puts a remembered disconnect back.
                 dm.refreshDisplays()
                 try? await Task.sleep(nanoseconds: 500_000_000)
                 // WindowServer keeps settling for several seconds after wake: ICC
