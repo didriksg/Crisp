@@ -599,9 +599,9 @@ final class PhysicalDisplayToggleService: ObservableObject {
     /// had to be redone by hand every time (issue #93); re-applying it here is what makes
     /// the choice stick. It only ever touches displays the user disconnected themselves, and
     /// only while it is safe to: `wouldLeaveNoActiveDisplay` refuses to take the last screen
-    /// and `restoreIfNoActiveDisplay` stays underneath as the backstop. A re-apply that is
-    /// refused, fails, or does not verifiably land drops the record exactly as before, so
-    /// the list never claims a display is disconnected while it is lit.
+    /// and `restoreIfNoActiveDisplay` stays underneath as the backstop. A display still lit
+    /// after the attempt drops its record exactly as before, so the list never claims a
+    /// display is disconnected while it is on screen.
     func reconcile() {
         guard !disconnected.isEmpty else { return }
         let onlineUUIDs = Set(onlineDisplayIDs().map { uuid(for: $0) })
@@ -639,22 +639,28 @@ final class PhysicalDisplayToggleService: ObservableObject {
         guard !reconnectInFlight.contains(recordUUID) else { return }
         guard let liveID = onlineDisplayIDs().first(where: { uuid(for: $0) == recordUUID })
         else { return }  // gone again by itself; the record still stands for next time
-        var applied = false
-        if !wouldLeaveNoActiveDisplay(liveID),
-           case .success = await setEnabled(false, displayID: liveID) {
-            // The API's own answer is not proof (see verifyBackOnline for the same problem
-            // in the other direction), and a display still lit behind a lying success would
-            // have this run again at every refresh. Enumeration is the proof.
+        if !wouldLeaveNoActiveDisplay(liveID) {
+            _ = await setEnabled(false, displayID: liveID)
+            // The API's own answer is not proof, in either direction (see verifyBackOnline),
+            // so the record's fate is settled by enumeration below, not by the result.
             for _ in 0..<10 {
-                if !onlineDisplayIDs().contains(liveID) { applied = true; break }
+                if !onlineDisplayIDs().contains(liveID) { break }
                 try? await Task.sleep(nanoseconds: 100_000_000)
             }
         }
         guard let idx = disconnected.firstIndex(where: { $0.uuid == recordUUID }) else { return }
-        if applied {
-            disconnected[idx].displayID = liveID
-        } else {
+        if onlineDisplayIDs().contains(liveID) {
+            // Still lit and we could not take it off, a refusal included: forget it, so the
+            // list never claims a display is disconnected while the user is looking at it.
             disconnected.remove(at: idx)
+        } else {
+            // Off, whether or not the transaction said so — and that difference is the whole
+            // reason this is decided by enumeration. A disable that reports an error and takes
+            // anyway leaves the display switched off at the window server, where the record is
+            // the only handle the Reconnect row has on it. Dropping it there strands the
+            // display with no way back through the UI, and replugging cannot undo it because
+            // the window server holds the state, not the cable.
+            disconnected[idx].displayID = liveID
         }
         saveDesired()
     }
