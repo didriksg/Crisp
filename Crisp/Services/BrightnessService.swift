@@ -22,6 +22,16 @@ private let _DSGetBrightness: (@convention(c) (CGDirectDisplayID, UnsafeMutableP
           let sym = dlsym(h, "DisplayServicesGetBrightness") else { return nil }
     return unsafeBitCast(sym, to: (@convention(c) (CGDirectDisplayID, UnsafeMutablePointer<Float>) -> Int32).self)
 }()
+private let _DSSetLinearBrightness: (@convention(c) (CGDirectDisplayID, Float) -> Int32)? = {
+    guard let h = dlopen("/System/Library/PrivateFrameworks/DisplayServices.framework/DisplayServices", RTLD_LAZY),
+          let sym = dlsym(h, "DisplayServicesSetLinearBrightness") else { return nil }
+    return unsafeBitCast(sym, to: (@convention(c) (CGDirectDisplayID, Float) -> Int32).self)
+}()
+private let _DSGetLinearBrightness: (@convention(c) (CGDirectDisplayID, UnsafeMutablePointer<Float>) -> Int32)? = {
+    guard let h = dlopen("/System/Library/PrivateFrameworks/DisplayServices.framework/DisplayServices", RTLD_LAZY),
+          let sym = dlsym(h, "DisplayServicesGetLinearBrightness") else { return nil }
+    return unsafeBitCast(sym, to: (@convention(c) (CGDirectDisplayID, UnsafeMutablePointer<Float>) -> Int32).self)
+}()
 
 // DisplayServices brightness-change notifications: push updates so the UI tracks the
 // built-in panel live (native keys, auto-brightness, Night Shift/TrueTone) instead of
@@ -266,6 +276,15 @@ final class BrightnessService: @unchecked Sendable {
 
     // MARK: - Public API
 
+    /// Native panel brightness in a linear luminance domain. Multiplying this
+    /// by DisplayInfo.nominalMaxNits yields the current estimated nits.
+    func linearBrightness(for displayID: CGDirectDisplayID) -> Double? {
+        guard let get = _DSGetLinearBrightness else { return nil }
+        var value: Float = 0
+        guard get(displayID, &value) == 0 else { return nil }
+        return min(1.0, max(0.0, Double(value)))
+    }
+
     /// `animated: true` glides the built-in slider to the freshly-read value
     /// instead of snapping, used by the ~1s poll so an ambient-sensor auto-adjust
     /// reads as smooth motion. Instant (default) on load/wake where the slider
@@ -438,6 +457,67 @@ final class BrightnessService: @unchecked Sendable {
         }
     }
 
+    /// Sets a built-in panel in linear luminance space, then reads back the
+    /// corresponding native user-slider value so every UI stays truthful.
+    @MainActor
+    func setBuiltinLinearBrightness(_ linearBrightness: Double, for display: DisplayInfo) async {
+        guard display.isBuiltin, let set = _DSSetLinearBrightness else {
+            await setBrightness(linearBrightness * 100.0, for: display)
+            return
+        }
+        let displayID = display.displayID
+        let target = min(1.0, max(0.0, linearBrightness))
+        cancelAnimation(for: displayID)
+        manualAdjustLock.withLock { lastManualAdjustDate = Date() }
+        PresetService.shared.noteManualChange()
+        noteManualBrightnessChange(displayID: displayID, isBuiltin: true, value: display.brightness)
+
+        let userBrightness: Double? = await withCheckedContinuation { continuation in
+            queue.async {
+                guard set(displayID, Float(target)) == 0, let get = _DSGetBrightness else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+                var user: Float = 0
+                continuation.resume(returning: get(displayID, &user) == 0 ? Double(user) * 100.0 : nil)
+            }
+        }
+        if let userBrightness { display.brightness = userBrightness }
+        BrightnessBoostService.shared.syncOverlay(for: display)
+    }
+
+    /// Smooth counterpart used by clicks, step buttons, and calibration changes.
+    /// The animation itself is linear in nits; macOS converts every tick back to
+    /// its nonlinear native slider curve.
+    @MainActor
+    func setBuiltinLinearBrightnessSmooth(
+        _ linearBrightness: Double,
+        for display: DisplayInfo,
+        duration: TimeInterval = 0.20
+    ) {
+        guard display.isBuiltin, let set = _DSSetLinearBrightness else {
+            setBrightnessSmooth(linearBrightness * 100.0, for: display, duration: duration)
+            return
+        }
+        let displayID = display.displayID
+        let target = min(1.0, max(0.0, linearBrightness))
+        let from = self.linearBrightness(for: displayID) ?? target
+        manualAdjustLock.withLock { lastManualAdjustDate = Date() }
+        PresetService.shared.noteManualChange()
+        noteManualBrightnessChange(displayID: displayID, isBuiltin: true, value: display.brightness)
+
+        animator(for: displayID).animate(
+            from: from,
+            to: target,
+            steps: max(8, Int(duration / 0.016)),
+            duration: duration
+        ) { [weak display] value, _ in
+            guard let display, set(displayID, Float(value)) == 0, let get = _DSGetBrightness else { return }
+            var user: Float = 0
+            if get(displayID, &user) == 0 { display.brightness = Double(user) * 100.0 }
+        }
+    }
+
     // MARK: - Coalescing DDC Writer
 
     /// Latest pending brightness percent per display. Only one DDC write is in flight
@@ -460,7 +540,7 @@ final class BrightnessService: @unchecked Sendable {
     /// DDC 0 on most monitors means "minimum backlight", which is still visibly bright.
     /// Below this percent we layer gamma dimming on top of the hardware write so the
     /// bottom of the slider actually reaches dark (gamma keeps its own 5% floor).
-    private let gammaBlendThreshold = 15.0
+    private let gammaBlendThreshold = CombinedBrightnessMath.externalGammaBlendThreshold
 
     /// Externals currently in HDR mode. A DisplayHDR monitor manages its own
     /// luminance and silently discards DDC brightness writes (they still ack,

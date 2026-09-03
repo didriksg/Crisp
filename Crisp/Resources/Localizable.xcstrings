@@ -353,6 +353,16 @@
         }
       }
     },
+    "Absolute brightness ratio" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "绝对亮度比率"
+          }
+        }
+      }
+    },
     "Cancel" : {
       "localizations" : {
         "zh-Hans" : {
@@ -1983,6 +1993,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "更新为当前值"
+          }
+        }
+      }
+    },
+    "Calculated from each panel's nits; adjust only if they still look different" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "根据各屏幕的 nit 值计算；若观感仍有差异再微调"
           }
         }
       }

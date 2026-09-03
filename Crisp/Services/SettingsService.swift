@@ -56,6 +56,7 @@ final class SettingsService: ObservableObject, @unchecked Sendable {
         static let launchAtLoginPrompted  = "crisp.launchAtLogin.prompted"
         static let menuWidth              = "crisp.menuWidth"
         static let showCombinedBrightness = "crisp.showCombinedBrightness"
+        static let combinedBuiltinFactor  = "crisp.combinedBuiltinBrightnessAdjustment.v2"
         static let showVolumeSliders      = "crisp.showVolumeSliders"
         static let ddcCacheTTL            = "crisp.ddcCacheTTL"
         static let colorPickerHistory     = "crisp.colorPickerHistory"
@@ -84,6 +85,12 @@ final class SettingsService: ObservableObject, @unchecked Sendable {
 
     @Published var showCombinedBrightness: Bool = true {
         didSet { defaults.set(showCombinedBrightness, forKey: Keys.showCombinedBrightness) }
+    }
+
+    /// Fine tuning on top of the absolute-luminance match. 1.0 means equal
+    /// estimated nits; lower values dim the built-in relative to externals.
+    @Published var combinedBuiltinBrightnessFactor: Double = CombinedBrightnessMath.defaultBuiltinAdjustment {
+        didSet { defaults.set(combinedBuiltinBrightnessFactor, forKey: Keys.combinedBuiltinFactor) }
     }
 
     /// Volume sliders for DDC-volume monitors. Hiding them only affects the
@@ -190,6 +197,15 @@ final class SettingsService: ObservableObject, @unchecked Sendable {
             ? defaults.double(forKey: Keys.menuWidth) : 320
         showCombinedBrightness = defaults.object(forKey: Keys.showCombinedBrightness) != nil
             ? defaults.bool(forKey: Keys.showCombinedBrightness) : true
+        if defaults.object(forKey: Keys.combinedBuiltinFactor) != nil {
+            let storedFactor = defaults.double(forKey: Keys.combinedBuiltinFactor)
+            combinedBuiltinBrightnessFactor = storedFactor.isFinite
+                ? min(CombinedBrightnessMath.builtinAdjustmentRange.upperBound,
+                      max(CombinedBrightnessMath.builtinAdjustmentRange.lowerBound, storedFactor))
+                : CombinedBrightnessMath.defaultBuiltinAdjustment
+        } else {
+            combinedBuiltinBrightnessFactor = CombinedBrightnessMath.defaultBuiltinAdjustment
+        }
         showVolumeSliders = defaults.object(forKey: Keys.showVolumeSliders) != nil
             ? defaults.bool(forKey: Keys.showVolumeSliders) : true
         ddcCacheTTL = defaults.object(forKey: Keys.ddcCacheTTL) != nil

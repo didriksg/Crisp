@@ -448,6 +448,28 @@ struct SettingsView: View {
         }
     }
 
+    private var physicalDisplays: [DisplayInfo] {
+        displayManager.displays.filter {
+            !VirtualDisplayService.shared.isVirtualDisplay($0.displayID)
+        }
+    }
+
+    /// Effective linear-brightness slope: external peak nits divided by the
+    /// built-in SDR peak, then multiplied by the user's fine tuning.
+    private var combinedBuiltinLuminanceRatio: Double? {
+        guard let builtinMax = physicalDisplays.first(where: { $0.isBuiltin })?.nominalMaxNits else {
+            return nil
+        }
+        let externalMaxima = physicalDisplays.filter { !$0.isBuiltin }.compactMap(\.nominalMaxNits)
+        guard !externalMaxima.isEmpty else { return nil }
+        let externalMax = externalMaxima.reduce(0, +) / Double(externalMaxima.count)
+        return externalMax / builtinMax * settings.combinedBuiltinBrightnessFactor
+    }
+
+    private var combinedBuiltinLuminanceRatioPercent: Int {
+        Int(((combinedBuiltinLuminanceRatio ?? settings.combinedBuiltinBrightnessFactor) * 100).rounded())
+    }
+
     /// Opt-in control for brightness-key redirection, shown inside the Brightness Keys section
     /// only while Accessibility is missing. The toggle is the deliberate, in-context trigger for
     /// the native trust prompt (nothing is requested at launch); it also opens the exact Settings
@@ -526,7 +548,7 @@ struct SettingsView: View {
             // slider exists (one per connected display, virtuals excluded since
             // they get no slider): with a single slider, "combined" would just
             // duplicate it. The preference persists, so it returns on reconnect.
-            if displayManager.displays.filter({ !VirtualDisplayService.shared.isVirtualDisplay($0.displayID) }).count > 1 {
+            if physicalDisplays.count > 1 {
                 Toggle(isOn: Binding(
                     get: { settings.showCombinedBrightness },
                     set: { newValue in withAnimation(.panelResize) { settings.showCombinedBrightness = newValue } }
@@ -543,6 +565,37 @@ struct SettingsView: View {
                 .controlSize(.small)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 3)
+
+                if settings.showCombinedBrightness && physicalDisplays.contains(where: { $0.isBuiltin }) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Absolute brightness ratio")
+                                    .font(.callout)
+                                Text("Calculated from each panel's nits; adjust only if they still look different")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                            }
+                            Spacer()
+                            Text("\(combinedBuiltinLuminanceRatioPercent)%")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .monospacedDigit()
+                        }
+                        Slider(
+                            value: $settings.combinedBuiltinBrightnessFactor,
+                            in: CombinedBrightnessMath.builtinAdjustmentRange,
+                            step: 0.02
+                        )
+                        .controlSize(.small)
+                        .accessibilityLabel("Absolute brightness ratio")
+                        .accessibilityValue("\(combinedBuiltinLuminanceRatioPercent)%")
+                    }
+                    .padding(.leading, 46)
+                    .padding(.trailing, 12)
+                    .padding(.vertical, 3)
+                    .curtainReveal(settings.showCombinedBrightness)
+                }
             }
 
             // Show volume sliders (issue #23). Hidden while no connected monitor
