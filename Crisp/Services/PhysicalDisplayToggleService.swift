@@ -43,6 +43,10 @@ final class PhysicalDisplayToggleService: ObservableObject {
         case wouldLeaveNoActiveDisplay
         case configurationFailed(CGError)
         case displayNotFound
+        /// The 10s wrapper stopped waiting. It cannot cancel `CGCompleteDisplayConfiguration`,
+        /// so this says nothing about what the window server will do with the transaction: it
+        /// is the one failure that is not evidence the change did not take.
+        case timedOut
 
         var description: String {
             switch self {
@@ -54,6 +58,8 @@ final class PhysicalDisplayToggleService: ObservableObject {
                 return String(localized: "Display configuration failed (CGError \(String(err.rawValue))).")
             case .displayNotFound:
                 return String(localized: "Display not found.")
+            case .timedOut:
+                return String(localized: "Display configuration timed out.")
             }
         }
     }
@@ -456,7 +462,7 @@ final class PhysicalDisplayToggleService: ObservableObject {
             Self.log.notice("\(action, privacy: .public) \(displayID, privacy: .public): waited \(Int(heldMs), privacy: .public) ms for DDC to go idle")
         }
         let result: Result<Void, ToggleError> = await CGHelpers.runWithTimeout(
-            seconds: 10, fallback: .failure(.configurationFailed(.failure))
+            seconds: 10, fallback: .failure(.timedOut)
         ) {
             var config: CGDisplayConfigRef?
             guard CGBeginDisplayConfiguration(&config) == .success, let cfg = config else {
@@ -658,8 +664,21 @@ final class PhysicalDisplayToggleService: ObservableObject {
         guard let liveID = onlineDisplayIDs().first(where: { uuid(for: $0) == recordUUID })
         else { return }  // gone again by itself; the record still stands for next time
         var stillOnline = true
+        var timedOut = false
         if !wouldLeaveNoActiveDisplay(liveID) {
-            _ = await setEnabled(false, displayID: liveID)
+            // Same as disconnect(): WindowServer applies its stored arrangement for the smaller
+            // display set the moment this one goes off, which moves the others (#108). A
+            // re-applied disconnect goes through the same drop, at boot every time, so it needs
+            // the same snapshot and the same restore.
+            let otherModes = currentModes(excluding: liveID)
+            if case .failure(.timedOut) = await setEnabled(false, displayID: liveID) {
+                timedOut = true
+            }
+            // Started here rather than after the verify below, for the reason restoreModes
+            // polls instead of sleeping: the flip the user sees should be as short as it can
+            // be, and the verify can hold this for seconds. It only acts on a display that
+            // actually moved, so an attempt that did not take costs nothing.
+            Task { [weak self] in await self?.restoreModes(otherModes) }
             // The API's own answer is not proof, in either direction (see verifyBackOnline),
             // so the record's fate is settled by enumeration below, not by the result. The
             // window matches softReconnect's for the same reason it uses 4s there: a display
@@ -678,9 +697,18 @@ final class PhysicalDisplayToggleService: ObservableObject {
             }
         }
         guard let idx = disconnected.firstIndex(where: { $0.uuid == recordUUID }) else { return }
-        if stillOnline, onlineDisplayIDs().contains(liveID) {
+        if stillOnline, !timedOut, onlineDisplayIDs().contains(liveID) {
             // Still lit and we could not take it off, a refusal included: forget it, so the
             // list never claims a display is disconnected while the user is looking at it.
+            //
+            // Except after a timeout, the one failure that is not evidence: the wrapper stopped
+            // waiting, but the commit is still in the window server's hands, and #33 has one
+            // held for 29.5s. Dropping the record there hands that commit a display with
+            // nothing left to name it. So the record stays and the next refresh decides, which
+            // lets the list name a lit display for one refresh — a bounded cost, against a
+            // stranding no refresh undoes. A disable that genuinely fails still drops it, so a
+            // display that cannot be switched off cannot pull a fresh transaction out of every
+            // refresh.
             disconnected.remove(at: idx)
         } else {
             // Off, whether or not the transaction said so — and that difference is the whole

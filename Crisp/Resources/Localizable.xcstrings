@@ -737,6 +737,16 @@
         }
       }
     },
+    "Display configuration timed out." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示器配置超时。"
+          }
+        }
+      }
+    },
     "Display Mode" : {
       "extractionState" : "stale",
       "localizations" : {
