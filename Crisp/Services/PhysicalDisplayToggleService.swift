@@ -540,6 +540,17 @@ final class PhysicalDisplayToggleService: ObservableObject {
         return false
     }
 
+    /// True once this display has left the online list, polling up to `timeout` seconds.
+    /// The disable half of verifyBackOnline, untrustworthy in the same way for the same
+    /// reason: the transaction reports what was asked, not what took.
+    private func verifyOffline(displayID: CGDirectDisplayID, timeout: TimeInterval) async -> Bool {
+        for _ in 0..<max(Int(timeout * 10), 1) {
+            if !onlineDisplayIDs().contains(displayID) { return true }
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+        return false
+    }
+
     /// Portables enforce Clamshell Sleep the moment no display is active; desktops don't.
     /// Battery presence is the lid-independent laptop test (the built-in panel can vanish
     /// from the display lists entirely while the lid is closed, so it can't be the signal).
@@ -602,6 +613,13 @@ final class PhysicalDisplayToggleService: ObservableObject {
     /// and `restoreIfNoActiveDisplay` stays underneath as the backstop. A display still lit
     /// after the attempt drops its record exactly as before, so the list never claims a
     /// display is disconnected while it is on screen.
+    ///
+    /// That invariant is chosen over the memory, deliberately, and it has a cost worth
+    /// stating: boot with the remembered display as the only screen attached and the refusal
+    /// is what happens, so the choice is forgotten by a single boot in that configuration —
+    /// the complaint #93 opened with, in the one arrangement where honouring it would mean
+    /// booting to a black machine. A list that can name a display the user is looking at is
+    /// the worse failure, so the trade stands rather than being an oversight.
     func reconcile() {
         guard !disconnected.isEmpty else { return }
         let onlineUUIDs = Set(onlineDisplayIDs().map { uuid(for: $0) })
@@ -639,17 +657,28 @@ final class PhysicalDisplayToggleService: ObservableObject {
         guard !reconnectInFlight.contains(recordUUID) else { return }
         guard let liveID = onlineDisplayIDs().first(where: { uuid(for: $0) == recordUUID })
         else { return }  // gone again by itself; the record still stands for next time
+        var stillOnline = true
         if !wouldLeaveNoActiveDisplay(liveID) {
             _ = await setEnabled(false, displayID: liveID)
             // The API's own answer is not proof, in either direction (see verifyBackOnline),
-            // so the record's fate is settled by enumeration below, not by the result.
-            for _ in 0..<10 {
-                if !onlineDisplayIDs().contains(liveID) { break }
-                try? await Task.sleep(nanoseconds: 100_000_000)
+            // so the record's fate is settled by enumeration below, not by the result. The
+            // window matches softReconnect's for the same reason it uses 4s there: a display
+            // link handshake runs 2-4s, and a second is most of one healthy transaction on
+            // its own (a disable here reported success after 628ms on direct-attached
+            // hardware). A short look calls slow hardware "still lit", which is the branch
+            // that forgets the record.
+            stillOnline = !(await verifyOffline(displayID: liveID, timeout: 4.0))
+            if stillOnline {
+                // Confirm before acting on it, because this is the branch that lets the
+                // record go. setEnabled's wrapper stops waiting at 10s but cannot cancel the
+                // commit underneath it, and #33 has WindowServer holding one for 29.5s: a
+                // disable can report failure and still be on its way. Forgetting the record
+                // on the first look hands that commit a display with nothing left to name it.
+                stillOnline = !(await verifyOffline(displayID: liveID, timeout: 2.0))
             }
         }
         guard let idx = disconnected.firstIndex(where: { $0.uuid == recordUUID }) else { return }
-        if onlineDisplayIDs().contains(liveID) {
+        if stillOnline, onlineDisplayIDs().contains(liveID) {
             // Still lit and we could not take it off, a refusal included: forget it, so the
             // list never claims a display is disconnected while the user is looking at it.
             disconnected.remove(at: idx)
