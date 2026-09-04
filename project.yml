@@ -69,6 +69,9 @@ targets:
       - path: CrispTests
       - path: Crisp/Models/DisplayModeGeometry.swift
       - path: Crisp/Models/DDCServiceMatcher.swift
+      - path: Crisp/Models/DDCOperationQueuePool.swift
+      - path: Crisp/Models/DDCOperationGeneration.swift
+      - path: Crisp/Models/DDCTopologyChange.swift
       - path: Crisp/Models/RefreshRateFormat.swift
       - path: Crisp/Models/GammaPersistenceKey.swift
       - path: Crisp/Models/VariableRefreshModes.swift

@@ -20,11 +20,20 @@ enum DDCServiceMatcher {
     /// A display's vendor/product/serial identity mirrors the IORegistry
     /// `ProductAttributes` (`LegacyManufacturerID` / `ProductID` / `SerialNumber`)
     /// which line up with `CGDisplayVendorNumber` / `CGDisplayModelNumber` /
-    /// `CGDisplaySerialNumber` for the same physical display.
+    /// `CGDisplaySerialNumber` for the same physical display. Location is the
+    /// stable CoreDisplay/IORegistry path when macOS exposes it.
     struct Identity: Equatable {
         let vendor: UInt32
         let product: UInt32
         let serial: UInt32
+        let location: String?
+
+        init(vendor: UInt32, product: UInt32, serial: UInt32, location: String? = nil) {
+            self.vendor = vendor
+            self.product = product
+            self.serial = serial
+            self.location = location
+        }
     }
 
     /// The outcome of a matching pass.
@@ -53,11 +62,17 @@ enum DDCServiceMatcher {
         var usedDisplays = Set<CGDirectDisplayID>()
         var unmatched: [Int] = []
 
-        // Strategy 1: identity matching (vendor+product+serial, then vendor+product).
+        // Strategy 1: stable location, then non-zero serial, then model identity.
         for i in services.indices {
             guard let idty = services[i] else { unmatched.append(i); continue }
-            let exact = displays.first {
+            let byLocation = displays.first {
+                guard let location = idty.location, !location.isEmpty else { return false }
+                return !usedDisplays.contains($0.id) && $0.identity.location == location
+            }
+            let exact = byLocation ?? displays.first {
                 !usedDisplays.contains($0.id)
+                    && idty.serial != 0
+                    && $0.identity.serial != 0
                     && $0.identity.vendor == idty.vendor
                     && $0.identity.product == idty.product
                     && $0.identity.serial == idty.serial

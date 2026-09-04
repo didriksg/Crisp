@@ -9,17 +9,25 @@ ships as a result. Read this before touching DDCService or chasing a
 
 - `Crisp/Services/DDCService.swift`: raw DDC/CI. On Apple Silicon this is
   IOAVService I2C against DCPAVServiceProxy registry nodes, paired to
-  displays by nearest-identity traversal plus vendor/product/serial
-  matching. Validates every reply's header AND checksum. Quarantines a
-  display's reads after 6 consecutive raw failures (10 min expiry, fresh
-  probe window after). The whole display-to-channel map is flushed on any
-  display reconfiguration (IDs get reshuffled with no removal event).
-- `Crisp/Services/BrightnessService.swift`: routing. DDC when it works,
-  full-range software gamma when `ddcAvailable` latches false (3
+  displays by CoreDisplay/IORegistry location first, then
+  vendor/product/serial identity, then traversal order. Every operation
+  runs on that display's own serial queue: one channel that blocks for
+  seconds (#72) can no longer hold up the other monitors. Validates every
+  reply's header AND checksum. Quarantines a display's reads after 6
+  consecutive raw failures (10 min expiry, fresh probe window after). The
+  whole display-to-channel map is flushed on any display reconfiguration
+  (IDs get reshuffled with no removal event).
+- `Crisp/Services/BrightnessService.swift`: routing and pacing. DDC when
+  it works, full-range software gamma when `ddcAvailable` latches false (3
   consecutive failed writes), and full-range software gamma while a
   display is in HDR mode (`hdrDimmedDisplays`, pushed by
   BrightnessBoostService): a DisplayHDR monitor owns its luminance and
-  silently discards DDC brightness writes while still acking them.
+  silently discards DDC brightness writes while still acking them. Writes
+  coalesce per display (latest target wins, ~50 ms floor) and carry a
+  topology/request token, so a reply that lands after a reconnect or after
+  a newer drag value is discarded instead of applied. While a write is
+  outstanding and DDC capability is still unknown, the gamma preview shows
+  the target immediately and settles once the hardware acks.
 - The unified log, subsystem `com.crisp.app`, categories `ddc`,
   `brightness`, `volume`, `keys`. Channel pairing per display and the
   strategy it took, every probe reply or its failure class (I2C error,
@@ -73,7 +81,8 @@ write restarts the fade. Seen on other Dells too; accepted as a quirk.
 | --- | --- | --- |
 | Garbage reply passes weak validation | Bogus max poisons the write scale; slider saturates partway (100/255 = top 61% dead) | Checksum validation on every reply |
 | Read-hammering a fragile controller | Controller degrades into garbage/wedge | Read quarantine, 6 strikes, 10 min expiry |
-| Display IDs reshuffled, no removal event | Channel map crossed: each slider drives the OTHER monitor; both look dead | Full map flush on every reconfiguration, identity re-match |
+| Display IDs reshuffled, no removal event | Channel map crossed: each slider drives the OTHER monitor; both look dead | Full map flush on every reconfiguration, identity re-match, per-display generation token discards in-flight work for the IDs whose channel actually changed |
+| One display's I2C blocks for seconds | Every other display's slider stalls with it | Per-display serial queues; coalesced latest-wins writes; immediate software preview while the write is outstanding |
 | Channel goes deaf (no ack) | Writes fail cleanly | 3-failure latch to full-range software gamma; recovery on reconnect |
 | Monitor in HDR discards DDC writes (still acks) | 15-100% of slider dead, ack-based detection blind | HDR state routes the whole 0-100 range to software gamma |
 
