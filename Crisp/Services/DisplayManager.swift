@@ -21,6 +21,10 @@ private func displayReconfigCallback(
     // (beginConfigurationFlag is set at the start of a transaction; absence means it finished.)
     guard !flags.contains(.beginConfigurationFlag) else { return }
 
+    if !flags.isDisjoint(with: [.addFlag, .removeFlag, .movedFlag]) {
+        BrightnessBoostService.advanceConnectionEpoch()
+    }
+
     Task { @MainActor in
         ReconfigEvents.shared.resolve(displayID: displayID, flags: flags)
         if flags.isDisjoint(with: [.addFlag, .removeFlag, .movedFlag]) {

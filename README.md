@@ -96,7 +96,7 @@ Source builds include a minimal `crispctl` target:
 xcodegen generate && xcodebuild -scheme crispctl -configuration Release
 ```
 
-It supports five control commands:
+It supports seven control commands:
 
 ```sh
 crispctl display list
@@ -104,6 +104,8 @@ crispctl brightness get <display>
 crispctl brightness set <display> <percent>
 crispctl brightness boost get <display>
 crispctl brightness boost set <display> on|off
+crispctl hdr get <display>
+crispctl hdr set <display> on|off
 crispctl help
 ```
 
@@ -114,6 +116,12 @@ crispctl help
 Crisp must already be running; crispctl never launches it. `brightness set` accepts 0...100 normally. Values above 100 require Extra Brightness to be enabled and currently eligible for that display, and must not exceed its live `maxBrightness`; invalid boosted values are refused rather than clamped. A set is a manual change like using the slider and clears the active preset. The reply means Crisp accepted the request, not that the panel was read back; it is not retried automatically.
 
 For example, `brightness boost get` returns `{"ok":true,"brightnessBoost":{"displayID":7,"eligible":true,"enabled":false}}`. `eligible` is the running Extra Brightness service's current eligibility result; `enabled` is its persisted per-display toggle state, so the two can differ while capability has collapsed and cleanup or auto-disable is pending. `brightness boost set` uses that existing service: `on` is refused when currently ineligible or when enabling fails, while `off` remains available for a connected display regardless of current eligibility. Enabling an external display may wait while the service settles HDR mode. Success means the service returned `true`, not that hardware, EDR headroom, or luminance was independently verified. A transport timeout does not prove the change was not applied; do not retry automatically—run `brightness boost get` first.
+
+Maintainer's Approved Review note from #102: `brightness boost set <display> off` takes about 0.5 seconds to collapse. An immediate read during the transition may briefly show `brightness` above the current `maxBrightness`; scripts should wait, read again, and must not automatically retry. The collapse finally lands at 100 rather than restoring the pre-boost brightness.
+
+`hdr get` and `hdr set` support only eligible external displays—the same displays for which Crisp shows its explicit HDR toggle. Built-in displays are explicitly unsupported; use Extra Brightness when it is eligible. Unsupported external displays are also refused. `hdr get` reads the authoritative live state from Crisp's existing `BrightnessBoostService`, not a persisted or cached preference. For example, a successful read returns `{"ok":true,"hdr":{"displayID":7,"enabled":true}}`.
+
+`hdr set` calls that service's existing `setHDRPreference` path once, including its boost teardown and request-token race handling, then performs bounded live read-back. HDR writes fail closed when a unique live system display UUID cannot be verified. A successful verified set returns the same `hdr` JSON shape as get. Unsupported preflight requests and service refusals are ordinary failures. Only an accepted request that cannot be verified, a target lost during the operation, or a lost/timed-out response has an uncertain outcome; the command is not retried automatically, and scripts must run `crispctl hdr get <display>` before deciding whether to retry. Exit codes are unchanged: 0 for success, 1 when Crisp is unreachable or the response is invalid, 2 for bad arguments, and 3 when Crisp refuses or cannot verify the request.
 
 The current public Crisp 1.5.0 release, normal DMG, and Homebrew cask do not include `crispctl`.
 

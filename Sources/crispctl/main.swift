@@ -107,7 +107,15 @@ do {
     )
     defer { Darwin.close(client) }
     try send(CrispControlModel.encode(request, sorted: true), to: client)
-    let response = try receive(from: client)
+    let response: Data
+    do {
+        response = try receive(from: client)
+    } catch {
+        guard request.command != .setHDR else {
+            fail("HDR response timed out or was lost; \(CrispControlModel.hdrUncertainRecovery)", code: 1)
+        }
+        throw error
+    }
     switch CrispControlCLIModel.classify(response, for: request.command) {
     case .success:
         FileHandle.standardOutput.write(response)

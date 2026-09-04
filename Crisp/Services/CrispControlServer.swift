@@ -99,19 +99,36 @@ final class CrispControlServer {
                 brightness: display.brightness,
                 maxBrightness: boostService.maximumBrightness(for: display),
                 isBuiltin: display.isBuiltin,
-                uuid: display.displayUUID,
+                uuid: boostService.stableDisplayUUID(for: display),
                 resolution: resolution,
                 brightnessBackend: BrightnessService.shared.brightnessBackend(for: display)
             )
         }
-        let result = CrispControlModel.handle(request, displays: displays) { id in
-            guard let display = managedDisplays.first(where: { $0.displayID == id }) else { return nil }
-            return CrispControlBrightnessBoostState(
-                displayID: id,
-                eligible: boostService.isEligible(display),
-                enabled: boostService.isEnabled(for: display)
-            )
-        }
+        let result = CrispControlModel.handle(
+            request,
+            displays: displays,
+            hdrState: { id in
+                guard let display = managedDisplays.first(where: { $0.displayID == id }),
+                      let uuid = boostService.stableDisplayUUID(for: display),
+                      let enabled = boostService.hdrState(for: display, expectedUUID: uuid) else { return nil }
+                return CrispControlHDRState(
+                    displayID: id,
+                    enabled: enabled
+                )
+            },
+            hdrMutationUUID: { id in
+                managedDisplays.first(where: { $0.displayID == id })
+                    .flatMap { boostService.uniqueDisplayUUID(for: $0) }
+            },
+            brightnessBoostState: { id in
+                guard let display = managedDisplays.first(where: { $0.displayID == id }) else { return nil }
+                return CrispControlBrightnessBoostState(
+                    displayID: id,
+                    eligible: boostService.isEligible(display),
+                    enabled: boostService.isEnabled(for: display)
+                )
+            }
+        )
         if let change = result.brightnessChange {
             guard let display = managedDisplays.first(where: { $0.displayID == change.displayID }) else {
                 return CrispControlModel.encode(.failure("display not found"))
@@ -134,7 +151,60 @@ final class CrispControlServer {
                 CrispControlModel.brightnessBoostSetResponse(enabled: change.enabled, accepted: accepted)
             )
         }
+        if let change = result.hdrChange {
+            guard let display = currentHDRTarget(for: change, using: boostService) else {
+                return CrispControlModel.encode(
+                    CrispControlModel.hdrSetResponse(
+                        displayID: change.displayID,
+                        enabled: change.enabled,
+                        accepted: false,
+                        liveEnabled: nil
+                    )
+                )
+            }
+            let accepted = await boostService.setHDRPreference(
+                change.enabled, for: display, expectedUUID: change.displayUUID
+            )
+            var liveEnabled = currentHDRTarget(for: change, using: boostService).flatMap {
+                boostService.hdrState(for: $0, expectedUUID: change.displayUUID)
+            }
+            if accepted {
+                for _ in 0..<20 {
+                    guard liveEnabled != change.enabled else { break }
+                    try? await Task.sleep(nanoseconds: 100_000_000)
+                    guard let current = currentHDRTarget(for: change, using: boostService) else {
+                        liveEnabled = nil
+                        break
+                    }
+                    liveEnabled = boostService.hdrState(
+                        for: current, expectedUUID: change.displayUUID
+                    )
+                }
+            }
+            if liveEnabled == change.enabled {
+                liveEnabled = currentHDRTarget(for: change, using: boostService).flatMap {
+                    boostService.hdrState(for: $0, expectedUUID: change.displayUUID)
+                }
+            }
+            return CrispControlModel.encode(
+                CrispControlModel.hdrSetResponse(
+                    displayID: change.displayID,
+                    enabled: change.enabled,
+                    accepted: accepted,
+                    liveEnabled: liveEnabled
+                )
+            )
+        }
         return CrispControlModel.encode(result.response)
+    }
+
+    private func currentHDRTarget(
+        for change: CrispControlHDRChange, using service: BrightnessBoostService
+    ) -> DisplayInfo? {
+        guard let display = displayManager.displays.first(where: { $0.displayID == change.displayID }),
+              service.uniqueDisplayUUID(for: display)?.caseInsensitiveCompare(change.displayUUID)
+                == .orderedSame else { return nil }
+        return display
     }
 
     private nonisolated static func read(_ client: Int32) -> CrispControlFrame.Result {

@@ -53,6 +53,10 @@ struct CrispControlBrightnessBoostState: Codable, Equatable {
     let eligible: Bool
     let enabled: Bool
 }
+struct CrispControlHDRState: Codable, Equatable {
+    let displayID: UInt32
+    let enabled: Bool
+}
 struct CrispControlRequest: Codable, Equatable {
     enum Command: String, Codable {
         case list
@@ -60,6 +64,8 @@ struct CrispControlRequest: Codable, Equatable {
         case setBrightness
         case getBrightnessBoost
         case setBrightnessBoost
+        case getHDR
+        case setHDR
     }
 
     let command: Command
@@ -104,6 +110,7 @@ struct CrispControlResponse: Codable, Equatable {
     let displays: [CrispControlDisplay]?
     let display: CrispControlDisplay?
     let brightnessBoost: CrispControlBrightnessBoostState?
+    let hdr: CrispControlHDRState?
     let error: String?
 
     init(
@@ -111,12 +118,14 @@ struct CrispControlResponse: Codable, Equatable {
         displays: [CrispControlDisplay]? = nil,
         display: CrispControlDisplay? = nil,
         brightnessBoost: CrispControlBrightnessBoostState? = nil,
+        hdr: CrispControlHDRState? = nil,
         error: String? = nil
     ) {
         self.ok = ok
         self.displays = displays
         self.display = display
         self.brightnessBoost = brightnessBoost
+        self.hdr = hdr
         self.error = error
     }
     static func success() -> Self { Self(ok: true) }
@@ -125,6 +134,7 @@ struct CrispControlResponse: Codable, Equatable {
     static func success(brightnessBoost: CrispControlBrightnessBoostState) -> Self {
         Self(ok: true, brightnessBoost: brightnessBoost)
     }
+    static func success(hdr: CrispControlHDRState) -> Self { Self(ok: true, hdr: hdr) }
     static func failure(_ error: String) -> Self { Self(ok: false, error: error) }
 }
 struct CrispControlBrightnessChange: Equatable {
@@ -134,6 +144,29 @@ struct CrispControlBrightnessChange: Equatable {
 struct CrispControlBrightnessBoostChange: Equatable {
     let displayID: UInt32
     let enabled: Bool
+}
+struct CrispControlHDRChange: Equatable {
+    let displayID: UInt32
+    let displayUUID: String
+    let enabled: Bool
+}
+struct CrispControlResult {
+    let response: CrispControlResponse
+    let brightnessChange: CrispControlBrightnessChange?
+    let brightnessBoostChange: CrispControlBrightnessBoostChange?
+    let hdrChange: CrispControlHDRChange?
+
+    init(
+        _ response: CrispControlResponse,
+        _ brightnessChange: CrispControlBrightnessChange?,
+        _ brightnessBoostChange: CrispControlBrightnessBoostChange?,
+        _ hdrChange: CrispControlHDRChange?
+    ) {
+        self.response = response
+        self.brightnessChange = brightnessChange
+        self.brightnessBoostChange = brightnessBoostChange
+        self.hdrChange = hdrChange
+    }
 }
 enum CrispControlModel {
     static func brightnessBackend(
@@ -164,84 +197,143 @@ enum CrispControlModel {
     static func brightnessBoostSetResponse(enabled: Bool, accepted: Bool) -> CrispControlResponse {
         accepted ? .success() : .failure("extra brightness could not be \(enabled ? "enabled" : "disabled")")
     }
+    static func hdrSetResponse(
+        displayID: UInt32, enabled: Bool, accepted: Bool, liveEnabled: Bool?
+    ) -> CrispControlResponse {
+        guard let liveEnabled else {
+            return .failure("HDR live read-back became unavailable; " + hdrUncertainRecovery)
+        }
+        guard accepted else { return .failure("HDR request was not accepted") }
+        guard liveEnabled == enabled else {
+            return .failure(
+                "HDR request was accepted, but live read-back did not match before timeout; "
+                    + hdrUncertainRecovery
+            )
+        }
+        return .success(hdr: .init(displayID: displayID, enabled: enabled))
+    }
+    static let hdrUncertainRecovery = "outcome is uncertain; do not retry automatically—run "
+        + "'crispctl hdr get <display>' before deciding whether to retry"
+
     static func handle(
         _ data: Data,
         displays: [CrispControlDisplay],
+        hdrState: (UInt32) -> CrispControlHDRState? = { _ in nil },
+        hdrMutationUUID: (UInt32) -> String? = { _ in nil },
         brightnessBoostState: (UInt32) -> CrispControlBrightnessBoostState? = { _ in nil }
-    ) -> (
-        response: CrispControlResponse,
-        brightnessChange: CrispControlBrightnessChange?,
-        brightnessBoostChange: CrispControlBrightnessBoostChange?
-    ) {
+    ) -> CrispControlResult {
         guard let request = try? JSONDecoder().decode(CrispControlRequest.self, from: data) else {
-            return (.failure("invalid request"), nil, nil)
+            return .init(.failure("invalid request"), nil, nil, nil)
         }
         switch request.command {
         case .list:
-            return (.success(displays: displays), nil, nil)
+            return .init(.success(displays: displays), nil, nil, nil)
         case .getBrightness:
-            guard request.selector != nil || request.display != nil else {
-                return (.failure("display is required"), nil, nil)
+            guard hasDisplaySelector(request) else {
+                return .init(.failure("display is required"), nil, nil, nil)
             }
             guard let display = target(of: request, in: displays) else {
-                return (.failure("display not found"), nil, nil)
+                return .init(.failure("display not found"), nil, nil, nil)
             }
-            return (.success(display: display), nil, nil)
+            return .init(.success(display: display), nil, nil, nil)
         case .setBrightness:
             return handleSetBrightness(request, displays: displays, brightnessBoostState: brightnessBoostState)
         case .getBrightnessBoost:
-            guard request.selector != nil || request.display != nil else {
-                return (.failure("display is required"), nil, nil)
+            guard hasDisplaySelector(request) else {
+                return .init(.failure("display is required"), nil, nil, nil)
             }
             guard let display = target(of: request, in: displays),
                   let state = brightnessBoostState(display.id) else {
-                return (.failure("display not found"), nil, nil)
+                return .init(.failure("display not found"), nil, nil, nil)
             }
-            return (.success(brightnessBoost: state), nil, nil)
+            return .init(.success(brightnessBoost: state), nil, nil, nil)
         case .setBrightnessBoost:
-            guard request.selector != nil || request.display != nil, let enabled = request.enabled else {
-                return (.failure("display and state are required"), nil, nil)
+            guard hasDisplaySelector(request), let enabled = request.enabled else {
+                return .init(.failure("display and state are required"), nil, nil, nil)
             }
             guard let display = target(of: request, in: displays) else {
-                return (.failure("display not found"), nil, nil)
+                return .init(.failure("display not found"), nil, nil, nil)
             }
-            return (.success(), nil, .init(displayID: display.id, enabled: enabled))
+            return .init(.success(), nil, .init(displayID: display.id, enabled: enabled), nil)
+        case .getHDR, .setHDR:
+            return handleHDR(
+                request, displays: displays, hdrState: hdrState,
+                hdrMutationUUID: hdrMutationUUID
+            )
         }
+    }
+
+    private static func handleHDR(
+        _ request: CrispControlRequest,
+        displays: [CrispControlDisplay],
+        hdrState: (UInt32) -> CrispControlHDRState?,
+        hdrMutationUUID: (UInt32) -> String?
+    ) -> CrispControlResult {
+        guard hasDisplaySelector(request) else {
+            return .init(.failure("display is required"), nil, nil, nil)
+        }
+        guard let display = target(of: request, in: displays) else {
+            return .init(.failure("display not found"), nil, nil, nil)
+        }
+        guard !display.isBuiltin else {
+            return .init(
+                .failure(
+                    "explicit HDR is unsupported for built-in displays; use Extra Brightness "
+                        + "with 'crispctl brightness boost set <display> on' when eligible"
+                ), nil, nil, nil
+            )
+        }
+        guard let state = hdrState(display.id) else {
+            return .init(.failure("explicit HDR is unsupported for this external display"), nil, nil, nil)
+        }
+        if request.command == .getHDR {
+            return .init(.success(hdr: state), nil, nil, nil)
+        }
+        guard let enabled = request.enabled else {
+            return .init(.failure("display and state are required"), nil, nil, nil)
+        }
+        guard let uuid = hdrMutationUUID(display.id), !uuid.isEmpty else {
+            return .init(.failure("unique live display identity is unavailable"), nil, nil, nil)
+        }
+        if let selector = request.selector, UInt32(selector) == nil,
+           selector.caseInsensitiveCompare(uuid) != .orderedSame {
+            return .init(.failure("unique live display identity does not match selector"), nil, nil, nil)
+        }
+        return .init(
+            .success(), nil, nil,
+            .init(displayID: display.id, displayUUID: uuid, enabled: enabled)
+        )
     }
 
     private static func handleSetBrightness(
         _ request: CrispControlRequest,
         displays: [CrispControlDisplay],
         brightnessBoostState: (UInt32) -> CrispControlBrightnessBoostState?
-    ) -> (
-        response: CrispControlResponse,
-        brightnessChange: CrispControlBrightnessChange?,
-        brightnessBoostChange: CrispControlBrightnessBoostChange?
-    ) {
-        guard request.selector != nil || request.display != nil, let value = request.brightness else {
-            return (.failure("display and brightness are required"), nil, nil)
+    ) -> CrispControlResult {
+        guard hasDisplaySelector(request), let value = request.brightness else {
+            return .init(.failure("display and brightness are required"), nil, nil, nil)
         }
         guard value.isFinite, value >= 0 else {
-            return (.failure("brightness must be finite and nonnegative"), nil, nil)
+            return .init(.failure("brightness must be finite and nonnegative"), nil, nil, nil)
         }
         guard let display = target(of: request, in: displays) else {
-            return (.failure("display not found"), nil, nil)
+            return .init(.failure("display not found"), nil, nil, nil)
         }
         if value > 100 {
             guard let state = brightnessBoostState(display.id), state.enabled else {
-                return (.failure("extra brightness is disabled for this display"), nil, nil)
+                return .init(.failure("extra brightness is disabled for this display"), nil, nil, nil)
             }
             guard state.eligible else {
-                return (.failure("extra brightness is not eligible for this display"), nil, nil)
+                return .init(.failure("extra brightness is not eligible for this display"), nil, nil, nil)
             }
             guard let maximum = display.maxBrightness else {
-                return (.failure("extra brightness maximum is unavailable for this display"), nil, nil)
+                return .init(.failure("extra brightness maximum is unavailable for this display"), nil, nil, nil)
             }
             guard value <= maximum else {
-                return (.failure("brightness exceeds the live maximum of \(maximum)"), nil, nil)
+                return .init(.failure("brightness exceeds the live maximum of \(maximum)"), nil, nil, nil)
             }
         }
-        return (.success(), .init(displayID: display.id, brightness: value), nil)
+        return .init(.success(), .init(displayID: display.id, brightness: value), nil, nil)
     }
 
     /// Finds a display by the selector a person typed: a runtime id, or a uuid in any
@@ -257,6 +349,9 @@ enum CrispControlModel {
     ) -> CrispControlDisplay? {
         if let selector = request.selector { return resolve(selector: selector, in: displays) }
         return request.display.flatMap { id in displays.first { $0.id == id } }
+    }
+    private static func hasDisplaySelector(_ request: CrispControlRequest) -> Bool {
+        request.selector != nil || request.display != nil
     }
 }
 enum CrispControlCLIModel {
@@ -279,6 +374,8 @@ enum CrispControlCLIModel {
                                                  Brightness is enabled and eligible; clears preset
           brightness boost get <display>         Read Extra Brightness eligibility and state
           brightness boost set <display> on|off  Enable or disable Extra Brightness
+          hdr get <display>                      Read live HDR state for an eligible external display
+          hdr set <display> on|off               Set HDR on an eligible external and verify live state
           help                                   Show this help (also -h, --help)
 
         <display> is a runtime id or a uuid from 'display list'. Ids can change after
@@ -297,6 +394,7 @@ enum CrispControlCLIModel {
     static func receiveTimeoutSeconds(for command: CrispControlRequest.Command) -> Int {
         switch command {
         case .setBrightnessBoost: return 5
+        case .setHDR: return 6
         default: return 2
         }
     }
@@ -323,6 +421,16 @@ enum CrispControlCLIModel {
             switch arguments[4] {
             case "on": return .request(.init(command: .setBrightnessBoost, selector: arguments[3], enabled: true))
             case "off": return .request(.init(command: .setBrightnessBoost, selector: arguments[3], enabled: false))
+            default: break
+            }
+        }
+        if arguments.count == 3, arguments[0...1] == ["hdr", "get"], !arguments[2].isEmpty {
+            return .request(.init(command: .getHDR, selector: arguments[2]))
+        }
+        if arguments.count == 4, arguments[0...1] == ["hdr", "set"], !arguments[2].isEmpty {
+            switch arguments[3] {
+            case "on": return .request(.init(command: .setHDR, selector: arguments[2], enabled: true))
+            case "off": return .request(.init(command: .setHDR, selector: arguments[2], enabled: false))
             default: break
             }
         }
