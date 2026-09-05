@@ -216,7 +216,7 @@ final class PhysicalDisplayToggleService: ObservableObject {
         )
 
         Self.log.notice("disconnect requested: \(display.displayUUID, privacy: .public) id \(displayID, privacy: .public)")
-        let otherModes = currentModes(excluding: displayID)
+        let otherModes = currentModes(excluding: [displayID])
         let result = await setEnabled(false, displayID: displayID)
         if case .success = result {
             disconnected.removeAll { $0.uuid == snapshot.uuid }
@@ -227,8 +227,8 @@ final class PhysicalDisplayToggleService: ObservableObject {
         return result
     }
 
-    /// The mode of every other online display, taken before a disconnect so it can be put
-    /// back afterwards. macOS keeps an arrangement per set of attached displays and applies
+    /// The mode of every online display bar the ones about to be taken off, so the rest can
+    /// be put back afterwards. macOS keeps an arrangement per set of attached displays and applies
     /// it whenever the set changes, so taking one display away can move the others to
     /// whatever they last ran at in the smaller set: on this Mac a 1440p 165 Hz panel dropped
     /// to 1080p 60 Hz and the built-in changed scale (issue #108). It is WindowServer's doing,
@@ -236,8 +236,8 @@ final class PhysicalDisplayToggleService: ObservableObject {
     /// and pinning the other modes inside the disable transaction is accepted and ignored.
     /// The user asked for one display to go, not for the rest to change, so the modes they
     /// had go back in a second transaction once the arrangement has landed.
-    private func currentModes(excluding displayID: CGDirectDisplayID) -> [(CGDirectDisplayID, CGDisplayMode)] {
-        onlineDisplayIDs().filter { $0 != displayID }.compactMap { id in
+    private func currentModes(excluding displayIDs: Set<CGDirectDisplayID> = []) -> [(CGDirectDisplayID, CGDisplayMode)] {
+        onlineDisplayIDs().filter { !displayIDs.contains($0) }.compactMap { id in
             CGDisplayCopyDisplayMode(id).map { (id, $0) }
         }
     }
@@ -626,11 +626,20 @@ final class PhysicalDisplayToggleService: ObservableObject {
     /// the complaint #93 opened with, in the one arrangement where honouring it would mean
     /// booting to a black machine. A list that can name a display the user is looking at is
     /// the worse failure, so the trade stands rather than being an oversight.
+    ///
+    /// A pass with nothing to re-apply is not wasted: it is where the modes the restore aims
+    /// at are taken from, while the remembered displays are still off (see baselineModes).
     func reconcile() {
         guard !disconnected.isEmpty else { return }
-        let onlineUUIDs = Set(onlineDisplayIDs().map { uuid(for: $0) })
+        let onlineIDs = onlineDisplayIDs()
+        let onlineUUIDs = Set(onlineIDs.map { uuid(for: $0) })
         let resurfaced = disconnected.filter { onlineUUIDs.contains($0.uuid) }
-        guard !resurfaced.isEmpty else { return }
+        guard !resurfaced.isEmpty else {
+            // Every refresh with the remembered displays still off is a baseline: a
+            // resolution the user picks in between is then what goes back, not a stale one.
+            baselineModes = currentModes()
+            return
+        }
         // Intel has no working disconnect to re-apply, so there the old behaviour is all
         // that is available: forget the record and keep the UI honest.
         guard isSupported else {
@@ -638,12 +647,21 @@ final class PhysicalDisplayToggleService: ObservableObject {
             saveDesired()
             return
         }
-        for record in resurfaced {
-            // A blink (softReconnect) puts its own display back online on purpose, and a
-            // reconnect in flight is the user (or the restore path) asking for exactly that.
-            guard !reapplyInFlight.contains(record.uuid),
-                  !softReconnectInFlight.contains(record.uuid),
-                  !reconnectInFlight.contains(record.uuid) else { continue }
+        // A blink (softReconnect) puts its own display back online on purpose, and a
+        // reconnect in flight is the user (or the restore path) asking for exactly that.
+        let pending = resurfaced.filter {
+            !reapplyInFlight.contains($0.uuid)
+                && !softReconnectInFlight.contains($0.uuid)
+                && !reconnectInFlight.contains($0.uuid)
+        }
+        guard !pending.isEmpty else { return }
+        let leaving = Set(onlineIDs.filter { id in
+            let displayUUID = uuid(for: id)
+            return pending.contains { $0.uuid == displayUUID }
+        })
+        pendingPassModes = (baselineModes.isEmpty ? currentModes() : baselineModes)
+            .filter { !leaving.contains($0.0) }
+        for record in pending {
             reapplyInFlight.insert(record.uuid)
             Task { [weak self] in
                 guard let self else { return }
@@ -658,6 +676,35 @@ final class PhysicalDisplayToggleService: ObservableObject {
     /// another attempt on the same display.
     private var reapplyInFlight: Set<String> = []
 
+    /// The other displays' modes as of the last refresh where no remembered display was
+    /// online, which is the arrangement the user is actually in and the one WindowServer puts
+    /// back by itself once the remembered display goes off again.
+    ///
+    /// Taking the snapshot live inside the re-apply is too late, and that is measured rather
+    /// than reasoned (@didriksg on #101): the enable that brings the remembered display back
+    /// has already moved the others to WindowServer's stored arrangement for the larger set
+    /// before the re-apply runs, so a live snapshot captures the moved state, and the restore
+    /// then pins it and undoes WindowServer's own correction — the built-in went 1352x878 ->
+    /// 1512x982 on the enable, was put back to 1352x878 when the display went off, and the
+    /// restore pushed it to 1512x982 again. Empty only at launch, where there is no earlier
+    /// refresh and the live snapshot is all there is.
+    private var baselineModes: [(CGDirectDisplayID, CGDisplayMode)] = []
+
+    /// The snapshot this reconcile pass restores to, taken once and consumed by whichever
+    /// record's disable lands first. One restore per pass, not one per record: two records
+    /// each took their own snapshot and each ran restoreModes, landing the same restore twice
+    /// 19 ms apart.
+    private var pendingPassModes: [(CGDirectDisplayID, CGDisplayMode)]?
+
+    /// Starts this pass's single restore, if it has not been started already. Called once a
+    /// disable has been issued, since that is what moves the other displays; before it there
+    /// is nothing to poll for, and restoreModes' window is finite.
+    private func startPassRestoreIfNeeded() {
+        guard let modes = pendingPassModes else { return }
+        pendingPassModes = nil
+        Task { [weak self] in await self?.restoreModes(modes) }
+    }
+
     /// One display's half of reconcile: put it back the way the user left it, or forget it.
     private func reapplyRemembered(_ recordUUID: String) async {
         guard !reconnectInFlight.contains(recordUUID) else { return }
@@ -669,8 +716,8 @@ final class PhysicalDisplayToggleService: ObservableObject {
             // Same as disconnect(): WindowServer applies its stored arrangement for the smaller
             // display set the moment this one goes off, which moves the others (#108). A
             // re-applied disconnect goes through the same drop, at boot every time, so it needs
-            // the same snapshot and the same restore.
-            let otherModes = currentModes(excluding: liveID)
+            // the same restore — but to the modes from before the display resurfaced, not to
+            // the ones its own enable produced (see baselineModes).
             if case .failure(.timedOut) = await setEnabled(false, displayID: liveID) {
                 timedOut = true
             }
@@ -678,7 +725,7 @@ final class PhysicalDisplayToggleService: ObservableObject {
             // polls instead of sleeping: the flip the user sees should be as short as it can
             // be, and the verify can hold this for seconds. It only acts on a display that
             // actually moved, so an attempt that did not take costs nothing.
-            Task { [weak self] in await self?.restoreModes(otherModes) }
+            startPassRestoreIfNeeded()
             // The API's own answer is not proof, in either direction (see verifyBackOnline),
             // so the record's fate is settled by enumeration below, not by the result. The
             // window matches softReconnect's for the same reason it uses 4s there: a display
