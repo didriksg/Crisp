@@ -130,6 +130,9 @@ final class CrispControlModelTests: XCTestCase {
     func testOnlyBoundedTransitionCommandsGetLongerReceiveTimeouts() {
         XCTAssertEqual(CrispControlCLIModel.receiveTimeoutSeconds(for: .setBrightnessBoost), 5)
         XCTAssertEqual(CrispControlCLIModel.receiveTimeoutSeconds(for: .setHDR), 6)
+        for command in [CrispControlRequest.Command.connectDisplay, .disconnectDisplay, .toggleDisplay] {
+            XCTAssertEqual(CrispControlCLIModel.receiveTimeoutSeconds(for: command), 30)
+        }
         for command in [
             CrispControlRequest.Command.list, .getBrightness, .setBrightness, .getBrightnessBoost, .getHDR
         ] {

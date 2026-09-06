@@ -79,7 +79,33 @@ final class CrispControlServer {
         Self.write(data, to: client)
     }
 
+    /// Connection changes run one at a time. Each connection is served in its own
+    /// task and disconnect() checks the last-screen guard before it awaits the
+    /// transaction, so two disconnects fired together for the last two displays
+    /// both passed the guard and every screen went dark (measured on two sockets
+    /// on 2026-09-02: both reported success, 387 and 1155 ms). Brightness and HDR
+    /// stay concurrent, since a reconnect can hold the line for seconds.
+    private var connectionChain: Task<Void, Never>?
+
     private func response(to request: Data) async -> Data {
+        guard Self.changesConnection(request) else { return await reply(to: request) }
+        let previous = connectionChain
+        let task = Task { @MainActor in
+            await previous?.value
+            return await self.reply(to: request)
+        }
+        connectionChain = Task { _ = await task.value }
+        return await task.value
+    }
+
+    private nonisolated static func changesConnection(_ request: Data) -> Bool {
+        switch (try? JSONDecoder().decode(CrispControlRequest.self, from: request))?.command {
+        case .connectDisplay, .disconnectDisplay, .toggleDisplay: return true
+        default: return false
+        }
+    }
+
+    private func reply(to request: Data) async -> Data {
         let managedDisplays = displayManager.displays
         let boostService = BrightnessBoostService.shared
         let displays = managedDisplays.map { display in

@@ -458,6 +458,9 @@ enum CrispControlCLIModel {
         switch command {
         case .setBrightnessBoost: return 5
         case .setHDR: return 6
+        // The window server answers inside the app's 10 s wrapper, but the DDC hold
+        // ahead of the transaction can wait 15 s and the mode restore after it 3 s.
+        case .connectDisplay, .disconnectDisplay, .toggleDisplay: return 30
         default: return 2
         }
     }
