@@ -710,9 +710,11 @@ final class PhysicalDisplayToggleService: ObservableObject {
         guard !reconnectInFlight.contains(recordUUID) else { return }
         guard let liveID = onlineDisplayIDs().first(where: { uuid(for: $0) == recordUUID })
         else { return }  // gone again by itself; the record still stands for next time
+        let refused = wouldLeaveNoActiveDisplay(liveID)
+        Self.log.notice("remembered disconnect for \(recordUUID, privacy: .public) id \(liveID, privacy: .public): \(refused ? "refused, it is the last active display" : "re-applying", privacy: .public)")
         var stillOnline = true
         var timedOut = false
-        if !wouldLeaveNoActiveDisplay(liveID) {
+        if !refused {
             // Same as disconnect(): WindowServer applies its stored arrangement for the smaller
             // display set the moment this one goes off, which moves the others (#108). A
             // re-applied disconnect goes through the same drop, at boot every time, so it needs
@@ -756,6 +758,7 @@ final class PhysicalDisplayToggleService: ObservableObject {
             // stranding no refresh undoes. A disable that genuinely fails still drops it, so a
             // display that cannot be switched off cannot pull a fresh transaction out of every
             // refresh.
+            Self.log.notice("record dropped for \(recordUUID, privacy: .public) id \(liveID, privacy: .public): still lit")
             disconnected.remove(at: idx)
         } else {
             // Off, whether or not the transaction said so — and that difference is the whole
