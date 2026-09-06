@@ -40,6 +40,7 @@ SOFTWARE.
 - [@Juns-g](https://github.com/Juns-g) ([#75](https://github.com/didriksg/Crisp/pull/75), [#81](https://github.com/didriksg/Crisp/pull/81), [#102](https://github.com/didriksg/Crisp/pull/102), [#116](https://github.com/didriksg/Crisp/pull/116))
 - [@dboleslawski](https://github.com/dboleslawski) ([#87](https://github.com/didriksg/Crisp/pull/87))
 - [@ncchen99](https://github.com/ncchen99) ([#101](https://github.com/didriksg/Crisp/pull/101), [#104](https://github.com/didriksg/Crisp/pull/104))
+- [@celsinho17](https://github.com/celsinho17) ([#97](https://github.com/didriksg/Crisp/pull/97))
 
 ## Translations
 
