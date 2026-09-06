@@ -250,9 +250,14 @@ final class OSDBannerService {
     /// bar has simply moved away keeps the corner, which is where the system
     /// puts its capsule then too.
     ///
-    /// The signal is a window covering the display exactly. A zoomed window
-    /// stops short of the menu bar and does not match, and nothing covers a
-    /// display exactly in the ordinary case (measured in both states).
+    /// The signal is a window covering the display exactly, owned by an app
+    /// with a Dock tile, since only those take a space full screen. A zoomed
+    /// window stops short of the menu bar and does not match, and nothing
+    /// covers a display exactly in the ordinary case (measured in both
+    /// states). An accessory app's window can, though: the Cua Driver desktop
+    /// tool keeps an empty overlay over a whole display while it runs, and
+    /// without the owner check the banner centred on the midline, 708 pt from
+    /// its item (measured 2026-09-07).
     ///
     /// The answer is held briefly per display. This runs on every key press,
     /// and the window list is a round trip to the window server: usually about
@@ -277,8 +282,10 @@ final class OSDBannerService {
                   let frame = window[kCGWindowBounds as String] as? [String: CGFloat],
                   let x = frame["X"], let y = frame["Y"],
                   let width = frame["Width"], let height = frame["Height"] else { return false }
-            return abs(x - bounds.minX) < 2 && abs(y - bounds.minY) < 2
-                && abs(width - bounds.width) < 2 && abs(height - bounds.height) < 2
+            guard abs(x - bounds.minX) < 2, abs(y - bounds.minY) < 2,
+                  abs(width - bounds.width) < 2, abs(height - bounds.height) < 2,
+                  let pid = window[kCGWindowOwnerPID as String] as? pid_t else { return false }
+            return NSRunningApplication(processIdentifier: pid)?.activationPolicy == .regular
         }
         fullScreenCache[displayID] = (covered, Date())
         return covered
