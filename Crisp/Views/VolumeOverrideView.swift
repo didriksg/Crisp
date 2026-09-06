@@ -11,9 +11,6 @@ struct VolumeOverrideView: View {
     @State private var isHovered = false
 
     var body: some View {
-        if !display.isBuiltin, #available(macOS 14.2, *) {
-            SoftwareVolumeRow(display: display)
-        }
         if !display.isBuiltin,
            !display.volumeSupported || VolumeService.shared.isForced(display) {
             HStack {
@@ -35,6 +32,9 @@ struct VolumeOverrideView: View {
             .onHover { isHovered = $0 }
             .help("Force volume control for a monitor that doesn't report it. Crisp can set the volume but not read the current level.")
         }
+        if !display.isBuiltin, #available(macOS 14.2, *) {
+            SoftwareVolumeRow(display: display)
+        }
     }
 }
 
@@ -46,30 +46,38 @@ private struct SoftwareVolumeRow: View {
 
     var body: some View {
         if #available(macOS 14.2, *) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("""
-                Use working hardware volume control (DDC or monitor/TV controls) when available. \
-                Software volume is an optional fallback; a failed DDC probe never enables it automatically.
-                """)
-                .font(.caption).foregroundStyle(Color.secondaryReadable)
-                Toggle("Software Volume (Experimental)", isOn: Binding(
-                    get: { display.softwareVolumeActive },
-                    set: { enabled in
-                        if enabled { consent = true } else { SoftwareVolumeService.shared.stop() }
-                    }
-                ))
-                .toggleStyle(.switch)
-                .controlSize(.small)
-                .disabled(display.softwareVolumeBusy || (!display.softwareVolumeActive &&
-                    (!service.canEnable || VolumeService.shared.softwareOutput(for: display) == nil)))
-                if VolumeService.shared.softwareOutput(for: display) == nil, !display.softwareVolumeActive {
-                    Text("Select this display as the audio output. A unique display name is required.")
-                        .font(.caption).foregroundStyle(.secondary)
+            Toggle(isOn: Binding(
+                get: { display.softwareVolumeActive },
+                set: { enabled in
+                    if enabled { consent = true } else { SoftwareVolumeService.shared.stop() }
                 }
-                if !display.softwareVolumeStatus.isEmpty {
-                    Text(display.softwareVolumeStatus).font(.caption).foregroundStyle(.secondary)
+            )) {
+                HStack(spacing: 8) {
+                    MenuItemIcon(systemName: "speaker.wave.2.fill", color: .blue, active: display.softwareVolumeActive)
+                        .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Software Volume (Experimental)")
+                            .font(.body)
+                        Text("""
+                        Use working hardware volume control (DDC or monitor/TV controls) when available. \
+                        Software volume is an optional fallback; a failed DDC probe never enables it automatically.
+                        """)
+                        .font(.caption).foregroundStyle(Color.secondaryReadable)
+                        if VolumeService.shared.softwareOutput(for: display) == nil, !display.softwareVolumeActive {
+                            Text("Select this display as the audio output. A unique display name is required.")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        if !display.softwareVolumeStatus.isEmpty {
+                            Text(display.softwareVolumeStatus).font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                    Spacer()
                 }
             }
+            .toggleStyle(.switch)
+            .controlSize(.small)
+            .disabled(display.softwareVolumeBusy || (!display.softwareVolumeActive &&
+                (!service.canEnable || VolumeService.shared.softwareOutput(for: display) == nil)))
             .padding(.horizontal, 12)
             .padding(.vertical, 3)
             .alert("Enable Software Volume?", isPresented: $consent) {
