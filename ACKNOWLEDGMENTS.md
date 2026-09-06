@@ -37,7 +37,7 @@ SOFTWARE.
 - [@shaw-baobao](https://github.com/shaw-baobao) ([#11](https://github.com/didriksg/Crisp/pull/11), [#24](https://github.com/didriksg/Crisp/pull/24))
 - [@YuriNachos](https://github.com/YuriNachos) ([#27](https://github.com/didriksg/Crisp/pull/27), [#35](https://github.com/didriksg/Crisp/pull/35), [#36](https://github.com/didriksg/Crisp/pull/36))
 - [@crayonlu](https://github.com/crayonlu) ([#53](https://github.com/didriksg/Crisp/pull/53))
-- [@Juns-g](https://github.com/Juns-g) ([#75](https://github.com/didriksg/Crisp/pull/75), [#81](https://github.com/didriksg/Crisp/pull/81), [#102](https://github.com/didriksg/Crisp/pull/102))
+- [@Juns-g](https://github.com/Juns-g) ([#75](https://github.com/didriksg/Crisp/pull/75), [#81](https://github.com/didriksg/Crisp/pull/81), [#102](https://github.com/didriksg/Crisp/pull/102), [#116](https://github.com/didriksg/Crisp/pull/116))
 - [@dboleslawski](https://github.com/dboleslawski) ([#87](https://github.com/didriksg/Crisp/pull/87))
 - [@ncchen99](https://github.com/ncchen99) ([#101](https://github.com/didriksg/Crisp/pull/101))
 
