@@ -81,9 +81,11 @@ Thank you to the people chipping in toward keeping Crisp signed and notarized:
 
 ### Software Volume (Experimental, source build)
 
-The current source includes an opt-in software volume path for the matching current external HDMI/DisplayPort output on macOS 14.2+. Enable it in that display's details, then use the existing slider or volume/mute keys. DDC and forced DDC remain separate when it is off. It starts at 25%, stays off after restart, and stops on sleep, output/format change or disconnection; switching back does not restart it.
+Use working hardware volume control (DDC or the monitor/TV controls) when available. Software Volume is an optional fallback, never enabled automatically because a DDC probe fails. The current source offers it for the matching current external HDMI/DisplayPort output on macOS 14.2+. Enable it in that display's details, then use the existing slider or volume/mute keys. Controls label the active backend. DDC and forced DDC remain separate. Software mode stays off after restart and stops on sleep, output/format change or disconnection; switching back does not restart it.
 
-Lower the monitor/TV hardware volume to a comfortable base first. The percentage is software gain, not the TV remote level. Crisp captures that output's system audio locally, excluding its own playback, using a private Process Tap; it neither records nor uploads audio. macOS may ask for System Audio Recording permission only when enabling it. Turning it off, quitting, or an engine crash restores original audio: **software mute does not survive a stopped engine**.
+Lower the monitor/TV hardware volume to a comfortable baseline first. **25% is the initial software gain, not a guaranteed safe volume or the TV remote level. Crisp does not set hardware volume to 100%.** Disabling the feature, stopping the engine, quitting, a crash, sleep or output change removes attenuation: **audio can suddenly become louder, and software mute is lost**.
+
+Crisp captures that output's system audio locally, excluding its own playback; it neither records nor uploads audio. macOS may ask for System Audio Recording permission when enabling it.
 
 This first slice accepts only stereo Float32 at 48 kHz, with one output stream, no physical inputs, and an unambiguous display/audio device name match. Other formats and ambiguous mappings are unavailable. This is a local source feature pending integrated device/permission verification, not a released or notarized feature announcement.
 

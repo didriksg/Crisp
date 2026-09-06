@@ -11,24 +11,36 @@ struct VolumeSliderView: View {
     @State private var isDragging: Bool = false
 
     var body: some View {
-        HStack(spacing: 8) {
-            BrightnessStepButton(systemName: "speaker.fill") { step(-volumeStep) }
+        VStack(alignment: .leading, spacing: 4) {
+            if display.softwareVolumeBusy {
+                Text(display.softwareVolumeStatus).font(.caption).foregroundStyle(Color.secondaryReadable)
+            } else if display.softwareVolumeActive {
+                Text("Software Volume (Experimental)").font(.caption).foregroundStyle(Color.secondaryReadable)
+                Text("Stopping software volume can suddenly make audio louder; software mute is lost.")
+                    .font(.caption).foregroundStyle(Color.secondaryReadable)
+            } else {
+                Text("Hardware Volume (DDC)").font(.caption).foregroundStyle(Color.secondaryReadable)
+            }
+            HStack(spacing: 8) {
+                BrightnessStepButton(systemName: "speaker.fill") { step(-volumeStep) }
 
-            Slider(value: $localVolume, in: 0...100) { editing in
-                isDragging = editing
-                if !editing {
-                    VolumeService.shared.setVolume(localVolume, for: display)
+                Slider(value: $localVolume, in: 0...100) { editing in
+                    isDragging = editing
+                    if !editing {
+                        VolumeService.shared.setVolume(localVolume, for: display)
+                    }
                 }
-            }
-            .controlSize(.small)
-            .accessibilityLabel("Speaker volume")
-            .accessibilityValue("\(Int(localVolume))%")
-            .onChange(of: localVolume) { _, newValue in
-                guard isDragging else { return }
-                VolumeService.shared.setVolume(newValue, for: display)
-            }
+                .controlSize(.small)
+                .accessibilityLabel("Speaker volume")
+                .accessibilityValue("\(Int(localVolume))%")
+                .onChange(of: localVolume) { _, newValue in
+                    guard isDragging else { return }
+                    VolumeService.shared.setVolume(newValue, for: display)
+                }
 
-            BrightnessStepButton(systemName: "speaker.wave.3.fill") { step(volumeStep) }
+                BrightnessStepButton(systemName: "speaker.wave.3.fill") { step(volumeStep) }
+            }
+            .disabled(display.softwareVolumeBusy)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 4)

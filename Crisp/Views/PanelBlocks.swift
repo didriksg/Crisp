@@ -146,10 +146,6 @@ struct DisplayHeaderBlock: View {
             // working either way). Toggling the setting re-renders this block;
             // the height change flows through BlockHost to the panel spring.
             if settings.showVolumeSliders && (display.volumeSupported || display.softwareVolumeActive) {
-                if display.softwareVolumeActive {
-                    Text("Software Volume (Experimental)")
-                        .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 12)
-                }
                 VolumeSliderView(display: display)
                     .padding(.bottom, 4)
             }

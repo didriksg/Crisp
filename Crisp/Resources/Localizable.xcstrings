@@ -1,6 +1,36 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Use working hardware volume control (DDC or monitor/TV controls) when available. Software volume is an optional fallback; a failed DDC probe never enables it automatically." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "硬件音量控制（DDC 或显示器／电视上的控制）可用时，请优先使用。软件音量是可选的后备方案，DDC 探测失败不会自动启用它。"
+          }
+        }
+      }
+    },
+    "Stopping software volume can suddenly make audio louder; software mute is lost." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "停止软件音量后，声音可能突然变大，软件静音也会失效。"
+          }
+        }
+      }
+    },
+    "Hardware Volume (DDC)" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "硬件音量（DDC）"
+          }
+        }
+      }
+    },
     "" : {
 
     },
@@ -1234,12 +1264,12 @@
         }
       }
     },
-    "Lower the monitor or TV hardware volume to a comfortable level first. Crisp captures system audio on this output locally, excludes its own playback, and applies software gain. The percentage is not your TV remote volume. Turning this off, sleeping, changing output, quitting, or a crash restores original audio; mute does not survive a stopped engine. Stereo 48 kHz output only. Nothing is recorded or uploaded." : {
+    "Lower the monitor or TV hardware volume to a comfortable baseline first. 25% is the initial software gain, not a guaranteed safe volume or your TV remote level. Crisp does not set hardware volume to 100%.\n\nTurning this off, stopping the engine, quitting, a crash, sleep, or an output change removes attenuation. Audio can suddenly become louder, and software mute is lost.\n\nCrisp captures system audio on this output locally, excluding its own playback. macOS may ask for System Audio Recording permission. Nothing is recorded or uploaded. Stereo 48 kHz output only." : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "请先用显示器或电视的硬件控制把音量调至舒适水平。Crisp 仅在本机捕获此输出的系统音频，排除自身播放，再应用软件增益。百分比不是电视遥控器音量。关闭此功能、睡眠、切换输出、退出或崩溃后，原始音频将恢复；引擎停止后无法维持静音。仅支持 48 kHz 立体声输出。不录音、不上传。"
+            "value" : "请先用显示器或电视的硬件控制把音量调至舒适的基准水平。25% 是初始软件增益，不保证音量安全，也不是电视遥控器音量。Crisp 不会把硬件音量设为 100%。\n\n关闭此功能、停止引擎、退出、崩溃、睡眠或切换输出都会取消衰减。声音可能突然变大，软件静音也会失效。\n\nCrisp 仅在本机捕获此输出的系统音频，并排除自身播放。macOS 可能请求录制系统音频的权限。不录音、不上传。仅支持 48 kHz 立体声输出。"
           }
         }
       }

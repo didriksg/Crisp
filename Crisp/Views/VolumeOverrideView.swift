@@ -47,6 +47,11 @@ private struct SoftwareVolumeRow: View {
     var body: some View {
         if #available(macOS 14.2, *) {
             VStack(alignment: .leading, spacing: 4) {
+                Text("""
+                Use working hardware volume control (DDC or monitor/TV controls) when available. \
+                Software volume is an optional fallback; a failed DDC probe never enables it automatically.
+                """)
+                .font(.caption).foregroundStyle(Color.secondaryReadable)
                 Toggle("Software Volume (Experimental)", isOn: Binding(
                     get: { display.softwareVolumeActive },
                     set: { enabled in
@@ -74,11 +79,15 @@ private struct SoftwareVolumeRow: View {
                 }
             } message: {
                 Text("""
-                Lower the monitor or TV hardware volume to a comfortable level first. \
-                Crisp captures system audio on this output locally, excludes its own playback, and applies software gain. \
-                The percentage is not your TV remote volume. Turning this off, sleeping, changing output, quitting, \
-                or a crash restores original audio; mute does not survive a stopped engine. \
-                Stereo 48 kHz output only. Nothing is recorded or uploaded.
+                Lower the monitor or TV hardware volume to a comfortable baseline first. \
+                25% is the initial software gain, not a guaranteed safe volume or your TV remote level. \
+                Crisp does not set hardware volume to 100%.
+
+                Turning this off, stopping the engine, quitting, a crash, sleep, or an output change removes attenuation. \
+                Audio can suddenly become louder, and software mute is lost.
+
+                Crisp captures system audio on this output locally, excluding its own playback. \
+                macOS may ask for System Audio Recording permission. Nothing is recorded or uploaded. Stereo 48 kHz output only.
                 """)
             }
         }
