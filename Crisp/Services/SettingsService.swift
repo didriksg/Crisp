@@ -56,7 +56,7 @@ final class SettingsService: ObservableObject, @unchecked Sendable {
         static let launchAtLoginPrompted  = "crisp.launchAtLogin.prompted"
         static let menuWidth              = "crisp.menuWidth"
         static let showCombinedBrightness = "crisp.showCombinedBrightness"
-        static let combinedBuiltinFactor  = "crisp.combinedBuiltinBrightnessAdjustment.v2"
+        static let combinedBuiltinFactor  = "crisp.combinedBuiltinBrightnessAdjustment"
         static let showVolumeSliders      = "crisp.showVolumeSliders"
         static let ddcCacheTTL            = "crisp.ddcCacheTTL"
         static let colorPickerHistory     = "crisp.colorPickerHistory"

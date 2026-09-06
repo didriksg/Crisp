@@ -313,6 +313,7 @@ struct CombinedBrightnessView: View {
 
     private func builtinLinearTarget(_ combined: Double, for display: DisplayInfo) -> Double? {
         guard display.isBuiltin, display.maxBrightness <= 100.5,
+              BrightnessService.supportsLinearBrightness,
               let referenceMaxNits,
               let builtinMaxNits = display.nominalMaxNits else { return nil }
         return CombinedBrightnessMath.builtinLinearTarget(

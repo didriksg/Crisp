@@ -572,7 +572,8 @@ struct SettingsView: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("Absolute brightness ratio")
                                     .font(.callout)
-                                Text("Calculated from each panel's nits; adjust only if they still look different")
+                                Text("From each panel's rated nits. HDR monitors report their HDR peak, "
+                                     + "so lower this if the built-in runs too bright")
                                     .font(.caption2)
                                     .foregroundColor(.secondary)
                             }

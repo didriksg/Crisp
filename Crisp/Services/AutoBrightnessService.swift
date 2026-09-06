@@ -284,10 +284,10 @@ final class AutoBrightnessService: ObservableObject, @unchecked Sendable {
                     builtinMaxNits: builtinMaxNits,
                     externalMaxNits: externalMaxNits,
                     builtinAdjustment: SettingsService.shared.combinedBuiltinBrightnessFactor)
-                target = min(100.0, max(0.0, matched * sensitivity))
+                target = min(display.maxBrightness, max(0.0, matched * sensitivity))
             } else {
                 // Missing luminance metadata: preserve the old percentage mirror.
-                target = min(100.0, max(0.0, builtin * sensitivity * 100.0))
+                target = min(display.maxBrightness, max(0.0, builtin * sensitivity * 100.0))
             }
 
             let current = display.brightness

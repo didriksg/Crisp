@@ -290,6 +290,12 @@ final class BrightnessService: @unchecked Sendable {
 
     // MARK: - Public API
 
+    /// Whether the built-in panel can be driven in linear luminance. Both private
+    /// DisplayServices symbols have to resolve; otherwise the combined control keeps
+    /// its proportional mapping for the built-in, since a linear value fed to the
+    /// native percent API lands visibly wrong.
+    static let supportsLinearBrightness = _DSSetLinearBrightness != nil && _DSGetLinearBrightness != nil
+
     /// Native panel brightness in a linear luminance domain. Multiplying this
     /// by DisplayInfo.nominalMaxNits yields the current estimated nits.
     func linearBrightness(for displayID: CGDirectDisplayID) -> Double? {
@@ -473,12 +479,10 @@ final class BrightnessService: @unchecked Sendable {
 
     /// Sets a built-in panel in linear luminance space, then reads back the
     /// corresponding native user-slider value so every UI stays truthful.
+    /// Callers check `supportsLinearBrightness` first; without the API this is a no-op.
     @MainActor
     func setBuiltinLinearBrightness(_ linearBrightness: Double, for display: DisplayInfo) async {
-        guard display.isBuiltin, let set = _DSSetLinearBrightness else {
-            await setBrightness(linearBrightness * 100.0, for: display)
-            return
-        }
+        guard display.isBuiltin, let set = _DSSetLinearBrightness else { return }
         let displayID = display.displayID
         let target = min(1.0, max(0.0, linearBrightness))
         cancelAnimation(for: displayID)
@@ -509,10 +513,7 @@ final class BrightnessService: @unchecked Sendable {
         for display: DisplayInfo,
         duration: TimeInterval = 0.20
     ) {
-        guard display.isBuiltin, let set = _DSSetLinearBrightness else {
-            setBrightnessSmooth(linearBrightness * 100.0, for: display, duration: duration)
-            return
-        }
+        guard display.isBuiltin, let set = _DSSetLinearBrightness else { return }
         let displayID = display.displayID
         let target = min(1.0, max(0.0, linearBrightness))
         let from = self.linearBrightness(for: displayID) ?? target

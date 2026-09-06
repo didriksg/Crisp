@@ -1,6 +1,7 @@
 import Foundation
 import CoreGraphics
 import IOKit
+import os
 
 private let _CoreDisplayCreateInfoDictionary: (@convention(c) (CGDirectDisplayID) -> Unmanaged<CFDictionary>?)? = {
     guard let handle = dlopen("/System/Library/Frameworks/CoreDisplay.framework/CoreDisplay", RTLD_LAZY),
@@ -15,18 +16,12 @@ private let _CoreDisplayCreateInfoDictionary: (@convention(c) (CGDirectDisplayID
 /// brightness on one scale. Apple publishes SDR nits through CoreDisplay; an
 /// external monitor publishes CTA/EDID max luminance in IORegistry as 16.16.
 enum DisplayLuminanceService {
-    static func maximumSDRNits(
-        displayID: CGDirectDisplayID,
-        isBuiltin: Bool,
-        vendor: UInt32,
-        model: UInt32,
-        serial: UInt32
-    ) -> Double? {
-        if isBuiltin, let value = builtinMaximumSDRNits(displayID: displayID) {
-            return value
-        }
-        guard !isBuiltin else { return nil }
-        return externalMaximumNits(vendor: vendor, model: model, serial: serial)
+    private static let log = Logger(subsystem: "com.crisp.app", category: "brightness")
+
+    static func maximumSDRNits(displayID: CGDirectDisplayID, isBuiltin: Bool) -> Double? {
+        let nits = isBuiltin ? builtinMaximumSDRNits(displayID: displayID) : externalMaximumNits(displayID: displayID)
+        log.notice("display \(displayID, privacy: .public): nominal peak \(nits.map { String(Int($0)) } ?? "unknown", privacy: .public) nits, combined brightness \(nits == nil ? "proportional" : "by luminance", privacy: .public)")
+        return nits
     }
 
     private static func builtinMaximumSDRNits(displayID: CGDirectDisplayID) -> Double? {
@@ -40,52 +35,82 @@ enum DisplayLuminanceService {
         return nil
     }
 
-    private static func externalMaximumNits(vendor: UInt32, model: UInt32, serial: UInt32) -> Double? {
-        let root = IORegistryGetRootEntry(kIOMainPortDefault)
-        guard root != IO_OBJECT_NULL else { return nil }
-        defer { IOObjectRelease(root) }
+    /// The framebuffer node for an external display is found the way DDC pairing
+    /// finds its channel: the same identity parser and the same matcher, over the
+    /// same DisplayAttributes nodes in traversal order, so a monitor that pairs for
+    /// brightness reads its luminance from the same node.
+    private static func externalMaximumNits(displayID: CGDirectDisplayID) -> Double? {
+        let nodes = registryNodes()
+        guard !nodes.isEmpty else { return nil }
+        var count: UInt32 = 0
+        CGGetOnlineDisplayList(0, nil, &count)
+        var ids = [CGDirectDisplayID](repeating: 0, count: Int(count))
+        CGGetOnlineDisplayList(count, &ids, &count)
+        let displays = ids.prefix(Int(count)).filter { CGDisplayIsBuiltin($0) == 0 }.map {
+            (id: $0, identity: DDCServiceMatcher.Identity(
+                vendor: CGDisplayVendorNumber($0), product: CGDisplayModelNumber($0), serial: CGDisplaySerialNumber($0)))
+        }
+        let result = DDCServiceMatcher.match(services: nodes.map(\.identity), displays: displays)
+        guard let index = result.byDisplayID[displayID] else { return nil }
+        return nodes[index].nits
+    }
 
+    private struct Node {
+        let identity: DDCServiceMatcher.Identity?
+        let nits: Double?
+    }
+
+    /// One walk serves every display of a reconfiguration: loadDetails asks once
+    /// per display within the same second, and the walk covers the whole service
+    /// plane (about half a second on this Mac).
+    private final class Cache: @unchecked Sendable {
+        let lock = NSLock()
+        var nodes: [Node] = []
+        var at = Date.distantPast
+    }
+    private static let cache = Cache()
+
+    private static func registryNodes() -> [Node] {
+        cache.lock.lock()
+        defer { cache.lock.unlock() }
+        if Date().timeIntervalSince(cache.at) < 5 { return cache.nodes }
+        var nodes: [Node] = []
+        let root = IORegistryGetRootEntry(kIOMainPortDefault)
+        defer { IOObjectRelease(root) }
         var iterator: io_iterator_t = 0
         guard IORegistryEntryCreateIterator(
-            root,
-            kIOServicePlane,
-            IOOptionBits(kIORegistryIterateRecursively),
-            &iterator
-        ) == KERN_SUCCESS else { return nil }
+            root, kIOServicePlane, IOOptionBits(kIORegistryIterateRecursively), &iterator
+        ) == KERN_SUCCESS else { return [] }
         defer { IOObjectRelease(iterator) }
-
         var entry = IOIteratorNext(iterator)
         while entry != IO_OBJECT_NULL {
-            defer {
-                IOObjectRelease(entry)
-                entry = IOIteratorNext(iterator)
+            if let attributes = IORegistryEntryCreateCFProperty(
+                    entry, "DisplayAttributes" as CFString, kCFAllocatorDefault, 0
+               )?.takeRetainedValue() as? [String: Any],
+               let product = attributes["ProductAttributes"] as? [String: Any] {
+                nodes.append(Node(identity: DDCService.displayIdentity(from: product),
+                                  nits: maximumNits(in: attributes["Luminance"] as? [String: Any])))
             }
-            guard let attributes = IORegistryEntryCreateCFProperty(
-                    entry,
-                    "DisplayAttributes" as CFString,
-                    kCFAllocatorDefault,
-                    0
-                  )?.takeRetainedValue() as? [String: Any],
-                  let product = attributes["ProductAttributes"] as? [String: Any],
-                  number(product["LegacyManufacturerID"]) == Double(vendor),
-                  number(product["ProductID"]) == Double(model) else { continue }
-
-            let registrySerial = number(product["SerialNumber"]) ?? 0
-            if serial != 0, registrySerial != 0, Double(serial) != registrySerial { continue }
-            guard let luminance = attributes["Luminance"] as? [String: Any],
-                  let raw = number(luminance["Max"]), raw > 0 else { continue }
-            // CoreDisplay publishes CTA luminance as unsigned 16.16 fixed point.
-            let nits = raw > 10_000 ? raw / 65_536.0 : raw
-            if nits >= 40, nits <= 10_000 { return nits }
+            IOObjectRelease(entry)
+            entry = IOIteratorNext(iterator)
         }
-        return nil
+        cache.nodes = nodes
+        cache.at = Date()
+        return nodes
+    }
+
+    /// CoreDisplay publishes CTA luminance as unsigned 16.16 fixed point; on an HDR
+    /// monitor it is the HDR peak, which is why the settings keep a fine-tuning ratio.
+    private static func maximumNits(in luminance: [String: Any]?) -> Double? {
+        guard let raw = number(luminance?["Max"]), raw > 0 else { return nil }
+        let nits = raw > 10_000 ? raw / 65_536.0 : raw
+        return (40...10_000).contains(nits) ? nits : nil
     }
 
     private static func number(_ value: Any?) -> Double? {
         if let value = value as? NSNumber { return value.doubleValue }
         if let value = value as? Double { return value }
         if let value = value as? Int { return Double(value) }
-        if let value = value as? UInt32 { return Double(value) }
         return nil
     }
 }
