@@ -24,6 +24,7 @@ targets:
         embed: true
     settings:
       base:
+        INFOPLIST_FILE: Crisp/Info.plist
         PRODUCT_BUNDLE_IDENTIFIER: com.crisp.app
         # Without an explicit MARKETING_VERSION the generated Info.plist omits
         # CFBundleShortVersionString and the app self-reports 1.0.0 forever,
@@ -68,6 +69,8 @@ targets:
     deploymentTarget: "14.0"
     sources:
       - path: CrispTests
+      - path: Crisp/Models/SoftwareVolumePolicy.swift
+      - path: Crisp/Audio/SoftwareVolumeEngine.m
       - path: Crisp/Models/DisplayModeGeometry.swift
       - path: Crisp/Models/DDCServiceMatcher.swift
       - path: Crisp/Models/RefreshRateFormat.swift
@@ -79,6 +82,8 @@ targets:
       - path: Crisp/Models/BrightnessKeySteps.swift
     settings:
       base:
+        SWIFT_OBJC_BRIDGING_HEADER: Crisp/Audio/SoftwareVolumeEngine.h
+        OTHER_LDFLAGS: "-framework CoreAudio"
         PRODUCT_BUNDLE_IDENTIFIER: com.crisp.tests
         GENERATE_INFOPLIST_FILE: YES
         SWIFT_VERSION: "6.0"

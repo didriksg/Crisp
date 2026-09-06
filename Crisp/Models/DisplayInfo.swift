@@ -20,11 +20,14 @@ class DisplayInfo: ObservableObject, Identifiable {
     /// (EDR upscaling) is enabled, where the range 100...maxBrightness maps to
     /// the EDR overlay boost instead of hardware.
     @Published var maxBrightness: Double = 100.0
-    /// DDC speaker volume 0–100. Meaningful only while volumeSupported.
+    /// DDC volume or active software gain, 0–100; software gain is never persisted as DDC capability.
     @Published var volume: Double = 0
     /// True once a DDC read of VCP 0x62 succeeded, i.e. the monitor exposes
     /// controllable speaker volume. Gates the volume slider and key routing.
     @Published var volumeSupported: Bool = false
+    @Published var softwareVolumeActive = false
+    @Published var softwareVolumeBusy = false
+    @Published var softwareVolumeStatus = ""
     @Published var availableModes: [DisplayMode]
     @Published var currentDisplayMode: DisplayMode?
     @Published var ddcValues: [UInt8: UInt16?] = [:]

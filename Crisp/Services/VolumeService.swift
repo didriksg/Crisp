@@ -19,6 +19,9 @@ final class VolumeService: ObservableObject {
     /// Raw DDC max volume per display (usually 100), from the probe read.
     private var ddcMax: [CGDirectDisplayID: UInt16] = [:]
     /// Volume to restore on unmute, captured when toggleMute drops to zero.
+    private var softwareReserved: Set<CGDirectDisplayID> = []
+    private var hardwareLevels: [CGDirectDisplayID: Double] = [:]
+    private var probeGeneration: [CGDirectDisplayID: UInt64] = [:]
     private var preMuteVolume: [CGDirectDisplayID: Double] = [:]
 
     /// UUIDs of displays that have EVER answered a 0x62 read. VCP support is a
@@ -61,6 +64,11 @@ final class VolumeService: ObservableObject {
     /// displayID cannot inherit it. rememberedCapable stays: it is UUID-keyed
     /// and deliberately permanent.
     func invalidate(for displayID: CGDirectDisplayID) {
+        if softwareReserved.contains(displayID), #available(macOS 14.2, *) {
+            SoftwareVolumeService.shared.stop()
+        }
+        pending.removeValue(forKey: displayID)
+        probeGeneration[displayID, default: 0] &+= 1
         ddcMax.removeValue(forKey: displayID)
         preMuteVolume.removeValue(forKey: displayID)
     }
@@ -73,7 +81,7 @@ final class VolumeService: ObservableObject {
     /// refresh: a monitor that answers late (link training) heals on the
     /// next pass, and DDCService caches reads for 5s.
     func refreshVolume(for display: DisplayInfo) {
-        guard !display.isBuiltin else { return }
+        guard !display.isBuiltin, !softwareReserved.contains(display.displayID) else { return }
         // Seed from memory (or the user's force override) so a failed probe
         // can't hide the feature; the read below still adopts the monitor's
         // current level whenever it works.
@@ -82,8 +90,10 @@ final class VolumeService: ObservableObject {
         }
         let id = display.displayID
         let uuid = display.displayUUID
+        let generation = probeGeneration[id, default: 0]
         DDCService.shared.readAsync(displayID: id, command: DDCService.volumeVCP) { result in
             Task { @MainActor in
+                guard !self.softwareReserved.contains(id), self.probeGeneration[id, default: 0] == generation else { return }
                 guard let result else {
                     // Only while the feature is hidden: a remembered or forced
                     // display failing a probe is the DDC layer's line to log.
@@ -117,6 +127,13 @@ final class VolumeService: ObservableObject {
     /// latest value wins, writes paced to the MCCS ~50ms spacing so slider
     /// drags don't flood the I2C bus that brightness shares.
     func setVolume(_ percent: Double, for display: DisplayInfo) {
+        if softwareReserved.contains(display.displayID) {
+            if #available(macOS 14.2, *) {
+                _ = SoftwareVolumeService.shared.setVolume(percent, for: display)
+            }
+            return
+        }
+        guard percent.isFinite else { return }
         let clamped = max(0.0, min(100.0, percent))
         display.volume = clamped
         pending[display.displayID] = clamped
@@ -127,7 +144,7 @@ final class VolumeService: ObservableObject {
     /// 25 if there is none); otherwise remember the level and drop to zero.
     func toggleMute(for display: DisplayInfo) {
         if display.volume <= 0 {
-            setVolume(preMuteVolume[display.displayID] ?? 25, for: display)
+            setVolume(SoftwareVolumePolicy.unmutedLevel(preMuteVolume[display.displayID]), for: display)
         } else {
             preMuteVolume[display.displayID] = display.volume
             setVolume(0, for: display)
@@ -135,7 +152,7 @@ final class VolumeService: ObservableObject {
     }
 
     private func pump(for id: CGDirectDisplayID) {
-        guard !pumpActive.contains(id), let percent = pending.removeValue(forKey: id) else { return }
+        guard !softwareReserved.contains(id), !pumpActive.contains(id), let percent = pending.removeValue(forKey: id) else { return }
         pumpActive.insert(id)
         let raw = UInt16((percent / 100.0 * Double(ddcMax[id] ?? 100)).rounded())
         DDCService.shared.writeAsync(displayID: id, command: DDCService.volumeVCP, value: raw) { _ in
@@ -157,7 +174,10 @@ final class VolumeService: ObservableObject {
     /// ponytail: name + transport matching; per-display audio binding UI if
     /// same-model multi-monitor setups misroute.
     func displayForDefaultAudioOutput(in displays: [DisplayInfo]) -> DisplayInfo? {
-        let candidates = displays.filter { !$0.isBuiltin && $0.volumeSupported }
+        if #available(macOS 14.2, *), let active = displays.first(where: { $0.softwareVolumeActive }) {
+            return softwareOutput(for: active) != nil ? active : nil
+        }
+        let candidates = displays.filter { !$0.isBuiltin && $0.volumeSupported && !softwareReserved.contains($0.displayID) }
         guard !candidates.isEmpty else { return nil }
 
         var deviceID = AudioDeviceID(0)
@@ -180,6 +200,51 @@ final class VolumeService: ObservableObject {
             return candidates[0]
         }
         return nil
+    }
+
+    /// Reserve before draining the writer. Late reads carry a generation and cannot
+    /// publish hardware values into a software session, even after it has stopped.
+    func reserveSoftware(for display: DisplayInfo) async -> Bool {
+        let id = display.displayID
+        guard softwareReserved.insert(id).inserted else { return false }
+        probeGeneration[id, default: 0] &+= 1
+        pending.removeValue(forKey: id)
+        hardwareLevels[id] = display.volume
+        preMuteVolume.removeValue(forKey: id)
+        for _ in 0..<40 {
+            if !pumpActive.contains(id) { return true }
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+        releaseSoftware(for: display)
+        return false
+    }
+
+    func releaseSoftware(for display: DisplayInfo) {
+        let id = display.displayID
+        softwareReserved.remove(id)
+        pending.removeValue(forKey: id)
+        preMuteVolume.removeValue(forKey: id)
+        display.volume = hardwareLevels.removeValue(forKey: id) ?? 0
+        display.volumeSupported = isForced(display) || rememberedCapable.contains(display.displayUUID)
+        refreshVolume(for: display)
+    }
+
+    /// The software tap never uses DDC's single-candidate fallback. Duplicate or
+    /// different names are unavailable rather than silently binding the wrong panel.
+    func softwareOutput(for display: DisplayInfo) -> AudioDeviceID? {
+        guard !display.isBuiltin, display.isOnline else { return nil }
+        var device: AudioDeviceID = 0
+        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        var address = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+                                                mScope: kAudioObjectPropertyScopeGlobal,
+                                                mElement: kAudioObjectPropertyElementMain)
+        guard AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &device) == noErr,
+              device != 0, let name = audioDeviceName(device), let transport = audioTransportType(device),
+              transport == kAudioDeviceTransportTypeHDMI || transport == kAudioDeviceTransportTypeDisplayPort else { return nil }
+        let displays = DisplayManagerAccessor.shared.displays.filter { !$0.isBuiltin && $0.isOnline }
+        guard let index = SoftwareVolumePolicy.matchingDisplay(audioName: name, displayNames: displays.map(\.name)),
+              displays[index].displayID == display.displayID else { return nil }
+        return device
     }
 
     private func audioDeviceName(_ deviceID: AudioDeviceID) -> String? {

@@ -30,7 +30,7 @@ endif
 # swiftc invocation kept in sync with dev.sh's compile step.
 SWIFT_SOURCES := Crisp/App/*.swift Crisp/Models/*.swift Crisp/Services/*.swift \
                  Crisp/Views/*.swift Crisp/Utilities/*.swift
-SWIFTC_FLAGS := -O -swift-version 5 -strict-concurrency=minimal -parse-as-library \
+SWIFTC_FLAGS := -O -swift-version 5 -strict-concurrency=minimal -parse-as-library -module-cache-path build/ModuleCache \
                 -import-objc-header Crisp/Crisp-Bridging-Header.h \
                 -framework AppKit -framework SwiftUI -framework IOKit -framework CoreAudio \
                 -F vendor/Sparkle -framework Sparkle \
@@ -61,7 +61,9 @@ dev:
 
 compile: vendor
 	@echo "==> Compiling Crisp $(VERSION) -> ./Crisp-bin"
-	swiftc $(SWIFTC_FLAGS) $(SWIFT_SOURCES) -o Crisp-bin
+	mkdir -p build
+	clang -O2 -fobjc-arc -mmacosx-version-min=14.0 -c Crisp/Audio/SoftwareVolumeEngine.m -o build/SoftwareVolumeEngine.o
+	swiftc $(SWIFTC_FLAGS) $(SWIFT_SOURCES) build/SoftwareVolumeEngine.o -o Crisp-bin
 	@echo "Done. ./Crisp-bin built (not swapped into the app; use 'make dev' for that)."
 
 # Warnings are errors here (the baseline is zero, issue #47), so a PR that
@@ -70,20 +72,20 @@ compile: vendor
 test: vendor
 	xcodegen generate
 	xcodebuild -quiet test -project Crisp.xcodeproj -scheme Crisp \
-		-destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO \
+		-destination 'platform=macOS' -derivedDataPath build/DerivedData CODE_SIGNING_ALLOWED=NO \
 		SWIFT_VERSION=5 SWIFT_STRICT_CONCURRENCY=minimal \
 		SWIFT_TREAT_WARNINGS_AS_ERRORS=YES
 
 lint:
 	@command -v swiftlint >/dev/null || { echo "SwiftLint not installed: brew install swiftlint"; exit 1; }
-	swiftlint lint --strict --quiet
+	swiftlint lint --strict --quiet --cache-path build/swiftlint
 
 # Same check as CI's "Check localization keys" step: every key the code uses
 # must exist in the String Catalog (missing keys silently fall back to English).
 loc-check: vendor
 	xcodegen generate
 	xcodebuild -quiet -exportLocalizations -project Crisp.xcodeproj \
-		-localizationPath build/loc CODE_SIGNING_ALLOWED=NO \
+		-localizationPath build/loc -scheme Crisp -derivedDataPath build/DerivedData CODE_SIGNING_ALLOWED=NO \
 		SWIFT_EMIT_LOC_STRINGS=YES SWIFT_VERSION=5 SWIFT_STRICT_CONCURRENCY=minimal
 	python3 scripts/check-localization-keys.py build/loc/en.xcloc \
 		Crisp/Resources/Localizable.xcstrings scripts/i18n-missing-allowlist.txt

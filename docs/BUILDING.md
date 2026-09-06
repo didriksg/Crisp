@@ -10,15 +10,17 @@ dev loop, the binary alone compiles with just the Command Line Tools:
 
 ```sh
 ./scripts/fetch-sparkle.sh   # once: vendors the Sparkle updater framework
-swiftc -O -swift-version 5 -strict-concurrency=minimal -parse-as-library \
+mkdir -p build
+clang -O2 -fobjc-arc -mmacosx-version-min=14.0 -c Crisp/Audio/SoftwareVolumeEngine.m -o build/SoftwareVolumeEngine.o
+swiftc -O -swift-version 5 -strict-concurrency=minimal -parse-as-library -module-cache-path build/ModuleCache \
   -import-objc-header Crisp/Crisp-Bridging-Header.h \
-  -framework AppKit -framework SwiftUI -framework IOKit \
+  -framework AppKit -framework SwiftUI -framework IOKit -framework CoreAudio \
   -F vendor/Sparkle -framework Sparkle \
   -Xlinker -rpath -Xlinker @executable_path/../Frameworks \
   -Xlinker -undefined -Xlinker dynamic_lookup \
   Crisp/App/*.swift Crisp/Models/*.swift Crisp/Services/*.swift \
   Crisp/Views/*.swift Crisp/Utilities/*.swift \
-  -o Crisp-bin
+  build/SoftwareVolumeEngine.o -o Crisp-bin
 ```
 
 To run it, swap the binary into an existing Crisp.app install and re-sign ad
@@ -48,3 +50,5 @@ git config core.hooksPath .githooks
 ```
 
 The app icon is generated from vector code: `scripts/generate-icon.swift`.
+
+Software Volume uses public macOS 14.2+ Process Tap APIs; the app deployment target remains 14.0. Build with a current macOS SDK. Xcode, dev.sh and release.sh include `NSAudioCaptureUsageDescription`. A standalone `Crisp-bin` compile is only a build check; permission and audio validation require the packaged app.

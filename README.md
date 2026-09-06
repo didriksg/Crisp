@@ -79,6 +79,16 @@ Thank you to the people chipping in toward keeping Crisp signed and notarized:
 
 - macOS 14 (Sonoma) or later; on macOS 26 the panel uses the native Liquid Glass backdrop
 
+### Software Volume (Experimental, source build)
+
+The current source includes an opt-in software volume path for the matching current external HDMI/DisplayPort output on macOS 14.2+. Enable it in that display's details, then use the existing slider or volume/mute keys. DDC and forced DDC remain separate when it is off. It starts at 25%, stays off after restart, and stops on sleep, output/format change or disconnection; switching back does not restart it.
+
+Lower the monitor/TV hardware volume to a comfortable base first. The percentage is software gain, not the TV remote level. Crisp captures that output's system audio locally, excluding its own playback, using a private Process Tap; it neither records nor uploads audio. macOS may ask for System Audio Recording permission only when enabling it. Turning it off, quitting, or an engine crash restores original audio: **software mute does not survive a stopped engine**.
+
+This first slice accepts only stereo Float32 at 48 kHz, with one output stream, no physical inputs, and an unambiguous display/audio device name match. Other formats and ambiguous mappings are unavailable. This is a local source feature pending integrated device/permission verification, not a released or notarized feature announcement.
+
+CLI volume control is planned as a separate follow-up and is not included in this change. Existing `crispctl` brightness commands do not control audio volume. This slice exposes software volume through the app UI and volume/mute keys only; future CLI support should reuse the app-owned volume service and retain its explicit-consent and lifecycle boundaries rather than create a separate audio engine.
+
 ## Permissions
 
 - **Administrator password** (one time, per monitor): needed only when you turn on smooth scaling, which installs a display override file into `/Library/Displays/Contents/Resources/Overrides` that macOS protects. Regular HiDPI scaling and everything else are password-free.

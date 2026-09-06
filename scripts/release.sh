@@ -40,13 +40,14 @@ rm -rf "$BUILD"; mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 echo "==> Compiling universal binary (arm64 + x86_64)…"
 SRC=$(find Crisp -name '*.swift')
 for a in arm64 x86_64; do
+  clang -O2 -fobjc-arc -target "$a-apple-macos14.0" -c Crisp/Audio/SoftwareVolumeEngine.m -o "$BUILD/SoftwareVolumeEngine-$a.o"
   swiftc -O -parse-as-library -target "$a-apple-macos14.0" \
     -import-objc-header Crisp/Crisp-Bridging-Header.h \
     -F "$ROOT/vendor/Sparkle" -framework Sparkle \
     -Xlinker -rpath -Xlinker @executable_path/../Frameworks \
     -Xlinker -U -Xlinker _SLSConfigureDisplayEnabled \
     -Xlinker -U -Xlinker _SLSGetDisplayList \
-    $SRC -o "$BUILD/Crisp-$a"
+    -framework CoreAudio $SRC "$BUILD/SoftwareVolumeEngine-$a.o" -o "$BUILD/Crisp-$a"
 done
 lipo -create "$BUILD/Crisp-arm64" "$BUILD/Crisp-x86_64" -output "$APP/Contents/MacOS/Crisp"
 
@@ -103,6 +104,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 	<key>LSMinimumSystemVersion</key><string>14.0</string>
 	<key>LSUIElement</key><true/>
 	<key>NSHumanReadableCopyright</key><string>Crisp - Free &amp; Open Source</string>
+	<key>NSAudioCaptureUsageDescription</key><string>Crisp captures system audio locally on your selected output to apply experimental software volume. Nothing is recorded or uploaded.</string>
 	<key>NSAppleEventsUsageDescription</key><string>Crisp uses System Events to switch Dark Mode with the system's animated transition.</string>
 	<key>SUFeedURL</key><string>https://crispmac.app/appcast.xml</string>
 	<key>SUPublicEDKey</key><string>3UT7wZoXDzrAhwCMVS3DoPt2lcya9H/cvlyXliuPuhM=</string>

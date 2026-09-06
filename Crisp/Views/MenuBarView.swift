@@ -548,7 +548,7 @@ struct SettingsView: View {
             // Show volume sliders (issue #23). Hidden while no connected monitor
             // exposes DDC volume: the toggle would control nothing. Hiding the
             // sliders does not disable the volume keys.
-            if displayManager.displays.contains(where: { $0.volumeSupported }) {
+            if displayManager.displays.contains(where: { $0.volumeSupported || $0.softwareVolumeActive }) {
                 Toggle(isOn: Binding(
                     get: { settings.showVolumeSliders },
                     set: { newValue in withAnimation(.panelResize) { settings.showVolumeSliders = newValue } }

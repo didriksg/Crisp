@@ -26,7 +26,9 @@ BUILD=$(grep -E '^[[:space:]]*CURRENT_PROJECT_VERSION:' project.yml | head -1 | 
 ./scripts/fetch-sparkle.sh
 
 echo "==> Compiling Crisp $VERSION ($BUILD)..."
-swiftc -O -swift-version 5 -strict-concurrency=minimal -parse-as-library \
+mkdir -p build
+clang -O2 -fobjc-arc -mmacosx-version-min=14.0 -c Crisp/Audio/SoftwareVolumeEngine.m -o build/SoftwareVolumeEngine.o
+swiftc -O -swift-version 5 -strict-concurrency=minimal -parse-as-library -module-cache-path build/ModuleCache \
     -import-objc-header Crisp/Crisp-Bridging-Header.h \
     -framework AppKit -framework SwiftUI -framework IOKit -framework CoreAudio \
     -F vendor/Sparkle -framework Sparkle \
@@ -34,7 +36,7 @@ swiftc -O -swift-version 5 -strict-concurrency=minimal -parse-as-library \
     -Xlinker -undefined -Xlinker dynamic_lookup \
     Crisp/App/*.swift Crisp/Models/*.swift Crisp/Services/*.swift \
     Crisp/Views/*.swift Crisp/Utilities/*.swift \
-    -o Crisp-bin
+    build/SoftwareVolumeEngine.o -o Crisp-bin
 
 echo "==> Swapping into ${APP}..."
 pkill -x Crisp 2>/dev/null || true
@@ -56,6 +58,8 @@ rm -rf "$APP/Contents/Frameworks/Sparkle.framework/Versions/B/XPCServices" \
 # Sparkle keys, absent when swapping into a pre-Sparkle install: without them
 # the updater logs errors and prompts for check permission on second launch.
 PLIST="$APP/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Delete :NSAudioCaptureUsageDescription" "$PLIST" 2>/dev/null || true
+/usr/libexec/PlistBuddy -c "Add :NSAudioCaptureUsageDescription string Crisp captures system audio locally on your selected output to apply experimental software volume. Nothing is recorded or uploaded." "$PLIST"
 for key in SUFeedURL SUPublicEDKey SUEnableAutomaticChecks SUVerifyUpdateBeforeExtraction SURequireSignedFeed; do
     /usr/libexec/PlistBuddy -c "Delete :$key" "$PLIST" 2>/dev/null || true
 done

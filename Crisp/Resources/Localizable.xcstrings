@@ -146,6 +146,16 @@
         }
       }
     },
+    "Active · software gain" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已启用 · 软件增益"
+          }
+        }
+      }
+    },
     "Adds finer in-between steps for how large everything looks" : {
       "localizations" : {
         "zh-Hans" : {
@@ -359,6 +369,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "取消"
+          }
+        }
+      }
+    },
+    "Cannot start software volume. Use stereo 48 kHz output and allow System Audio Recording in System Settings." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法启动软件音量。请使用 48 kHz 立体声输出，并在系统设置中允许录制系统音频。"
           }
         }
       }
@@ -779,6 +799,16 @@
         }
       }
     },
+    "Enable at 25%" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "以 25% 启用"
+          }
+        }
+      }
+    },
     "Enable high-resolution scaling" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -786,6 +816,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "启用高分辨率缩放"
+          }
+        }
+      }
+    },
+    "Enable Software Volume?" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "启用软件音量？"
           }
         }
       }
@@ -1012,6 +1052,26 @@
         }
       }
     },
+    "Hardware Volume Control (DDC)" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "硬件音量控制（DDC）"
+          }
+        }
+      }
+    },
+    "Hardware volume is still busy. Try again." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "硬件音量仍在写入，请稍后重试。"
+          }
+        }
+      }
+    },
     "HDR" : {
       "localizations" : {
         "zh-Hans" : {
@@ -1170,6 +1230,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "正在加载配置文件…"
+          }
+        }
+      }
+    },
+    "Lower the monitor or TV hardware volume to a comfortable level first. Crisp captures system audio on this output locally, excludes its own playback, and applies software gain. The percentage is not your TV remote volume. Turning this off, sleeping, changing output, quitting, or a crash restores original audio; mute does not survive a stopped engine. Stereo 48 kHz output only. Nothing is recorded or uploaded." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请先用显示器或电视的硬件控制把音量调至舒适水平。Crisp 仅在本机捕获此输出的系统音频，排除自身播放，再应用软件增益。百分比不是电视遥控器音量。关闭此功能、睡眠、切换输出、退出或崩溃后，原始音频将恢复；引擎停止后无法维持静音。仅支持 48 kHz 立体声输出。不录音、不上传。"
           }
         }
       }
@@ -1337,6 +1407,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "关"
+          }
+        }
+      }
+    },
+    "Off · original audio restored" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已关闭 · 原始音频已恢复"
           }
         }
       }
@@ -1699,6 +1779,16 @@
         }
       }
     },
+    "Select this display as the audio output. A unique display name is required." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请将此显示器设为音频输出，且显示器名称必须能唯一匹配。"
+          }
+        }
+      }
+    },
     "Selected displays only" : {
       "localizations" : {
         "zh-Hans" : {
@@ -1802,12 +1892,62 @@
         }
       }
     },
+    "Software Volume (Experimental)" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "软件音量（实验性）"
+          }
+        }
+      }
+    },
+    "Software volume is off; cleanup could not be verified. Quit Crisp before trying again." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "软件音量已关闭，但无法确认清理完成。请退出 Crisp 后再重试。"
+          }
+        }
+      }
+    },
+    "Software volume stopped: output or format changed." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "软件音量已停止：音频输出或格式发生变化。"
+          }
+        }
+      }
+    },
     "Speaker volume" : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "扬声器音量"
+          }
+        }
+      }
+    },
+    "Starting software volume…" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在启动软件音量…"
+          }
+        }
+      }
+    },
+    "Stopping software volume…" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在停止软件音量…"
           }
         }
       }
@@ -2054,6 +2194,7 @@
       }
     },
     "Volume Control" : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {

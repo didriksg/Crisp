@@ -122,4 +122,6 @@ extern IOReturn IOAVServiceWriteI2C(IOAVServiceRef service,
                                     void *inputBuffer,
                                     uint32_t inputBufferSize);
 
+#import "Audio/SoftwareVolumeEngine.h"
+
 #endif /* Crisp_Bridging_Header_h */

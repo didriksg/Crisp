@@ -254,6 +254,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        if #available(macOS 14.2, *) { SoftwareVolumeService.shared.stop() }
         controlServer.stop()
         for obs in wakeObservers {
             NSWorkspace.shared.notificationCenter.removeObserver(obs)
