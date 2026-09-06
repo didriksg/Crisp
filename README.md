@@ -96,7 +96,7 @@ Source builds include a minimal `crispctl` target:
 xcodegen generate && xcodebuild -scheme crispctl -configuration Release
 ```
 
-It supports seven control commands:
+It supports ten control commands:
 
 ```sh
 crispctl display list
@@ -106,6 +106,9 @@ crispctl brightness boost get <display>
 crispctl brightness boost set <display> on|off
 crispctl hdr get <display>
 crispctl hdr set <display> on|off
+crispctl display disconnect <display>
+crispctl display connect <display>
+crispctl display toggle <display>
 crispctl help
 ```
 
@@ -116,6 +119,8 @@ crispctl help
 Crisp must already be running; crispctl never launches it. `brightness set` accepts 0...100 normally. Values above 100 require Extra Brightness to be enabled and currently eligible for that display, and must not exceed its live `maxBrightness`; invalid boosted values are refused rather than clamped. A set is a manual change like using the slider and clears the active preset. The reply means Crisp accepted the request, not that the panel was read back; it is not retried automatically.
 
 For example, `brightness boost get` returns `{"ok":true,"brightnessBoost":{"displayID":7,"eligible":true,"enabled":false}}`. `eligible` is the running Extra Brightness service's current eligibility result; `enabled` is its persisted per-display toggle state, so the two can differ while capability has collapsed and cleanup or auto-disable is pending. `brightness boost set` uses that existing service: `on` is refused when currently ineligible or when enabling fails, while `off` remains available for a connected display regardless of current eligibility. Enabling an external display may wait while the service settles HDR mode. Success means the service returned `true`, not that hardware, EDR headroom, or luminance was independently verified. A transport timeout does not prove the change was not applied; do not retry automatically—run `brightness boost get` first.
+
+`display disconnect`, `connect` and `toggle` are the menu's Disconnect Display and Reconnect from a script, for a KVM desk or a button: Apple Silicon only, and a disconnect is refused when it would leave no active display. A display Crisp is holding disconnected is absent from every macOS display list, so `display list` still shows it with `connected:false` and its last-known id; use the uuid for it. Asking for the state a display is already in succeeds and changes nothing, and the reply comes after the window server has answered, which can take a few seconds.
 
 `hdr get` and `hdr set` work on the external displays Crisp shows its HDR toggle for; the built-in panel and externals without HDR modes are refused. `get` reads the live state. `set` writes once through the same path as the toggle and reports success only when the read-back agrees; when it cannot tell (a timeout, or the display going away mid-way) it says so and does not retry, so run `hdr get` before retrying. Exit codes are unchanged.
 

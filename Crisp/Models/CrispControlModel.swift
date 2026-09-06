@@ -27,6 +27,10 @@ struct CrispControlDisplay: Codable, Equatable {
     let uuid: String?
     let resolution: CrispControlResolution?
     let brightnessBackend: CrispControlBrightnessBackend?
+    /// False while Crisp holds the display disconnected. Such a display is absent
+    /// from every macOS display list, so its `id` is only the last-known value and
+    /// `uuid` is the selector that finds it again. Absent from replies of older Crisps.
+    let connected: Bool?
 
     init(
         id: UInt32,
@@ -36,7 +40,8 @@ struct CrispControlDisplay: Codable, Equatable {
         isBuiltin: Bool,
         uuid: String? = nil,
         resolution: CrispControlResolution? = nil,
-        brightnessBackend: CrispControlBrightnessBackend? = nil
+        brightnessBackend: CrispControlBrightnessBackend? = nil,
+        connected: Bool? = nil
     ) {
         self.id = id
         self.name = name
@@ -46,6 +51,7 @@ struct CrispControlDisplay: Codable, Equatable {
         self.uuid = uuid
         self.resolution = resolution
         self.brightnessBackend = brightnessBackend
+        self.connected = connected
     }
 }
 struct CrispControlBrightnessBoostState: Codable, Equatable {
@@ -66,6 +72,9 @@ struct CrispControlRequest: Codable, Equatable {
         case setBrightnessBoost
         case getHDR
         case setHDR
+        case connectDisplay
+        case disconnectDisplay
+        case toggleDisplay
     }
 
     let command: Command
@@ -150,22 +159,31 @@ struct CrispControlHDRChange: Equatable {
     let displayUUID: String
     let enabled: Bool
 }
+/// A resolved connect or disconnect. `toggleDisplay` is collapsed into a concrete
+/// direction by `handle`, so the server never has to re-read the current state.
+struct CrispControlConnectionChange: Equatable {
+    let uuid: String
+    let connect: Bool
+}
 struct CrispControlResult {
     let response: CrispControlResponse
     let brightnessChange: CrispControlBrightnessChange?
     let brightnessBoostChange: CrispControlBrightnessBoostChange?
     let hdrChange: CrispControlHDRChange?
+    let connectionChange: CrispControlConnectionChange?
 
     init(
         _ response: CrispControlResponse,
         _ brightnessChange: CrispControlBrightnessChange?,
         _ brightnessBoostChange: CrispControlBrightnessBoostChange?,
-        _ hdrChange: CrispControlHDRChange?
+        _ hdrChange: CrispControlHDRChange?,
+        _ connectionChange: CrispControlConnectionChange? = nil
     ) {
         self.response = response
         self.brightnessChange = brightnessChange
         self.brightnessBoostChange = brightnessBoostChange
         self.hdrChange = hdrChange
+        self.connectionChange = connectionChange
     }
 }
 enum CrispControlModel {
@@ -260,7 +278,44 @@ enum CrispControlModel {
                 request, displays: displays, hdrState: hdrState,
                 hdrMutationUUID: hdrMutationUUID
             )
+        case .connectDisplay, .disconnectDisplay, .toggleDisplay:
+            return handleConnection(request, displays: displays)
         }
+    }
+
+    /// Resolves a connection request against the online list plus the displays Crisp
+    /// is holding disconnected. Asking for the state a display is already in succeeds
+    /// and changes nothing, so a button wired to `connect` or `disconnect` is safe to
+    /// press twice.
+    private static func handleConnection(
+        _ request: CrispControlRequest, displays: [CrispControlDisplay]
+    ) -> CrispControlResult {
+        guard hasDisplaySelector(request) else {
+            return .init(.failure("display is required"), nil, nil, nil)
+        }
+        guard let display = target(of: request, in: displays) else {
+            return .init(.failure("display not found"), nil, nil, nil)
+        }
+        // A display with no stable uuid cannot be found again once it is gone, so
+        // refuse rather than hand back a handle that will not work.
+        guard let uuid = display.uuid, !uuid.isEmpty else {
+            return .init(.failure("display has no stable uuid, so it could not be reconnected"), nil, nil, nil)
+        }
+        let connected = display.connected ?? true
+        let connect: Bool
+        switch request.command {
+        case .connectDisplay: connect = true
+        case .disconnectDisplay: connect = false
+        default: connect = !connected
+        }
+        let settled = CrispControlDisplay(
+            id: display.id, name: display.name, brightness: display.brightness,
+            maxBrightness: display.maxBrightness, isBuiltin: display.isBuiltin, uuid: uuid,
+            resolution: display.resolution, brightnessBackend: display.brightnessBackend,
+            connected: connect
+        )
+        let change = connected == connect ? nil : CrispControlConnectionChange(uuid: uuid, connect: connect)
+        return .init(.success(display: settled), nil, nil, nil, change)
     }
 
     private static func handleHDR(
@@ -366,9 +421,9 @@ enum CrispControlCLIModel {
         same user; crispctl talks to it over a local socket and never launches it.
 
         Commands:
-          display list                           Online displays as JSON: id, uuid, name,
-                                                 resolution, brightness, maxBrightness,
-                                                 brightnessBackend
+          display list                           Displays as JSON: id, uuid, name, resolution,
+                                                 brightness, maxBrightness, brightnessBackend,
+                                                 connected (false while Crisp holds it off)
           brightness get <display>               Read logical brightness and its live maximum
           brightness set <display> <pct>         Set 0-100, or up to maxBrightness while Extra
                                                  Brightness is enabled and eligible; clears preset
@@ -376,10 +431,18 @@ enum CrispControlCLIModel {
           brightness boost set <display> on|off  Enable or disable Extra Brightness
           hdr get <display>                      Read live HDR state for an eligible external display
           hdr set <display> on|off               Set HDR on an eligible external and verify live state
+          display disconnect <display>           Take the display out of the layout, as the menu's
+                                                 Disconnect Display does; refused if it would leave
+                                                 no active display. Apple Silicon only
+          display connect <display>              Put a disconnected display back
+          display toggle <display>               Disconnect if connected, connect if not
           help                                   Show this help (also -h, --help)
 
         <display> is a runtime id or a uuid from 'display list'. Ids can change after
-        an unplug or a wake; uuids do not.
+        an unplug or a wake; uuids do not. A disconnected display is gone from every
+        macOS display list, so its id is only a last-known value: use the uuid for it.
+        Asking for the connection state a display is already in succeeds and changes
+        nothing. A connection reply comes after the window server has answered.
 
         Output is one JSON object per call: {"ok":true,...} or {"ok":false,"error":"..."}.
         Exit codes: 0 ok, 1 Crisp unreachable, 2 bad arguments, 3 Crisp refused.
@@ -434,7 +497,16 @@ enum CrispControlCLIModel {
             default: break
             }
         }
-        return .failure
+        return connectionRequest(arguments) ?? .failure
+    }
+    private static func connectionRequest(_ arguments: [String]) -> ParseResult? {
+        guard arguments.count == 3, arguments[0] == "display", !arguments[2].isEmpty else { return nil }
+        switch arguments[1] {
+        case "connect": return .request(.init(command: .connectDisplay, selector: arguments[2]))
+        case "disconnect": return .request(.init(command: .disconnectDisplay, selector: arguments[2]))
+        case "toggle": return .request(.init(command: .toggleDisplay, selector: arguments[2]))
+        default: return nil
+        }
     }
     static func classify(_ data: Data, for _: CrispControlRequest.Command) -> ResponseResult {
         guard let response = try? JSONDecoder().decode(CrispControlResponse.self, from: data) else {

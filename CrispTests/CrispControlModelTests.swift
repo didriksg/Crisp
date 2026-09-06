@@ -18,8 +18,18 @@ final class CrispControlModelTests: XCTestCase {
         ),
         brightnessBackend: .ddc
     )
+    /// Crisp is holding this one out of the layout: absent from the online list,
+    /// so its id is only a last-known value and the uuid is the real handle.
+    private let held = CrispControlDisplay(
+        id: 9,
+        name: "M32UC",
+        brightness: 0,
+        isBuiltin: false,
+        uuid: "DECC7CEF-5E36-4E9B-8F18-CE11AE5902AD",
+        connected: false
+    )
 
-    func testParserSupportsSevenControlCommandsByIDAndUUID() {
+    func testParserSupportsEveryControlCommandByIDAndUUID() {
         let cases: [([String], CrispControlRequest)] = [
             (["display", "list"], .init(command: .list)),
             (["brightness", "get", "42"], .init(command: .getBrightness, selector: "42")),
@@ -57,7 +67,13 @@ final class CrispControlModelTests: XCTestCase {
             (
                 ["hdr", "set", "37D8832A-2D66-02CA-B9F7-8F30A301B230", "off"],
                 .init(command: .setHDR, selector: "37D8832A-2D66-02CA-B9F7-8F30A301B230", enabled: false)
-            )
+            ),
+            (["display", "connect", "42"], .init(command: .connectDisplay, selector: "42")),
+            (
+                ["display", "disconnect", "DECC7CEF-5E36-4E9B-8F18-CE11AE5902AD"],
+                .init(command: .disconnectDisplay, selector: "DECC7CEF-5E36-4E9B-8F18-CE11AE5902AD")
+            ),
+            (["display", "toggle", "42"], .init(command: .toggleDisplay, selector: "42"))
         ]
         for (arguments, request) in cases {
             XCTAssertEqual(CrispControlCLIModel.parse(arguments: arguments), .request(request))
@@ -73,7 +89,8 @@ final class CrispControlModelTests: XCTestCase {
         for command in [
             "display list", "brightness get <display>", "brightness set <display>",
             "brightness boost get <display>", "brightness boost set <display>",
-            "hdr get <display>", "hdr set <display>", "help"
+            "hdr get <display>", "hdr set <display>",
+            "display connect <display>", "display disconnect <display>", "display toggle <display>", "help"
         ] {
             XCTAssertTrue(CrispControlCLIModel.help.contains(command), command)
         }
@@ -95,7 +112,9 @@ final class CrispControlModelTests: XCTestCase {
             ["hdr", "get"], ["hdr", "get", ""], ["hdr", "get", "42", "extra"],
             ["hdr", "set", "42"], ["hdr", "set", "", "on"],
             ["hdr", "set", "42", "true"], ["hdr", "set", "42", "ON"],
-            ["hdr", "set", "42", "on", "extra"]
+            ["hdr", "set", "42", "on", "extra"],
+            ["display", "toggle"], ["display", "toggle", ""], ["display", "reboot", "42"],
+            ["display", "toggle", "42", "now"]
         ]
         for arguments in cases {
             XCTAssertEqual(CrispControlCLIModel.parse(arguments: arguments), .failure)
@@ -580,7 +599,88 @@ final class CrispControlModelTests: XCTestCase {
     }
 
     private var commands: [CrispControlRequest.Command] {
-        [.list, .getBrightness, .setBrightness, .getBrightnessBoost, .setBrightnessBoost, .getHDR, .setHDR]
+        [
+            .list, .getBrightness, .setBrightness, .getBrightnessBoost, .setBrightnessBoost, .getHDR, .setHDR,
+            .connectDisplay, .disconnectDisplay, .toggleDisplay
+        ]
+    }
+
+    func testConnectionCommandsResolveByIDAndByUUIDAndToggleCollapsesToADirection() {
+        let displays = [display, held]
+        // Toggling a connected display asks for a disconnect...
+        let byID = CrispControlModel.handle(
+            Data(#"{"command":"toggleDisplay","selector":"7"}"#.utf8), displays: displays
+        )
+        XCTAssertEqual(byID.connectionChange, .init(uuid: display.uuid!, connect: false))
+        // ...and toggling a held one asks for the opposite, found by uuid in any
+        // case, which is the only handle that survives the disconnect.
+        let byUUID = CrispControlModel.handle(
+            Data(#"{"command":"toggleDisplay","selector":"decc7cef-5e36-4e9b-8f18-ce11ae5902ad"}"#.utf8),
+            displays: displays
+        )
+        XCTAssertEqual(byUUID.connectionChange, .init(uuid: held.uuid!, connect: true))
+        XCTAssertNil(byID.brightnessChange)
+        XCTAssertNil(byID.hdrChange)
+        // The legacy numeric field still selects.
+        let legacy = CrispControlModel.handle(
+            Data(#"{"command":"disconnectDisplay","display":7}"#.utf8), displays: displays
+        )
+        XCTAssertEqual(legacy.connectionChange, .init(uuid: display.uuid!, connect: false))
+    }
+
+    func testAskingForTheConnectionStateADisplayIsAlreadyInSucceedsAndChangesNothing() {
+        // A button wired to connect or disconnect must be safe to press twice.
+        for (request, subject) in [
+            (#"{"command":"connectDisplay","selector":"7"}"#, display),
+            (#"{"command":"disconnectDisplay","selector":"9"}"#, held)
+        ] {
+            let result = CrispControlModel.handle(Data(request.utf8), displays: [display, held])
+            XCTAssertTrue(result.response.ok, request)
+            XCTAssertNil(result.connectionChange, request)
+            XCTAssertEqual(result.response.display?.uuid, subject.uuid, request)
+        }
+    }
+
+    func testConnectionResponseReportsTheSettledState() throws {
+        let result = CrispControlModel.handle(
+            Data(#"{"command":"disconnectDisplay","selector":"7"}"#.utf8), displays: [display, held]
+        )
+        XCTAssertEqual(result.response.display?.connected, false)
+        XCTAssertEqual(result.response.display?.id, display.id)
+        XCTAssertEqual(result.response.display?.resolution, display.resolution)
+        XCTAssertEqual(result.connectionChange, .init(uuid: display.uuid!, connect: false))
+        let encoded = try XCTUnwrap(String(data: CrispControlModel.encode(result.response, sorted: true), encoding: .utf8))
+        XCTAssertTrue(encoded.contains(#""connected":false"#), encoded)
+    }
+
+    func testConnectionCommandsRejectMissingUnknownAndUnidentifiableDisplays() {
+        let anonymous = CrispControlDisplay(id: 3, name: "No UUID", brightness: 10, isBuiltin: false)
+        let cases: [(String, [CrispControlDisplay])] = [
+            (#"{"command":"toggleDisplay"}"#, [display]),
+            (#"{"command":"toggleDisplay","selector":""}"#, [display]),
+            (#"{"command":"toggleDisplay","selector":"404"}"#, [display]),
+            (#"{"command":"connectDisplay","selector":"nope"}"#, [display]),
+            // A display with no stable uuid cannot be found again once it is gone,
+            // so refuse rather than hand back a handle that will not work.
+            (#"{"command":"disconnectDisplay","selector":"3"}"#, [anonymous])
+        ]
+        for (request, displays) in cases {
+            let result = CrispControlModel.handle(Data(request.utf8), displays: displays)
+            XCTAssertFalse(result.response.ok, request)
+            XCTAssertNil(result.connectionChange, request)
+        }
+    }
+
+    func testDisplayRecordWithoutConnectedStillDecodesAsConnected() throws {
+        // A reply from a Crisp older than the connection commands carries no
+        // `connected`; it must decode, and the model must read it as online.
+        let legacy = #"{"id":7,"name":"Studio Display","brightness":64,"isBuiltin":false,"uuid":"A"}"#
+        let decoded = try JSONDecoder().decode(CrispControlDisplay.self, from: Data(legacy.utf8))
+        XCTAssertNil(decoded.connected)
+        let result = CrispControlModel.handle(
+            Data(#"{"command":"toggleDisplay","selector":"a"}"#.utf8), displays: [decoded]
+        )
+        XCTAssertEqual(result.connectionChange, .init(uuid: "A", connect: false))
     }
 
     private func classify(
