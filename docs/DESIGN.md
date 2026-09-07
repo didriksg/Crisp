@@ -84,6 +84,7 @@ What we do, and the rule it traces to.
   Content sits on standard materials. The expanded display-detail region is a
   full-width shaded band (`Color.primary.opacity`), not a floating rounded card.
   *Materials HIG: content layer uses standard materials, no glass-on-glass.*
+  The OSD banner on macOS 26 (OSDBannerService) is the one surface outside the panel that samples what is behind it, and it is not glass: no glass material can hold the system HUD's backdrop, which is softened far less than any of them soften it, so the banner blurs its own backdrop under a flat grey. The panel keeps the only glass in the app.
 
 - **Selection is a one-click checkmark list.** Resolution, refresh rate, preset,
   and color profile are flat checkmark lists (leading checkmark column), not

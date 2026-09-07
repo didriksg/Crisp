@@ -60,11 +60,6 @@ final class BrightnessKeyService: @unchecked Sendable {
     private nonisolated static let nxKeytypeSoundDown: Int = 1
     private nonisolated static let nxKeytypeMute: Int = 7
 
-    /// Each key press moves brightness by 1/16 (≈ 6.25 %), matching macOS native behaviour.
-    private nonisolated static let brightnessStep: Double = 100.0 / 16.0
-    /// Volume keys use the same 1/16 step as macOS's own volume control.
-    private nonisolated static let volumeStep: Double = 100.0 / 16.0
-
     /// Tap lifecycle at notice: #57 lost a round trip on a silently dead tap.
     private nonisolated static let log = Logger(subsystem: "com.crisp.app", category: "keys")
 
@@ -306,13 +301,11 @@ final class BrightnessKeyService: @unchecked Sendable {
     /// not also bump the built-in), or a pass-through of `event` when we did not handle it (target
     /// not attached / cursor on built-in / no controllable external).
     nonisolated private func routeBrightnessPress(up: Bool, event: CGEvent) -> Unmanaged<CGEvent>? {
-        let step = up ? Self.brightnessStep : -Self.brightnessStep
-
         // Route by user preference. Read on the main actor, this callback runs on
         // the main run loop (see class docs), so assumeIsolated is safe here.
         switch MainActor.assumeIsolated({ SettingsService.shared.brightnessKeyTarget }) {
         case .allDisplays:
-            Task { @MainActor in self.adjustDisplays(DisplayManagerAccessor.shared.displays, step: step) }
+            Task { @MainActor in self.adjustDisplays(DisplayManagerAccessor.shared.displays, up: up) }
             // Consume: we adjust every display (built-in included) ourselves, so
             // macOS must not also bump the built-in on top.
             return nil
@@ -327,7 +320,7 @@ final class BrightnessKeyService: @unchecked Sendable {
             if anyAttached {
                 Task { @MainActor in
                     let targets = DisplayManagerAccessor.shared.displays.filter { selected.contains($0.displayUUID) }
-                    self.adjustDisplays(targets, step: step)
+                    self.adjustDisplays(targets, up: up)
                 }
                 return nil
             }
@@ -369,7 +362,11 @@ final class BrightnessKeyService: @unchecked Sendable {
         Task { @MainActor in
             let displays = DisplayManagerAccessor.shared.displays
             guard let display = displays.first(where: { $0.displayID == displayID }) else { return }
-            let newBrightness = max(0.0, min(display.maxBrightness, display.brightness + step))
+            // Step from the fade's target while one is running, not from the value
+            // it is passing through, or a held key never gets past the first stop.
+            let from = BrightnessService.shared.inFlightTarget(for: displayID) ?? display.brightness
+            let newBrightness = max(0.0, min(display.maxBrightness,
+                                             BrightnessKeySteps.next(from: from, up: up)))
             // Use smooth animation, cancels any in-progress animation automatically.
             BrightnessService.shared.setBrightnessSmooth(newBrightness, for: display)
 
@@ -403,9 +400,9 @@ final class BrightnessKeyService: @unchecked Sendable {
             case Self.nxKeytypeMute:
                 service.toggleMute(for: target)
             case Self.nxKeytypeSoundUp:
-                service.setVolume(target.volume + Self.volumeStep, for: target)
+                service.setVolume(BrightnessKeySteps.next(from: target.volume, up: true), for: target)
             default:
-                service.setVolume(target.volume - Self.volumeStep, for: target)
+                service.setVolume(BrightnessKeySteps.next(from: target.volume, up: false), for: target)
             }
             if let screen = NSScreen.screens.first(where: {
                 ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID) == target.displayID
@@ -421,15 +418,17 @@ final class BrightnessKeyService: @unchecked Sendable {
         return nil
     }
 
-    /// Applies the same relative step to each given display (built-in or external),
+    /// Moves each given display (built-in or external) to its next stop,
     /// through BrightnessService's smooth fade (reusing its DDC/gamma/IOKit paths +
     /// coalescing), and shows the brightness HUD on each display's own screen.
     /// Backs the `.allDisplays` and `.selected` brightness-key modes.
     @MainActor
-    private func adjustDisplays(_ displays: [DisplayInfo], step: Double) {
+    private func adjustDisplays(_ displays: [DisplayInfo], up: Bool) {
         let screens = NSScreen.screens
         for display in displays {
-            let newBrightness = max(0.0, min(display.maxBrightness, display.brightness + step))
+            let from = BrightnessService.shared.inFlightTarget(for: display.displayID) ?? display.brightness
+            let newBrightness = max(0.0, min(display.maxBrightness,
+                                             BrightnessKeySteps.next(from: from, up: up)))
             BrightnessService.shared.setBrightnessSmooth(newBrightness, for: display)
             if let screen = screens.first(where: {
                 ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID) == display.displayID

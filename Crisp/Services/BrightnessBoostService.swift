@@ -188,10 +188,17 @@ final class BrightnessBoostService {
             maxAnimators[display.displayID]?.cancel()
             collapsingDisplays.remove(display.displayID)
             // Externals in SDR mode: switch to HDR first.
-            var switchedHDRForThisAttempt = false
+            var switchedHDRForThisAttempt: (uuid: String, token: UUID)?
             if !display.isBuiltin, potentialHeadroom(for: display.displayID) <= 1.05 {
-                guard supportsHDRMode(display.displayID), setHDRMode(true, for: display.displayID) else { return false }
-                switchedHDRForThisAttempt = true
+                guard let targetUUID = uniqueDisplayUUID(for: display),
+                      supportsHDRMode(display.displayID) else { return false }
+                let requestToken = UUID()
+                hdrRequestTokens[display.displayID] = requestToken
+                guard setHDRMode(
+                    true, for: display, expectedUUID: targetUUID,
+                    requestToken: requestToken
+                ) else { return false }
+                switchedHDRForThisAttempt = (targetUUID, requestToken)
                 // Give WindowServer a moment to re-sync the display in HDR mode.
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
             }
@@ -203,8 +210,11 @@ final class BrightnessBoostService {
                 // THIS failed attempt is rolled back: a half-engaged switch
                 // (preference recorded, mode never applied) leaves the OS
                 // rendering HDR into an SDR link, washing the screen out.
-                if switchedHDRForThisAttempt {
-                    _ = setHDRMode(false, for: display.displayID)
+                if let request = switchedHDRForThisAttempt {
+                    _ = setHDRMode(
+                        false, for: display, expectedUUID: request.uuid,
+                        requestToken: request.token
+                    )
                 }
                 return false
             }
@@ -375,7 +385,7 @@ final class BrightnessBoostService {
         maxAnimators[displayID]?.cancel()
         maxAnimators.removeValue(forKey: displayID)
         headroomLossSince.removeValue(forKey: displayID)
-        hdrRequestGeneration.removeValue(forKey: displayID)
+        hdrRequestTokens.removeValue(forKey: displayID)
         collapsingDisplays.remove(displayID)
         hdrSupportCache.removeValue(forKey: displayID)
     }
@@ -401,7 +411,10 @@ final class BrightnessBoostService {
     /// only (the built-in panel never shows it, matching System Settings)
     /// that MonitorPanel reports as HDR-capable.
     func isEligibleForHDRToggle(_ display: DisplayInfo) -> Bool {
-        !display.isBuiltin && supportsHDRMode(display.displayID)
+        let displayID = display.displayID
+        return CGDisplayIsOnline(displayID) != 0
+            && CGDisplayIsBuiltin(displayID) == 0
+            && supportsHDRMode(displayID)
     }
 
     /// Live HDR mode state, read straight from MPDisplay (not persisted: the
@@ -411,12 +424,36 @@ final class BrightnessBoostService {
         return (d.value(forKey: "preferHDRModes") as? Bool) == true
     }
 
-    /// Newest HDR-preference request per display. An off request waits out
+    /// Returns nil when this runtime ID no longer names the expected online
+    /// display or its HDR state cannot be read.
+    func hdrState(for display: DisplayInfo, expectedUUID: String) -> Bool? {
+        guard display.displayUUID.caseInsensitiveCompare(expectedUUID) == .orderedSame,
+              isEligibleForHDRToggle(display),
+              let d = mpDisplay(for: display.displayID) else { return nil }
+        return d.value(forKey: "preferHDRModes") as? Bool
+    }
+
+    func mutationHDRState(for display: DisplayInfo, expectedUUID: String) -> Bool? {
+        guard uniqueDisplayUUID(for: display)?.caseInsensitiveCompare(expectedUUID) == .orderedSame,
+              isEligibleForHDRToggle(display),
+              let d = mpDisplay(for: display.displayID) else { return nil }
+        return d.value(forKey: "preferHDRModes") as? Bool
+    }
+
+    func uniqueDisplayUUID(for display: DisplayInfo) -> String? {
+        let displayID = display.displayID
+        guard CGDisplayIsOnline(displayID) != 0,
+              let uuid = CGDisplayCreateUUIDFromDisplayID(displayID),
+              let uuidString = CFUUIDCreateString(nil, uuid.takeRetainedValue()) else { return nil }
+        return uuidString as String
+    }
+
+    /// Current HDR-preference request token per display. An off request waits out
     /// the boost collapse before switching modes; if a newer request lands
     /// during that wait, the older one must not fire its stale mode switch
     /// afterward (a fast off-then-on flip would otherwise end on SDR half a
     /// second after the user chose HDR).
-    private var hdrRequestGeneration: [CGDirectDisplayID: Int] = [:]
+    private var hdrRequestTokens: [CGDirectDisplayID: UUID] = [:]
 
     /// Explicit HDR on/off for a display. Turning off while boost is enabled
     /// for it first runs boost's own disable-collapse to completion (waiting
@@ -424,12 +461,19 @@ final class BrightnessBoostService {
     /// 100 before the mode switch, instead of the collapse animation fighting
     /// an SDR display underneath it.
     @discardableResult
-    func setHDRPreference(_ on: Bool, for display: DisplayInfo) async -> Bool {
+    func setHDRPreference(
+        _ on: Bool, for display: DisplayInfo, expectedUUID: String? = nil
+    ) async -> Bool {
         let displayID = display.displayID
-        let generation = (hdrRequestGeneration[displayID] ?? 0) + 1
-        hdrRequestGeneration[displayID] = generation
+        guard let targetUUID = expectedUUID ?? uniqueDisplayUUID(for: display),
+              mutationHDRState(for: display, expectedUUID: targetUUID) != nil else { return false }
+        let requestToken = UUID()
+        hdrRequestTokens[displayID] = requestToken
         if on {
-            return setHDRMode(true, for: displayID)
+            return setHDRMode(
+                true, for: display, expectedUUID: targetUUID,
+                requestToken: requestToken
+            )
         }
         if isEnabled(for: display) {
             _ = await setEnabled(false, for: display)
@@ -447,8 +491,10 @@ final class BrightnessBoostService {
         // Brief settle so the collapse's last brightness write lands
         // before the mode switch.
         try? await Task.sleep(nanoseconds: 200_000_000)
-        guard hdrRequestGeneration[displayID] == generation else { return false }
-        return setHDRMode(false, for: displayID)
+        return setHDRMode(
+            false, for: display, expectedUUID: targetUUID,
+            requestToken: requestToken
+        )
     }
 
     // MARK: - MonitorPanel HDR mode (private API; selectors verified by the Task 1 spike)
@@ -474,11 +520,22 @@ final class BrightnessBoostService {
     }
 
     @discardableResult
-    private func setHDRMode(_ on: Bool, for displayID: CGDirectDisplayID) -> Bool {
+    private func setHDRMode(
+        _ on: Bool,
+        for display: DisplayInfo,
+        expectedUUID: String,
+        requestToken: UUID
+    ) -> Bool {
+        let displayID = display.displayID
+        guard isEligibleForHDRToggle(display) else { return false }
         guard let d = mpDisplay(for: displayID) else { return false }
         let sel = NSSelectorFromString("setPreferHDRModes:")
         guard d.responds(to: sel) else { return false }
         typealias Fn = @convention(c) (NSObject, Selector, Bool) -> Void
+        guard hdrRequestTokens[displayID] == requestToken,
+              uniqueDisplayUUID(for: display)?.caseInsensitiveCompare(expectedUUID) == .orderedSame else {
+            return false
+        }
         unsafeBitCast(d.method(for: sel), to: Fn.self)(d, sel, on)
         BrightnessService.shared.setHDRSoftwareDimming(on, for: displayID)
         return true

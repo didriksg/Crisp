@@ -3,8 +3,8 @@ import CoreGraphics
 
 // MARK: - OSDUIHelper Protocol (Private API)
 
-/// OSDImage values for the native macOS OSD.
-/// Brightness up/down uses value 1 (brightness icon with level bar).
+/// Glyph vocabulary shared by both OSD paths: the raw values are what
+/// OSDUIHelper expects, and OSDBannerView picks its symbols from the cases.
 @objc enum OSDImage: CLong {
     case brightness = 1
     case volume = 3
@@ -28,18 +28,30 @@ import CoreGraphics
 
 // MARK: - BrightnessHUDService
 
-/// Shows the native macOS brightness OSD via the private OSDUIHelper XPC service.
-/// This produces the exact same brightness indicator that macOS uses natively.
+/// Shows the brightness / volume OSD for a display: Crisp's own banner on
+/// macOS 26 (OSDBannerService), the native OSDUIHelper bezel before that.
 ///
-/// Used by MonitorControl and BetterDisplay for the same purpose.
+/// The XPC path is what MonitorControl and BetterDisplay used for the same purpose.
 @MainActor
 final class BrightnessHUDService: @unchecked Sendable {
     static let shared = BrightnessHUDService()
     private init() {}
 
+    /// Held while Crisp's own panel is open. The panel carries the same value
+    /// on its own slider, and a second one over it is noise, so the OSD stays
+    /// away until the panel closes. AppDelegate sets this.
+    var suppressed = false {
+        didSet {
+            // A banner already up when the panel opens floats over it, and the
+            // pointer landing on it takes key away from the panel.
+            guard suppressed, suppressed != oldValue else { return }
+            if #available(macOS 26.0, *) { OSDBannerService.shared.hideVisible() }
+        }
+    }
+
     // MARK: - Public API
 
-    /// Shows the native macOS brightness OSD on the specified display.
+    /// Shows the brightness OSD on the specified display.
     /// - Parameters:
     ///   - brightness: Brightness level 0–100
     ///   - screen: The NSScreen on which the OSD should appear
@@ -47,9 +59,17 @@ final class BrightnessHUDService: @unchecked Sendable {
         show(level: brightness, image: .brightness, on: screen)
     }
 
-    /// Shows the native macOS OSD with the given glyph (brightness, volume,
+    /// Shows the OSD with the given glyph (brightness, volume,
     /// mute) and a 0–100 level bar on the specified display.
     func show(level: Double, image: OSDImage, on screen: NSScreen) {
+        guard !suppressed else { return }
+        // macOS 26 draws the pre-Tahoe bottom-centre bezel for OSDUIHelper
+        // callers while its own HUD is a capsule under the menu bar, so Crisp
+        // draws that capsule itself there (#76). macOS 14 and 15 keep the helper.
+        if #available(macOS 26.0, *) {
+            OSDBannerService.shared.show(level: level, image: image, on: screen)
+            return
+        }
         guard let displayID = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID else {
             return
         }

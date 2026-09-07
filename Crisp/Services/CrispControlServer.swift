@@ -79,7 +79,33 @@ final class CrispControlServer {
         Self.write(data, to: client)
     }
 
+    /// Connection changes run one at a time. Each connection is served in its own
+    /// task and disconnect() checks the last-screen guard before it awaits the
+    /// transaction, so two disconnects fired together for the last two displays
+    /// both passed the guard and every screen went dark (measured on two sockets
+    /// on 2026-09-02: both reported success, 387 and 1155 ms). Brightness and HDR
+    /// stay concurrent, since a reconnect can hold the line for seconds.
+    private var connectionChain: Task<Void, Never>?
+
     private func response(to request: Data) async -> Data {
+        guard Self.changesConnection(request) else { return await reply(to: request) }
+        let previous = connectionChain
+        let task = Task { @MainActor in
+            await previous?.value
+            return await self.reply(to: request)
+        }
+        connectionChain = Task { _ = await task.value }
+        return await task.value
+    }
+
+    private nonisolated static func changesConnection(_ request: Data) -> Bool {
+        switch (try? JSONDecoder().decode(CrispControlRequest.self, from: request))?.command {
+        case .connectDisplay, .disconnectDisplay, .toggleDisplay: return true
+        default: return false
+        }
+    }
+
+    private func reply(to request: Data) async -> Data {
         let managedDisplays = displayManager.displays
         let boostService = BrightnessBoostService.shared
         let displays = managedDisplays.map { display in
@@ -101,17 +127,46 @@ final class CrispControlServer {
                 isBuiltin: display.isBuiltin,
                 uuid: display.displayUUID,
                 resolution: resolution,
-                brightnessBackend: BrightnessService.shared.brightnessBackend(for: display)
+                brightnessBackend: BrightnessService.shared.brightnessBackend(for: display),
+                connected: true
             )
         }
-        let result = CrispControlModel.handle(request, displays: displays) { id in
-            guard let display = managedDisplays.first(where: { $0.displayID == id }) else { return nil }
-            return CrispControlBrightnessBoostState(
-                displayID: id,
-                eligible: boostService.isEligible(display),
-                enabled: boostService.isEnabled(for: display)
-            )
-        }
+        // Plus the displays Crisp is holding disconnected. They are gone from
+        // DisplayManager (CGGetOnlineDisplayList omits them), and without this half
+        // `connect` could never name its target.
+        let held = PhysicalDisplayToggleService.shared.disconnected
+            .filter { record in !managedDisplays.contains { $0.displayUUID == record.uuid } }
+            .map { record in
+                CrispControlDisplay(
+                    id: record.displayID, name: record.name, brightness: 0,
+                    isBuiltin: record.isBuiltin ?? false, uuid: record.uuid, connected: false
+                )
+            }
+        let result = CrispControlModel.handle(
+            request,
+            displays: displays + held,
+            hdrState: { id in
+                guard let display = managedDisplays.first(where: { $0.displayID == id }),
+                      let enabled = boostService.hdrState(for: display, expectedUUID: display.displayUUID)
+                else { return nil }
+                return CrispControlHDRState(
+                    displayID: id,
+                    enabled: enabled
+                )
+            },
+            hdrMutationUUID: { id in
+                managedDisplays.first(where: { $0.displayID == id })
+                    .flatMap { boostService.uniqueDisplayUUID(for: $0) }
+            },
+            brightnessBoostState: { id in
+                guard let display = managedDisplays.first(where: { $0.displayID == id }) else { return nil }
+                return CrispControlBrightnessBoostState(
+                    displayID: id,
+                    eligible: boostService.isEligible(display),
+                    enabled: boostService.isEnabled(for: display)
+                )
+            }
+        )
         if let change = result.brightnessChange {
             guard let display = managedDisplays.first(where: { $0.displayID == change.displayID }) else {
                 return CrispControlModel.encode(.failure("display not found"))
@@ -134,7 +189,88 @@ final class CrispControlServer {
                 CrispControlModel.brightnessBoostSetResponse(enabled: change.enabled, accepted: accepted)
             )
         }
+        if let change = result.hdrChange {
+            return await hdrResponse(for: change, using: boostService)
+        }
+        if let change = result.connectionChange, let error = await apply(change, among: managedDisplays) {
+            return CrispControlModel.encode(.failure(error))
+        }
         return CrispControlModel.encode(result.response)
+    }
+
+    private func hdrResponse(
+        for change: CrispControlHDRChange, using boostService: BrightnessBoostService
+    ) async -> Data {
+        guard let display = currentHDRTarget(for: change, using: boostService) else {
+            return CrispControlModel.encode(
+                CrispControlModel.hdrSetResponse(
+                    displayID: change.displayID,
+                    enabled: change.enabled,
+                    accepted: false,
+                    liveEnabled: nil
+                )
+            )
+        }
+        let accepted = await boostService.setHDRPreference(
+            change.enabled, for: display, expectedUUID: change.displayUUID
+        )
+        var liveEnabled = currentHDRTarget(for: change, using: boostService).flatMap {
+            boostService.hdrState(for: $0, expectedUUID: change.displayUUID)
+        }
+        if accepted {
+            for _ in 0..<20 {
+                guard liveEnabled != change.enabled else { break }
+                try? await Task.sleep(nanoseconds: 100_000_000)
+                guard let current = currentHDRTarget(for: change, using: boostService) else {
+                    liveEnabled = nil
+                    break
+                }
+                liveEnabled = boostService.hdrState(
+                    for: current, expectedUUID: change.displayUUID
+                )
+            }
+        }
+        if liveEnabled == change.enabled {
+            liveEnabled = currentHDRTarget(for: change, using: boostService).flatMap {
+                boostService.hdrState(for: $0, expectedUUID: change.displayUUID)
+            }
+        }
+        return CrispControlModel.encode(
+            CrispControlModel.hdrSetResponse(
+                displayID: change.displayID,
+                enabled: change.enabled,
+                accepted: accepted,
+                liveEnabled: liveEnabled
+            )
+        )
+    }
+
+    /// Applies a resolved connection change and returns nil, or the reason it was
+    /// refused. Not fire-and-forget like brightness: a disconnect can be legitimately
+    /// refused (it would leave no active display) and a caller wiring this to a
+    /// button needs to hear that, so the reply carries Crisp's own reason.
+    private func apply(_ change: CrispControlConnectionChange, among managedDisplays: [DisplayInfo]) async -> String? {
+        let service = PhysicalDisplayToggleService.shared
+        let outcome: Result<Void, PhysicalDisplayToggleService.ToggleError>
+        if change.connect {
+            outcome = await service.reconnect(uuid: change.uuid)
+        } else if let display = managedDisplays.first(where: { $0.displayUUID == change.uuid }) {
+            outcome = await service.disconnect(display)
+        } else {
+            return "display not found"
+        }
+        displayManager.refreshDisplays()
+        if case let .failure(error) = outcome { return error.description }
+        return nil
+    }
+
+    private func currentHDRTarget(
+        for change: CrispControlHDRChange, using service: BrightnessBoostService
+    ) -> DisplayInfo? {
+        guard let display = displayManager.displays.first(where: { $0.displayID == change.displayID }),
+              service.uniqueDisplayUUID(for: display)?.caseInsensitiveCompare(change.displayUUID)
+                == .orderedSame else { return nil }
+        return display
     }
 
     private nonisolated static func read(_ client: Int32) -> CrispControlFrame.Result {

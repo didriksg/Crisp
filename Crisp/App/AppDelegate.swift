@@ -44,6 +44,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     let displayManager = DisplayManager()
     private lazy var controlServer = CrispControlServer(displayManager: displayManager)
     private var statusItem: NSStatusItem?
+    /// Whether the OSD banner is asking for the menu bar item to be lit. The
+    /// open panel asks for the same light, so both are read together.
+    private var bannerLightsStatusItem = false
     /// Drives the menu-bar Keep Awake indicator (keep-awake indicator).
     private var keepAwakeCancellable: AnyCancellable?
     private var keepAwakeBadge: NSView?
@@ -282,9 +285,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 // Give WindowServer 2 seconds to stabilize after wake before
                 // touching display state.
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
-                dm.refreshDisplays()
-                // Re-disconnect any physical displays macOS re-enabled on wake.
-                await PhysicalDisplayToggleService.shared.reapplyOnWake()
+                // The refresh also re-disconnects any display macOS re-enabled on wake:
+                // it runs reconcile, which puts a remembered disconnect back.
                 dm.refreshDisplays()
                 try? await Task.sleep(nanoseconds: 500_000_000)
                 // WindowServer keeps settling for several seconds after wake: ICC
@@ -339,6 +341,28 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             return nil
         }
         statusItem = item
+        if #available(macOS 26.0, *) {
+            OSDBannerService.shared.statusItem = item
+            OSDBannerService.shared.setHighlight = { [weak self] lit in
+                guard let self else { return }
+                self.bannerLightsStatusItem = lit
+                self.statusItem?.button?.highlight(lit || self.isPanelShown)
+            }
+            // The banner's own track, dragged with the pointer, goes to the
+            // same services the keys use.
+            OSDBannerService.shared.onSlide = { [weak self] displayID, image, fraction in
+                guard let display = self?.displayManager.displays.first(where: { $0.displayID == displayID })
+                else { return }
+                switch image {
+                case .volume, .mute:
+                    VolumeService.shared.setVolume(fraction * 100, for: display)
+                case .brightness, .eject:
+                    let target = fraction * display.maxBrightness
+                    display.brightness = target
+                    Task { await BrightnessService.shared.setBrightness(target, for: display) }
+                }
+            }
+        }
 
         // Overlay a small orange dot on the icon while Keep Awake is on, so it's visible at a
         // glance that sleep is being held. The base icon itself never changes. (keep-awake indicator)
@@ -883,6 +907,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         p.orderFrontRegardless()
         p.makeKey()
         isPanelShown = true
+        // The panel carries brightness and volume on its own sliders, so the
+        // OSD stays away while it is open.
+        BrightnessHUDService.shared.suppressed = true
         // Native items keep the menu bar button highlighted while their panel
         // is open. Safe to set synchronously: the click never starts the
         // button's own tracking (the interceptor swallowed it), so nothing
@@ -956,7 +983,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func closePanel() {
         guard let p = panel, isPanelShown else { return }
         isPanelShown = false
-        statusItem?.button?.highlight(false)
+        BrightnessHUDService.shared.suppressed = false
+        // Not plain false: the banner may be up, and it holds the same light.
+        statusItem?.button?.highlight(bannerLightsStatusItem)
         canvas.parkSpring()
         externalStatePollTask?.cancel()
         externalStatePollTask = nil
@@ -989,8 +1018,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             backing: .buffered,
             defer: false
         )
-        p.level = .popUpMenu
+        // Order matters: isFloatingPanel assigns the window level (.floating,
+        // 3), so setting it after the level silently threw the level away and
+        // the panel ran below every other app's utility windows instead of at
+        // the level the system's own menu bar popovers use.
         p.isFloatingPanel = true
+        p.level = .popUpMenu
         p.hidesOnDeactivate = false
         p.isMovable = false
         p.isOpaque = false

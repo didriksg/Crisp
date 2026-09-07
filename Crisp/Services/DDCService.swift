@@ -164,7 +164,7 @@ final class DDCService: ObservableObject, @unchecked Sendable {
                     entry, "DisplayAttributes" as CFString, kCFAllocatorDefault, 0
                )?.takeRetainedValue() as? [String: Any],
                let pa = da["ProductAttributes"] as? [String: Any],
-               let id = displayIdentity(from: pa, location: ioRegistryPath(for: entry)) {
+                let id = Self.displayIdentity(from: pa, location: ioRegistryPath(for: entry)) {
                 lastIdentity = id
             }
 
@@ -253,29 +253,6 @@ final class DDCService: ObservableObject, @unchecked Sendable {
             return nil
         }
         return String(cString: path)
-    }
-
-    /// Extracts vendor/product/serial from a ProductAttributes dictionary. The numeric
-    /// LegacyManufacturerID / ProductID / SerialNumber match CGDisplayVendorNumber /
-    /// CGDisplayModelNumber / CGDisplaySerialNumber for the same physical display.
-    private func displayIdentity(
-        from productAttributes: [String: Any],
-        location: String? = nil
-    ) -> DDCServiceMatcher.Identity? {
-        func u32(_ value: Any?) -> UInt32? {
-            if let v = value as? UInt32 { return v }
-            if let v = value as? Int { return UInt32(bitPattern: Int32(truncatingIfNeeded: v)) }
-            if let v = value as? NSNumber { return v.uint32Value }
-            return nil
-        }
-        guard let vendor = u32(productAttributes["LegacyManufacturerID"]),
-              let product = u32(productAttributes["ProductID"]) else { return nil }
-        return DDCServiceMatcher.Identity(
-            vendor: vendor,
-            product: product,
-            serial: u32(productAttributes["SerialNumber"]) ?? 0,
-            location: location
-        )
     }
 
     /// Returns the IOKit class name of a registry entry.
@@ -469,6 +446,29 @@ final class DDCService: ObservableObject, @unchecked Sendable {
 
     /// Finds the IOFramebuffer service for a given external display.
     /// Returns a retained io_service_t, caller must IOObjectRelease.
+    /// Extracts vendor/product/serial from a ProductAttributes dictionary. The numeric
+    /// LegacyManufacturerID / ProductID / SerialNumber match CGDisplayVendorNumber /
+    /// CGDisplayModelNumber / CGDisplaySerialNumber for the same physical display.
+    /// Shared with DisplayLuminanceService, which reads the same nodes for their
+    /// luminance, so both walks parse identities the same way; note the negative Int
+    /// bit-patterns real monitors return.
+    nonisolated static func displayIdentity(
+        from productAttributes: [String: Any],
+        location: String? = nil
+    ) -> DDCServiceMatcher.Identity? {
+        func u32(_ value: Any?) -> UInt32? {
+            if let v = value as? UInt32 { return v }
+            if let v = value as? Int { return UInt32(bitPattern: Int32(truncatingIfNeeded: v)) }
+            if let v = value as? NSNumber { return v.uint32Value }
+            return nil
+        }
+        guard let vendor = u32(productAttributes["LegacyManufacturerID"]),
+              let product = u32(productAttributes["ProductID"]) else { return nil }
+        return DDCServiceMatcher.Identity(vendor: vendor, product: product,
+                                          serial: u32(productAttributes["SerialNumber"]) ?? 0,
+                                          location: location)
+    }
+
     private func framebufferService(for displayID: CGDirectDisplayID) -> io_service_t? {
         // Strategy 1: Use CGDisplayIOServicePort (deprecated but functional on macOS 15)
         let servicePort = CGDisplayIOServicePort(displayID)

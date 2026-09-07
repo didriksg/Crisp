@@ -120,6 +120,16 @@
     "%lld%%" : {
       "shouldTranslate" : false
     },
+    "Stays disconnected until you reconnect it here." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "将保持断开，直到你在这里重新连接。"
+          }
+        }
+      }
+    },
     "×" : {
       "shouldTranslate" : false
     },
@@ -349,6 +359,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "内建显示器"
+          }
+        }
+      }
+    },
+    "Absolute brightness ratio" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "绝对亮度比率"
           }
         }
       }
@@ -733,6 +753,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "显示器配置失败（CGError %@）。"
+          }
+        }
+      }
+    },
+    "Display configuration timed out." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示器配置超时。"
           }
         }
       }
@@ -1983,6 +2013,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "更新为当前值"
+          }
+        }
+      }
+    },
+    "From each panel's rated nits. HDR monitors report their HDR peak, so lower this if the built-in runs too bright" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "根据各屏幕的标称 nit 值计算。HDR 显示器报告的是其 HDR 峰值，若内建屏幕过亮请调低此值"
           }
         }
       }

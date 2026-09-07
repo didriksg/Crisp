@@ -32,7 +32,8 @@ struct HDRToggleView: View {
                     .labelsHidden()
                     .controlSize(.small)
                     .onChange(of: isOn) { _, newValue in
-                        guard !isProgrammaticChange else { return }
+                        guard !isProgrammaticChange,
+                              newValue != BrightnessBoostService.shared.isHDREnabled(for: display) else { return }
                         requestInFlight = true
                         Task { @MainActor in
                             _ = await BrightnessBoostService.shared.setHDRPreference(newValue, for: display)
