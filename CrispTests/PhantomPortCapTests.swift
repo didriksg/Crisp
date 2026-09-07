@@ -5,7 +5,7 @@ import XCTest
 /// nodes with hot-plug detect asserted.
 final class PhantomPortCapTests: XCTestCase {
     private func cap(builtin: Int, external: Int, portCap: Int?) -> Int {
-        PhantomPortCap.activeCount(builtin: builtin, external: external, portCap: portCap)
+        PhantomPortCap.activeCount(offPort: builtin, onPort: external, portCap: portCap)
     }
 
     /// The state the rule exists for. After an undock while asleep CG reports the two
@@ -18,6 +18,16 @@ final class PhantomPortCapTests: XCTestCase {
     /// not on a port, so it survives the cap.
     func testBuiltinIsNeverCapped() {
         XCTAssertEqual(cap(builtin: 1, external: 2, portCap: 0), 1)
+    }
+
+    /// A DisplayLink desk: the dock's display is a virtual device that no port carries,
+    /// and the only transport node the machine exposes is its own empty HDMI port. Lid
+    /// closed it is the only screen, lid open it sits beside the built-in; neither may
+    /// read as dark. (offPort carries it, like the built-in.)
+    func testVirtualDeviceDisplayIsNeverCapped() {
+        XCTAssertEqual(PhantomPortCap.activeCount(offPort: 1, onPort: 0, portCap: 0), 1)
+        XCTAssertEqual(PhantomPortCap.activeCount(offPort: 2, onPort: 0, portCap: 0), 2)
+        XCTAssertEqual(PhantomPortCap.activeCount(offPort: 1, onPort: 1, portCap: 0), 1)
     }
 
     /// An ordinary docked desk: the cap changes nothing.

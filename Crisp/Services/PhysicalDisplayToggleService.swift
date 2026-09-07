@@ -197,9 +197,38 @@ final class PhysicalDisplayToggleService: ObservableObject {
         // is not enough: an empty HDMI port keeps its node, reading hpd Unknown and sink 0
         // in every sample of a whole run, and a phantom could hide behind it. Hot-plug
         // detect is the part that tracks the cable.
-        let externals = viewable.filter { CGDisplayIsBuiltin($0) != 1 }.count
-        let builtin = viewable.count - externals
-        return PhantomPortCap.activeCount(builtin: builtin, external: externals, portCap: liveDisplayPortCount())
+        //
+        // Only a display that came through a port is capped. The built-in is not on one,
+        // and neither is a display WindowServer draws for a virtual device: a DisplayLink
+        // dock's USB framebuffer, which CoreDisplay marks kCGDisplayIsVirtualDevice.
+        // Measured on such a dock with the lid closed: the machine exposes a transport
+        // node for its own HDMI port only (hpd Low, sink 0), so capping that display
+        // read 0 with the screen lit, which would hide every Disconnect row with the lid
+        // open, refuse a remembered built-in disconnect at launch, and fire this rescue
+        // on every callback.
+        //
+        // The info dictionary costs 2.5 to 8 ms per display, and this count runs from a
+        // view body for every card, so it is only read once the ports say fewer than the
+        // externals lit, which is the phantom state or a virtual-device desk. An ordinary
+        // desk never pays for it.
+        let externals = viewable.filter { CGDisplayIsBuiltin($0) != 1 }
+        let portCap = liveDisplayPortCount()
+        var onPort = externals.count
+        if let portCap, portCap < externals.count {
+            onPort = externals.filter { !Self.isVirtualDevice($0) }.count
+        }
+        return PhantomPortCap.activeCount(offPort: viewable.count - onPort, onPort: onPort, portCap: portCap)
+    }
+
+    /// A display WindowServer draws for a virtual device rather than for a panel on a
+    /// port (DisplayLink and similar USB framebuffers), from CoreDisplay's info
+    /// dictionary. False when the dictionary cannot be read, which leaves the display
+    /// subject to the cap, the behaviour the rule had before this exemption.
+    private static func isVirtualDevice(_ id: CGDirectDisplayID) -> Bool {
+        guard let info = _CoreDisplayCreateInfoDictionary?(id)?.takeRetainedValue() as? [String: Any] else {
+            return false
+        }
+        return (info["kCGDisplayIsVirtualDevice"] as? NSNumber)?.boolValue ?? false
     }
 
     /// The number of ports that can have a display behind them right now: a DisplayPort or
@@ -914,6 +943,14 @@ final class PhysicalDisplayToggleService: ObservableObject {
     /// Re-enable a still-attached disconnected display (built-in first) so the machine always
     /// has a live screen. The settle delay rides out transient empty display lists during
     /// wake/replug storms, so a monitor that comes right back keeps the disconnect intact.
+    ///
+    /// The contract, written down after the rescue had grown a layer per desk shape (#91,
+    /// #99, #106, #117, #112): it exists to bring back a screen that Crisp itself turned
+    /// off when nothing viewable is left. It reads CoreGraphics and, for the undock case,
+    /// the port transport nodes. A display that is not on a port, the built-in or a
+    /// virtual device, is never doubted. It accepts about three seconds of dark. This is
+    /// the last layer: a desk shape it does not cover waits for a report from a release
+    /// build, not for a new predicate.
     func restoreIfNoActiveDisplay() {
         guard isSupported, !disconnected.isEmpty else { return }
         // With records to act on, every stand-down is worth a line: a capture of a dark

@@ -11,9 +11,13 @@ import Foundation
 /// carrying one.
 enum PhantomPortCap {
     /// - Parameters:
-    ///   - builtin: active displays that are the built-in panel. Never capped: the panel
-    ///     is not on a port, so what the ports say has nothing to do with it.
-    ///   - external: active displays that arrived through a port.
+    ///   - offPort: active displays that no port carries: the built-in panel, and a
+    ///     display WindowServer draws for a virtual device (a DisplayLink dock's USB
+    ///     framebuffer, marked kCGDisplayIsVirtualDevice). Never capped: what the ports
+    ///     say has nothing to do with them. Measured on a DisplayLink dock with the lid
+    ///     closed: the machine exposes a transport node for its own HDMI port only, so
+    ///     capping that display read 0 with the screen lit.
+    ///   - onPort: active displays that arrived through a port.
     ///   - portCap: ports with a DisplayPort or Thunderbolt transport node and hot-plug
     ///     detect asserted, or nil when the machine exposes no transport nodes at all.
     ///     nil is "the signal is not available here", not "nothing is plugged in":
@@ -23,8 +27,8 @@ enum PhantomPortCap {
     ///
     /// The cap is an upper bound. It never adds a display, so a dock with a spare socket
     /// reads the same as one without.
-    static func activeCount(builtin: Int, external: Int, portCap: Int?) -> Int {
-        guard let portCap else { return builtin + external }
-        return builtin + min(external, portCap)
+    static func activeCount(offPort: Int, onPort: Int, portCap: Int?) -> Int {
+        guard let portCap else { return offPort + onPort }
+        return offPort + min(onPort, portCap)
     }
 }

@@ -3,7 +3,9 @@ import CoreGraphics
 import IOKit
 import os
 
-private let _CoreDisplayCreateInfoDictionary: (@convention(c) (CGDirectDisplayID) -> Unmanaged<CFDictionary>?)? = {
+/// CoreDisplay's per-display info dictionary. Shared with PhysicalDisplayToggleService,
+/// which reads kCGDisplayIsVirtualDevice from it.
+let _CoreDisplayCreateInfoDictionary: (@convention(c) (CGDirectDisplayID) -> Unmanaged<CFDictionary>?)? = {
     guard let handle = dlopen("/System/Library/Frameworks/CoreDisplay.framework/CoreDisplay", RTLD_LAZY),
           let symbol = dlsym(handle, "CoreDisplay_DisplayCreateInfoDictionary") else { return nil }
     return unsafeBitCast(
