@@ -120,6 +120,11 @@ final class BrightnessBoostService {
     // MARK: - Persistence (displayUUID keyed, survives displayID reassignment)
 
     private func enabledKey(_ uuid: String) -> String { "crisp.BoostEnabled.\(uuid)" }
+    /// Set while the boost has an external in HDR mode that it switched on for itself,
+    /// so switching the boost off can put the monitor back in SDR. Absent when the user
+    /// had HDR on already, which the boost leaves alone. Persisted so a relaunch with
+    /// the boost still enabled keeps the distinction.
+    private func switchedHDRKey(_ uuid: String) -> String { "crisp.BoostSwitchedHDR.\(uuid)" }
 
     func isEnabled(for display: DisplayInfo) -> Bool {
         UserDefaults.standard.bool(forKey: enabledKey(display.displayUUID))
@@ -174,9 +179,11 @@ final class BrightnessBoostService {
 
     /// Enable or disable boost. Async because switching an external monitor to
     /// HDR mode takes a moment to settle. Returns false when enabling failed
-    /// (caller reverts the toggle UI).
+    /// (caller reverts the toggle UI). Disabling switches HDR back off when it
+    /// was the boost that switched it on; `revertOwnHDR` false skips that, for
+    /// the explicit HDR-off path, which does the mode switch itself.
     @discardableResult
-    func setEnabled(_ enabled: Bool, for display: DisplayInfo) async -> Bool {
+    func setEnabled(_ enabled: Bool, for display: DisplayInfo, revertOwnHDR: Bool = true) async -> Bool {
         let uuid = display.displayUUID
         if enabled {
             // A disable-collapse may still be running from a rapid off/on
@@ -219,12 +226,24 @@ final class BrightnessBoostService {
                 return false
             }
             UserDefaults.standard.set(true, forKey: enabledKey(uuid))
+            if switchedHDRForThisAttempt != nil {
+                UserDefaults.standard.set(true, forKey: switchedHDRKey(uuid))
+            }
             animateMaxBrightness(to: newMax, for: display)
             syncOverlay(for: display)
             return true
         } else {
+            let switchedHDR = UserDefaults.standard.bool(forKey: switchedHDRKey(uuid))
+            UserDefaults.standard.removeObject(forKey: switchedHDRKey(uuid))
             UserDefaults.standard.set(false, forKey: enabledKey(uuid))
             collapseAndDisable(for: display)
+            // The boost put this monitor in HDR mode for its own sake; take it back
+            // out once the collapse has landed, the same way the explicit off does.
+            // HDR already off (turned off outside Crisp, which is what disabled the
+            // boost) means there is nothing to undo.
+            if revertOwnHDR, switchedHDR, !display.isBuiltin, isHDREnabled(for: display) {
+                _ = await setHDRPreference(false, for: display)
+            }
             return true
         }
     }
@@ -476,7 +495,7 @@ final class BrightnessBoostService {
             )
         }
         if isEnabled(for: display) {
-            _ = await setEnabled(false, for: display)
+            _ = await setEnabled(false, for: display, revertOwnHDR: false)
         }
         // Wait on the live collapse set, not the isEnabled flag: a collapse
         // started moments earlier from the Extra Brightness row has already
