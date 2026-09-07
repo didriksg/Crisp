@@ -458,13 +458,6 @@ enum CrispControlCLIModel {
             case .hdr: return "Read and switch HDR on external displays."
             }
         }
-        var examples: [String] {
-            switch self {
-            case .display: return ["crispctl display list", "crispctl display disconnect 3", "crispctl display connect <uuid>"]
-            case .brightness: return ["crispctl brightness set 3 40", "crispctl brightness boost set 3 on"]
-            case .hdr: return ["crispctl hdr get 3", "crispctl hdr set 3 on"]
-            }
-        }
     }
 
     /// One documented command: the usage as typed, a one-line summary for the tables,
@@ -510,6 +503,8 @@ enum CrispControlCLIModel {
             """),
         Entry(group: .brightness, usage: "brightness get <display>", summary: "Read brightness and its live maximum", detail: ""),
         Entry(group: .brightness, usage: "brightness set <display> <percent>", summary: "Set brightness", detail: """
+            <percent> is 0-100, or up to maxBrightness while Extra Brightness is enabled
+            and eligible; boosted values past the live maximum are refused, not clamped.
             A set is a manual change like the slider and clears the active preset. The
             reply means Crisp accepted the request, not that the panel was read back.
             """),
@@ -532,15 +527,10 @@ enum CrispControlCLIModel {
         Control a running Crisp from the command line. Crisp must be running for the
         same user; crispctl talks to it over a local socket and never launches it.
         """
-    static let displayArgument = """
-          <display>   A runtime id or a uuid from 'display list'. Ids can change after
-                      an unplug or a wake; uuids do not. A disconnected display is gone
-                      from every macOS display list, so use its uuid.
-        """
-    static let percentArgument = """
-          <percent>   0-100, or up to maxBrightness while Extra Brightness is enabled
-                      and eligible; boosted values past the live maximum are refused,
-                      not clamped.
+    static let displayNote = """
+        <display> is a runtime id or a uuid from 'display list'. Ids can change after
+        an unplug or a wake; uuids do not. A disconnected display is gone from every
+        macOS display list, so use its uuid.
         """
     static let contract = """
         Output is one JSON object per call: {"ok":true,...} or {"ok":false,"error":"..."}.
@@ -559,22 +549,18 @@ enum CrispControlCLIModel {
         }
         lines.append("Other commands:")
         for other in otherRows { lines.append(row(other.usage, other.summary, column)) }
-        lines += ["", "Arguments:", displayArgument, "", contract, "",
-                  "Run 'crispctl <command>' for a group's commands, 'crispctl <command> <subcommand> --help' for one command."]
+        lines += ["", displayNote, "", contract, "", "Run 'crispctl <command> --help' for more information on a command."]
         return lines.joined(separator: "\n")
     }()
 
     /// One group's page, printed for `crispctl display`, `crispctl display help`
-    /// and `crispctl display --help`.
+    /// and `crispctl display --help`: what `docker container --help` prints.
     static func help(for group: Group) -> String {
         let inGroup = entries.filter { $0.group == group }
         let column = 2 + inGroup.map(\.subcommand.count).max()!
         var lines = [group.description, "", "Usage:  crispctl \(group.rawValue) <subcommand> [<args>]", "", "Commands:"]
         lines += inGroup.map { row($0.subcommand, $0.summary, column) }
-        lines += ["", "Arguments:", displayArgument]
-        if group == .brightness { lines.append(percentArgument) }
-        lines += ["", "Examples:"] + group.examples.map { "  $ " + $0 }
-        lines += ["", "Run 'crispctl \(group.rawValue) <subcommand> --help' for the details of one command."]
+        lines += ["", "Run 'crispctl \(group.rawValue) <subcommand> --help' for more information on a command."]
         return lines.joined(separator: "\n")
     }
 
@@ -582,8 +568,6 @@ enum CrispControlCLIModel {
     static func help(for entry: Entry) -> String {
         var lines = ["Usage:  crispctl \(entry.usage)", "", entry.summary + "."]
         if !entry.detail.isEmpty { lines += ["", entry.detail] }
-        lines += ["", "Arguments:", displayArgument]
-        if entry.usage.contains("<percent>") { lines.append(percentArgument) }
         return lines.joined(separator: "\n")
     }
 
