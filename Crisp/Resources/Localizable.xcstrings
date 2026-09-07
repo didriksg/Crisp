@@ -1194,62 +1194,22 @@
         }
       }
     },
-    "crispctl Command Line Tool" : {
+    "Command Line Tool" : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "crispctl 命令行工具"
+            "value" : "命令行工具"
           }
         }
       }
     },
-    "Install" : {
+    "Links crispctl into /usr/local/bin" : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "安装"
-          }
-        }
-      }
-    },
-    "Installed" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "已安装"
-          }
-        }
-      }
-    },
-    "crispctl command line tool, installed" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "crispctl 命令行工具，已安装"
-          }
-        }
-      }
-    },
-    "crispctl command line tool, not installed" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "crispctl 命令行工具，未安装"
-          }
-        }
-      }
-    },
-    "Click to link crispctl into /usr/local/bin" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "点击将 crispctl 链接到 /usr/local/bin"
+            "value" : "将 crispctl 链接到 /usr/local/bin"
           }
         }
       }

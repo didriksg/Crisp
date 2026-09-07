@@ -40,4 +40,13 @@ enum CrispctlInstaller {
             log.error("crispctl install failed: \(error, privacy: .public)")
         }
     }
+
+    /// Removes the link; a regular file at that path is not ours and is left alone.
+    static func uninstall() {
+        guard (try? FileManager.default.destinationOfSymbolicLink(atPath: linkPath)) != nil else { return }
+        if (try? FileManager.default.removeItem(atPath: linkPath)) != nil { return }
+        if let error = HiDPIService.shared.executePrivilegedCommand("rm -f \(linkPath)") {
+            log.error("crispctl uninstall failed: \(error, privacy: .public)")
+        }
+    }
 }

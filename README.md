@@ -90,7 +90,7 @@ To keep Keep Awake off on company Macs, push a configuration profile for the `co
 
 ## Automation
 
-Crisp ships with `crispctl`, a command line tool for the same controls. It lives inside the app at `Crisp.app/Contents/MacOS/crispctl`; Settings > crispctl Command Line Tool links it into `/usr/local/bin` after one admin prompt, and the Homebrew cask makes the same link on install. Source builds get it with:
+Crisp ships with `crispctl`, a command line tool for the same controls. It lives inside the app at `Crisp.app/Contents/MacOS/crispctl`; the Command Line Tool switch in Settings links it into `/usr/local/bin` after one admin prompt (off removes the link), and the Homebrew cask makes the same link on install. Source builds get it with:
 
 ```sh
 xcodegen generate && xcodebuild -scheme crispctl -configuration Release

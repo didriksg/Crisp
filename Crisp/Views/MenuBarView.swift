@@ -324,41 +324,35 @@ struct UpdateRow: View {
 
 // MARK: - CommandLineToolRow
 
-/// Settings row that links the bundled crispctl into /usr/local/bin. Shown only
-/// when the bundle carries the tool (release builds); reads Installed while the
-/// link points at this bundle, and offers the install again once the app moves.
+/// Settings switch that links the bundled crispctl into /usr/local/bin. Shown only
+/// when the bundle carries the tool (release builds); reads on while the link
+/// points at this bundle, so a moved app reads off again until it is relinked.
 struct CommandLineToolRow: View {
     @State private var installed = CrispctlInstaller.isInstalled
-    @State private var isHovered = false
 
     var body: some View {
-        HStack(spacing: 8) {
-            MenuItemIcon(systemName: "terminal.fill", color: .gray, active: installed)
-                .accessibilityHidden(true)
-            Text("crispctl Command Line Tool").font(.body)
-            Spacer()
-            Text(installed ? "Installed" : "Install")
-                .font(.caption)
-                .foregroundColor(installed ? .secondary : .accentColor)
+        Toggle(isOn: Binding(
+            get: { installed },
+            set: { newValue in
+                guard PanelOpenGuard.allowsActivation else { return }
+                if newValue { CrispctlInstaller.install() } else { CrispctlInstaller.uninstall() }
+                installed = CrispctlInstaller.isInstalled
+            }
+        )) {
+            HStack(spacing: 8) {
+                MenuItemIcon(systemName: "terminal.fill", color: .indigo, active: installed)
+                    .accessibilityHidden(true)
+                Text("Command Line Tool")
+                    .font(.body)
+                Spacer()
+            }
         }
+        .toggleStyle(.switch)
+        .controlSize(.small)
         .padding(.horizontal, 12)
         .padding(.vertical, 3)
-        .menuRowHover(isHovered && !installed)
-        .contentShape(Rectangle())
-        .onTapGesture {
-            guard !installed, PanelOpenGuard.allowsActivation else { return }
-            CrispctlInstaller.install()
-            installed = CrispctlInstaller.isInstalled
-        }
-        .onHover { hovering in
-            isHovered = hovering
-            guard !installed else { return }
-            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-        }
         .onAppear { installed = CrispctlInstaller.isInstalled }
-        .accessibilityLabel(installed ? "crispctl command line tool, installed" : "crispctl command line tool, not installed")
-        .accessibilityHint("Click to link crispctl into /usr/local/bin")
-        .accessibilityAddTraits(.isButton)
+        .accessibilityHint("Links crispctl into /usr/local/bin")
     }
 }
 
