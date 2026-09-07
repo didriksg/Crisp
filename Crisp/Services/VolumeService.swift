@@ -39,8 +39,12 @@ final class VolumeService: ObservableObject {
     /// writes, so the probe can never prove support. Forced displays run
     /// write-only with the assumed max of 100 (the pump's default).
     private let forcedKey = "crisp.volumeForcedDisplays"
-    private lazy var forcedCapable: Set<String> =
-        Set(UserDefaults.standard.stringArray(forKey: forcedKey) ?? [])
+    /// Published so the Settings block re-checks whether any display reports
+    /// volume when the toggle flips: DisplayInfo.volumeSupported alone only
+    /// re-renders the display's own card, and the Show Volume Sliders row
+    /// stayed hidden until the display list next changed.
+    @Published private var forcedCapable: Set<String> =
+        Set(UserDefaults.standard.stringArray(forKey: "crisp.volumeForcedDisplays") ?? [])
 
     func isForced(_ display: DisplayInfo) -> Bool {
         forcedCapable.contains(display.displayUUID)

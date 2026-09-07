@@ -460,6 +460,7 @@ private struct SupportLinkRow: View {
 
 struct SettingsView: View {
     @ObservedObject private var settings = SettingsService.shared
+    @ObservedObject private var volumeService = VolumeService.shared
     // SettingsView stays mounted (only height-clipped) across panel opens, so the
     // support submenu's expansion must be reset explicitly on close like every
     // other section, or it reopens still expanded.
@@ -636,7 +637,7 @@ struct SettingsView: View {
             // Show volume sliders (issue #23). Hidden while no connected monitor
             // exposes DDC volume: the toggle would control nothing. Hiding the
             // sliders does not disable the volume keys.
-            if displayManager.displays.contains(where: { $0.volumeSupported }) {
+            if displayManager.displays.contains(where: { $0.volumeSupported || volumeService.isForced($0) }) {
                 Toggle(isOn: Binding(
                     get: { settings.showVolumeSliders },
                     set: { newValue in withAnimation(.panelResize) { settings.showVolumeSliders = newValue } }
