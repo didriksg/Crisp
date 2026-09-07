@@ -9,6 +9,8 @@ permissions:
   contents: read
 
 jobs:
+  # Everything a pull request is held to. The job name is the status check
+  # main's branch rule requires, so it stays "build".
   build:
     # macOS 26 SDK required: the panel backdrop uses NSGlassEffectView (macOS 26),
     # which must exist at compile time even though it's #available-gated at runtime.
@@ -44,6 +46,12 @@ jobs:
       # survived to a release.
       - name: Test
         run: make test
+      # The release binary is universal. Code that only compiles on arm64 (an
+      # `#if arch(arm64)` block a caller outside it depends on, how #110 first
+      # failed) breaks the x86_64 slice, and typechecking that slice takes
+      # seconds where the universal build in the job below takes minutes.
+      - name: Typecheck the x86_64 slice
+        run: make typecheck-x86
       # Every localization key the code uses must exist in the String Catalog.
       # SwiftUI coalesces interpolated text into "%@"-style lookup keys, and a
       # key missing from the catalog silently falls back to English at runtime
@@ -70,8 +78,33 @@ jobs:
           else
             python3 scripts/check-translations.py Crisp/Resources/Localizable.xcstrings || true
           fi
-      # Reuses the release script's dry run: compiles the universal binary,
-      # builds the icon, compiles the String Catalog, and packages the DMG,
-      # so a green check means the real release path builds. Publishes nothing.
+
+  # Reuses the release script's dry run: compiles the universal binary,
+  # builds the icon, compiles the String Catalog, and packages the DMG,
+  # so a green run means the real release path builds. Publishes nothing.
+  #
+  # Four minutes of the six a run used to take, so it runs beside the job
+  # above rather than after it, and a pull request only pays for it when it
+  # touches the release path itself (the script, the project, the Makefile,
+  # this workflow). Every push to main still runs it in full.
+  release-build:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Decide whether the release path is affected
+        id: affected
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          elif git diff --name-only "${{ github.event.pull_request.base.sha }}" HEAD \
+               | grep -qE '^(project\.yml|Makefile|scripts/|\.github/workflows/)'; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "Release path untouched; skipping the dry run."
+          fi
       - name: Build (release dry run)
+        if: steps.affected.outputs.run == 'true'
         run: ./scripts/release.sh v0.0.0-ci
