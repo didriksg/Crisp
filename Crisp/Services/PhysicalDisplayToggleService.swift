@@ -203,7 +203,15 @@ final class PhysicalDisplayToggleService: ObservableObject {
     }
 
     /// The number of ports that can have a display behind them right now: a DisplayPort or
-    /// Thunderbolt transport node with hot-plug detect asserted.
+    /// Thunderbolt transport node with hot-plug detect asserted, or a sink counted on it.
+    ///
+    /// Either signal is enough, because each one drops out on its own for a few hundred
+    /// milliseconds around a transition while the other holds. Measured on one desk: a live
+    /// display's port read `hpd=Low sink=1` right after an enable, and `hpd=High sink=0`
+    /// during a wake. Requiring hpd alone capped a real display away in both. Neither
+    /// signal is present on a port with nothing behind it -- an empty built-in HDMI port
+    /// reads `hpd=Unknown sink=0`, an emptied dock port `hpd=Low sink=0` -- and in the
+    /// phantom state the whole node is gone, so the pair still reads zero there.
     ///
     /// nil rather than 0 when the machine exposes no transport nodes of either class at
     /// all, which means the signal is not available here rather than that nothing is
@@ -221,7 +229,9 @@ final class PhysicalDisplayToggleService: ObservableObject {
                 nodes += 1
                 let hpd = IORegistryEntryCreateCFProperty(node, "HPD_StateDescription" as CFString, kCFAllocatorDefault, 0)?
                     .takeRetainedValue() as? String
-                if hpd == "High" { asserted += 1 }
+                let sinks = IORegistryEntryCreateCFProperty(node, "SinkCount" as CFString, kCFAllocatorDefault, 0)?
+                    .takeRetainedValue() as? Int ?? 0
+                if hpd == "High" || sinks > 0 { asserted += 1 }
             }
         }
         return nodes == 0 ? nil : asserted
