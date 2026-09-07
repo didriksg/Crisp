@@ -100,15 +100,18 @@ It supports ten control commands:
 
 ```sh
 crispctl display list
+crispctl display connect <display>
+crispctl display disconnect <display>
+crispctl display toggle <display>
+
 crispctl brightness get <display>
 crispctl brightness set <display> <percent>
 crispctl brightness boost get <display>
 crispctl brightness boost set <display> on|off
+
 crispctl hdr get <display>
 crispctl hdr set <display> on|off
-crispctl display disconnect <display>
-crispctl display connect <display>
-crispctl display toggle <display>
+
 crispctl help
 ```
 

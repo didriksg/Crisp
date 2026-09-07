@@ -111,10 +111,15 @@ do {
     do {
         response = try receive(from: client)
     } catch {
-        guard request.command != .setHDR else {
+        switch request.command {
+        case .setHDR:
             fail("HDR response timed out or was lost; \(CrispControlModel.hdrUncertainRecovery)", code: 1)
+        case .toggleDisplay:
+            fail("toggle response timed out or was lost; the display may already have changed state, "
+                 + "run 'display list' before retrying", code: 1)
+        default:
+            throw error
         }
-        throw error
     }
     switch CrispControlCLIModel.classify(response, for: request.command) {
     case .success:

@@ -13,7 +13,7 @@ never break, they just see no update).
 
 ## crispctl
 
-`release.sh` compiles `crispctl` universal from the same source list as the `crispctl` target in `project.yml` and puts it at `Crisp.app/Contents/MacOS/crispctl`, signed inside-out before the app like Sparkle's nested code. Settings links it into `/usr/local/bin`; the cask needs the same link once, so the first release that ships it also sends homebrew/cask a PR adding `binary "#{appdir}/Crisp.app/Contents/MacOS/crispctl"` under the `app` stanza. Autobump only moves the version, so that line has to be added by hand.
+`release.sh` compiles `crispctl` universal from the same source list as the `crispctl` target in `project.yml` and puts it at `Crisp.app/Contents/MacOS/crispctl`, signed inside-out before the app like Sparkle's nested code. Settings links it into `/usr/local/bin`; the cask needs the same link once. Right after the first release that ships it, send homebrew/cask one PR by hand with the version bump, the new sha256 and `binary "#{appdir}/Crisp.app/Contents/MacOS/crispctl"` under the `app` stanza (`brew bump-cask-pr crisp --version X.Y.Z` builds the bump; add the line to the same commit). Do not wait for autobump: it only moves the version, and a `binary` line against a release whose bundle has no crispctl breaks `brew install`.
 
 ## Signing and notarization
 
