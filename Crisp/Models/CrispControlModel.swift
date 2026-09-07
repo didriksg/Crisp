@@ -451,18 +451,34 @@ enum CrispControlCLIModel {
             case .hdr: return "HDR commands"
             }
         }
+        var description: String {
+            switch self {
+            case .display: return "List, connect, disconnect and power off the displays Crisp controls."
+            case .brightness: return "Read and set brightness and Extra Brightness."
+            case .hdr: return "Read and switch HDR on external displays."
+            }
+        }
+        var examples: [String] {
+            switch self {
+            case .display: return ["crispctl display list", "crispctl display disconnect 3", "crispctl display connect <uuid>"]
+            case .brightness: return ["crispctl brightness set 3 40", "crispctl brightness boost set 3 on"]
+            case .hdr: return ["crispctl hdr get 3", "crispctl hdr set 3 on"]
+            }
+        }
     }
 
-    /// One documented command: the usage as typed, a one-line summary for the
-    /// top-level table, and the detail the group's help prints under it. Kept in the
-    /// shared model so the app and the CLI cannot drift.
-    struct Entry {
+    /// One documented command: the usage as typed, a one-line summary for the tables,
+    /// and the detail its own help page prints. Kept in the shared model so the app
+    /// and the CLI cannot drift.
+    struct Entry: Equatable {
         let group: Group
         let usage: String
         let summary: String
         let detail: String
+        /// The usage without the group: "power <display> off" on the group's page.
+        var subcommand: String { String(usage.drop { $0 != " " }.dropFirst()) }
         /// The literal words before the first placeholder ("display power" for
-        /// "display power <display> off"): what a wrong invocation is matched on.
+        /// "display power <display> off"): what an invocation is matched on.
         var words: [String] {
             Array(usage.split(separator: " ").map(String.init).prefix { !$0.hasPrefix("<") })
         }
@@ -470,29 +486,35 @@ enum CrispControlCLIModel {
 
     static let entries: [Entry] = [
         Entry(group: .display, usage: "display list", summary: "List displays as JSON", detail: """
-            Each display: id, uuid, name, resolution, brightness, maxBrightness,
-            brightnessBackend and connected (false while Crisp holds it off).
+            Each display carries id, uuid, name, resolution, brightness, maxBrightness,
+            brightnessBackend and connected, which is false while Crisp holds it off.
             """),
-        Entry(group: .display, usage: "display connect <display>", summary: "Put a disconnected display back", detail: ""),
+        Entry(group: .display, usage: "display connect <display>", summary: "Put a disconnected display back", detail: """
+            Asking for the state a display is already in succeeds and changes nothing.
+            The reply comes after the window server has answered.
+            """),
         Entry(group: .display, usage: "display disconnect <display>", summary: "Take a display out of the layout", detail: """
-            As the menu's Disconnect Display does; refused if it would leave no active
-            display. Apple Silicon only.
+            The same as Disconnect Display in the menu; refused if it would leave no
+            active display. Apple Silicon only. Asking for the state a display is
+            already in succeeds and changes nothing. The reply comes after the window
+            server has answered.
             """),
-        Entry(group: .display, usage: "display toggle <display>", summary: "Disconnect if connected, connect if not", detail: ""),
+        Entry(group: .display, usage: "display toggle <display>", summary: "Disconnect if connected, connect if not", detail: """
+            The reply comes after the window server has answered. If it is lost, run
+            'display list' before retrying: the display may already have changed state.
+            """),
         Entry(group: .display, usage: "display power <display> off", summary: "Ask the monitor to switch itself off", detail: """
             One DDC/CI write (VCP D6). One-way: the monitor's DDC/CI goes with it and its
             power button brings it back. Firmware decides whether it is honoured; ok means
-            the write was taken.
+            the write was taken. The built-in display has no DDC/CI and is refused.
             """),
         Entry(group: .brightness, usage: "brightness get <display>", summary: "Read brightness and its live maximum", detail: ""),
         Entry(group: .brightness, usage: "brightness set <display> <percent>", summary: "Set brightness", detail: """
-            0-100, or up to maxBrightness while Extra Brightness is enabled and eligible;
-            boosted values past the live maximum are refused, not clamped. A set is a
-            manual change like the slider and clears the active preset. The reply means
-            Crisp accepted the request, not that the panel was read back.
+            A set is a manual change like the slider and clears the active preset. The
+            reply means Crisp accepted the request, not that the panel was read back.
             """),
         Entry(group: .brightness, usage: "brightness boost get <display>", summary: "Read Extra Brightness state",
-              detail: "Whether the display is eligible and whether it is on."),
+              detail: "Whether the display is eligible for Extra Brightness and whether it is on."),
         Entry(group: .brightness, usage: "brightness boost set <display> on|off", summary: "Switch Extra Brightness", detail: ""),
         Entry(group: .hdr, usage: "hdr get <display>", summary: "Read HDR state",
               detail: "The live state of an eligible external display."),
@@ -510,14 +532,15 @@ enum CrispControlCLIModel {
         Control a running Crisp from the command line. Crisp must be running for the
         same user; crispctl talks to it over a local socket and never launches it.
         """
-    static let displayNote = """
-        <display> is a runtime id or a uuid from 'display list'. Ids can change after
-        an unplug or a wake; uuids do not. A disconnected display is gone from every
-        macOS display list, so its id is only a last-known value: use the uuid for it.
+    static let displayArgument = """
+          <display>   A runtime id or a uuid from 'display list'. Ids can change after
+                      an unplug or a wake; uuids do not. A disconnected display is gone
+                      from every macOS display list, so use its uuid.
         """
-    static let connectionNote = """
-        Asking for the connection state a display is already in succeeds and changes
-        nothing. A connection reply comes after the window server has answered.
+    static let percentArgument = """
+          <percent>   0-100, or up to maxBrightness while Extra Brightness is enabled
+                      and eligible; boosted values past the live maximum are refused,
+                      not clamped.
         """
     static let contract = """
         Output is one JSON object per call: {"ok":true,...} or {"ok":false,"error":"..."}.
@@ -525,43 +548,57 @@ enum CrispControlCLIModel {
         """
 
     /// The top-level reference: one line per command, the way docker and gh lay
-    /// theirs out. The detail lives in each group's own help.
+    /// theirs out. The detail lives on the group and command pages.
     static let help: String = {
         var lines = [intro, "", "Usage:  crispctl <command> <subcommand> [<args>]", ""]
+        let column = 2 + (entries.map(\.usage.count) + otherRows.map(\.usage.count)).max()!
         for group in Group.allCases {
             lines.append(group.title + ":")
-            for entry in entries where entry.group == group { lines.append(row(entry.usage, entry.summary)) }
+            for entry in entries where entry.group == group { lines.append(row(entry.usage, entry.summary, column)) }
             lines.append("")
         }
         lines.append("Other commands:")
-        for other in otherRows { lines.append(row(other.usage, other.summary)) }
-        lines += ["", displayNote, contract, "",
-                  "Run 'crispctl <command>' for the details of a command group, e.g. 'crispctl display'."]
+        for other in otherRows { lines.append(row(other.usage, other.summary, column)) }
+        lines += ["", "Arguments:", displayArgument, "", contract, "",
+                  "Run 'crispctl <command>' for a group's commands, 'crispctl <command> <subcommand> --help' for one command."]
         return lines.joined(separator: "\n")
     }()
 
-    /// One group's reference, printed for `crispctl display`, `crispctl display help`
-    /// and any invocation in the group that ends in --help or -h.
+    /// One group's page, printed for `crispctl display`, `crispctl display help`
+    /// and `crispctl display --help`.
     static func help(for group: Group) -> String {
-        var lines = ["Usage:  crispctl \(group.rawValue) <subcommand> [<args>]", "", group.title + ":"]
-        for entry in entries where entry.group == group {
-            lines.append(row(entry.usage, entry.summary))
-            for line in entry.detail.split(separator: "\n") { lines.append("      " + line) }
-        }
-        lines += ["", displayNote]
-        if group == .display { lines.append(connectionNote) }
-        lines.append(contract)
+        let inGroup = entries.filter { $0.group == group }
+        let column = 2 + inGroup.map(\.subcommand.count).max()!
+        var lines = [group.description, "", "Usage:  crispctl \(group.rawValue) <subcommand> [<args>]", "", "Commands:"]
+        lines += inGroup.map { row($0.subcommand, $0.summary, column) }
+        lines += ["", "Arguments:", displayArgument]
+        if group == .brightness { lines.append(percentArgument) }
+        lines += ["", "Examples:"] + group.examples.map { "  $ " + $0 }
+        lines += ["", "Run 'crispctl \(group.rawValue) <subcommand> --help' for the details of one command."]
         return lines.joined(separator: "\n")
     }
 
-    private static let column = 2 + (entries.map(\.usage.count) + otherRows.map(\.usage.count)).max()!
-    private static func row(_ usage: String, _ summary: String) -> String {
+    /// One command's page, printed for any invocation of it that ends in --help or -h.
+    static func help(for entry: Entry) -> String {
+        var lines = ["Usage:  crispctl \(entry.usage)", "", entry.summary + "."]
+        if !entry.detail.isEmpty { lines += ["", entry.detail] }
+        lines += ["", "Arguments:", displayArgument]
+        if entry.usage.contains("<percent>") { lines.append(percentArgument) }
+        return lines.joined(separator: "\n")
+    }
+
+    private static func row(_ usage: String, _ summary: String, _ column: Int) -> String {
         "  " + usage.padding(toLength: column, withPad: " ", startingAt: 0) + summary
     }
 
+    enum HelpTopic: Equatable {
+        case all
+        case group(Group)
+        case command(Entry)
+    }
     enum ParseResult: Equatable {
         case request(CrispControlRequest)
-        case help(Group?)
+        case help(HelpTopic)
         case version
         case failure(String)
     }
@@ -585,13 +622,15 @@ enum CrispControlCLIModel {
     }
     private static func helpRequest(_ arguments: [String]) -> ParseResult? {
         let helpWords: Set<String> = ["help", "--help", "-h"]
-        if arguments.isEmpty || (arguments.count == 1 && helpWords.contains(arguments[0])) { return .help(nil) }
+        if arguments.isEmpty || (arguments.count == 1 && helpWords.contains(arguments[0])) { return .help(.all) }
         if arguments == ["version"] || arguments == ["--version"] { return .version }
         guard let group = Group(rawValue: arguments[0]) else { return nil }
-        if arguments.count == 1 || helpWords.contains(arguments[1]) || arguments.last == "--help" || arguments.last == "-h" {
-            return .help(group)
-        }
-        return nil
+        if arguments.count == 1 || (arguments.count == 2 && helpWords.contains(arguments[1])) { return .help(.group(group)) }
+        guard let last = arguments.last, last == "--help" || last == "-h" else { return nil }
+        // The longest command whose literal words open the invocation gets its own page.
+        let opened = entries.filter { $0.group == group && arguments.starts(with: $0.words) }
+            .max { $0.words.count < $1.words.count }
+        return .help(opened.map(HelpTopic.command) ?? .group(group))
     }
     /// What a wrong invocation gets: the usage of the command it was closest to, or,
     /// for a word that is no command at all, where the commands are listed.
