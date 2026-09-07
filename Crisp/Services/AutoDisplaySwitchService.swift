@@ -89,8 +89,10 @@ final class AutoDisplaySwitchService: ObservableObject {
     /// ended in a rescue. Cleared when the externals change, which is the only evidence that the
     /// situation is different.
     private var blockedExternalsSignature: String?
-    /// The displays that were on the desk the last time it was demonstrably lit. What makes a
-    /// display believable afterwards: see `hasTrustedDisplay`.
+    /// The displays that were on the desk the last time it was demonstrably lit. Not what
+    /// makes a display believable any more — the ports decide that, see `hasTrustedDisplay` —
+    /// but still what tells an external that turned up during a blackout from one that was
+    /// already there, which the port count cannot, since it is a count and names no display.
     private var lastHealthyDisplayIDs: Set<CGDirectDisplayID> = []
     /// Displays that turned up while the desk was dark and were never part of a lit desk. macOS
     /// re-probes when the last display leaves and can bring a long-detached monitor back by
@@ -428,16 +430,21 @@ final class AutoDisplaySwitchService: ObservableObject {
 
     // MARK: - Topology helpers
 
-    /// Whether anything on the desk can be believed to be showing a picture: the built-in panel,
-    /// which is certainly attached, or a display that was already there when things last worked.
-    /// A display that appears mid-blackout and matches neither is not evidence of recovery — it
-    /// is the shape a resurrected detached monitor takes (see `suspectDisplayIDs`). With no
-    /// history yet (a fresh launch), any usable display has to be taken at face value.
+    /// Whether anything on the desk can be believed to be showing a picture: the built-in
+    /// panel, which is certainly attached, or an external while a port is carrying something.
+    /// That is exactly the count the blackout rescue reads (#112, #133), so the two agree by
+    /// construction rather than by two rules that have to be kept in step.
+    ///
+    /// It used to key on the display IDs seen on the last demonstrably lit desk, and that was
+    /// wrong twice over. macOS re-issues the ID at display sleep (2 -> 31, 34, 36, 38 on four
+    /// consecutive sleeps here), so the one monitor on a single-display desk stopped being
+    /// recognised the moment it slept: an ordinary display sleep read as a blackout and cost a
+    /// doomed enable that failed at 10 s. Keying on the UUID instead is not the fix either —
+    /// the phantom an undock leaves behind carries the same UUID as the real monitor, measured
+    /// with the dock out of the machine, so the watch trusted the phantom and never armed.
+    /// Identity cannot separate the two states; the ports can.
     private func hasTrustedDisplay() -> Bool {
-        let usable = toggle.viewableActiveDisplays()
-        guard !usable.isEmpty else { return false }
-        guard !lastHealthyDisplayIDs.isEmpty else { return true }
-        return usable.contains { CGDisplayIsBuiltin($0) != 0 || lastHealthyDisplayIDs.contains($0) }
+        toggle.phantomAwareActiveDisplayCount() > 0
     }
 
     /// Online, real external displays: what "docked" means here.

@@ -197,11 +197,13 @@ final class PhysicalDisplayToggleService: ObservableObject {
     }
 
     /// The count the blackout rescue reads: physicalActiveDisplayCount with the #112
-    /// phantoms taken out. Read by restoreIfNoActiveDisplay and nowhere else, on
-    /// purpose: the Disconnect row and the launch re-apply keep the plain count, so a
-    /// wrong answer from the ports on a desk shape this has never seen can only make
-    /// the rescue fire, which re-enables a display Crisp itself turned off, and can
-    /// never hide a row or refuse a remembered disconnect.
+    /// phantoms taken out. Read by the rescue paths only, on purpose: by
+    /// restoreIfNoActiveDisplay, and by the dock rule's blackout watch, which is the
+    /// same kind of reader and is held to the same bargain. The Disconnect row and the
+    /// launch re-apply keep the plain count, so a wrong answer from the ports on a desk
+    /// shape this has never seen can only make a rescue fire, which re-enables a display
+    /// Crisp itself turned off, and can never hide a row or refuse a remembered
+    /// disconnect.
     ///
     /// The shape filter in viewableActiveDisplays catches an entry with nothing behind
     /// it. It cannot catch the third kind, from #112: after an undock while asleep,
@@ -239,7 +241,7 @@ final class PhysicalDisplayToggleService: ObservableObject {
     /// The info dictionary costs 2.5 to 8 ms per display, so it is read only once the
     /// ports say fewer than the externals lit, which is the phantom state or a
     /// DisplayLink desk. An ordinary desk never pays for it.
-    private func phantomAwareActiveDisplayCount() -> Int {
+    func phantomAwareActiveDisplayCount() -> Int {
         let viewable = viewableActiveDisplays()
         let externals = viewable.filter { CGDisplayIsBuiltin($0) != 1 }
         let portCap = liveDisplayPortCount()
