@@ -75,7 +75,6 @@ struct CrispControlRequest: Codable, Equatable {
         case connectDisplay
         case disconnectDisplay
         case toggleDisplay
-        case powerOffDisplay
     }
 
     let command: Command
@@ -166,34 +165,25 @@ struct CrispControlConnectionChange: Equatable {
     let uuid: String
     let connect: Bool
 }
-/// A resolved `display power off`: one DDC/CI write of VCP D6 asking the monitor to
-/// switch itself off. One-way by the MCCS definition of that value (the power button
-/// brings it back), so there is no direction field.
-struct CrispControlPowerChange: Equatable {
-    let displayID: UInt32
-}
 struct CrispControlResult {
     let response: CrispControlResponse
     let brightnessChange: CrispControlBrightnessChange?
     let brightnessBoostChange: CrispControlBrightnessBoostChange?
     let hdrChange: CrispControlHDRChange?
     let connectionChange: CrispControlConnectionChange?
-    let powerChange: CrispControlPowerChange?
 
     init(
         _ response: CrispControlResponse,
         _ brightnessChange: CrispControlBrightnessChange?,
         _ brightnessBoostChange: CrispControlBrightnessBoostChange?,
         _ hdrChange: CrispControlHDRChange?,
-        _ connectionChange: CrispControlConnectionChange? = nil,
-        powerChange: CrispControlPowerChange? = nil
+        _ connectionChange: CrispControlConnectionChange? = nil
     ) {
         self.response = response
         self.brightnessChange = brightnessChange
         self.brightnessBoostChange = brightnessBoostChange
         self.hdrChange = hdrChange
         self.connectionChange = connectionChange
-        self.powerChange = powerChange
     }
 }
 enum CrispControlModel {
@@ -290,29 +280,7 @@ enum CrispControlModel {
             )
         case .connectDisplay, .disconnectDisplay, .toggleDisplay:
             return handleConnection(request, displays: displays)
-        case .powerOffDisplay:
-            return handlePowerOff(request, displays: displays)
         }
-    }
-
-    /// The built-in has no DDC/CI, and a display Crisp is holding disconnected has no
-    /// channel to write to; everything else is the monitor's call.
-    private static func handlePowerOff(
-        _ request: CrispControlRequest, displays: [CrispControlDisplay]
-    ) -> CrispControlResult {
-        guard hasDisplaySelector(request) else {
-            return .init(.failure("display is required"), nil, nil, nil)
-        }
-        guard let display = target(of: request, in: displays) else {
-            return .init(.failure("display not found"), nil, nil, nil)
-        }
-        guard !display.isBuiltin else {
-            return .init(.failure("the built-in display has no DDC/CI; use display sleep"), nil, nil, nil)
-        }
-        guard display.connected ?? true else {
-            return .init(.failure("display is disconnected, so there is no DDC channel to write to"), nil, nil, nil)
-        }
-        return .init(.success(), nil, nil, nil, powerChange: .init(displayID: display.id))
     }
 
     /// Resolves a connection request against the online list plus the displays Crisp
@@ -468,16 +436,16 @@ enum CrispControlCLIModel {
         let usage: String
         let summary: String
         let detail: String
-        /// The usage without the group: "poweroff <display>" on the group's page.
+        /// The usage without the group: "toggle <display>" on the group's page.
         var subcommand: String { String(usage.drop { $0 != " " }.dropFirst()) }
-        /// The usage split at the first placeholder: ("display poweroff", "<display>").
+        /// The usage split at the first placeholder: ("display toggle", "<display>").
         var columns: (command: String, arguments: String) {
             let parts = usage.split(separator: " ").map(String.init)
             let command = parts.prefix { !$0.hasPrefix("<") }
             return (command.joined(separator: " "), parts.dropFirst(command.count).joined(separator: " "))
         }
-        /// The literal words before the first placeholder ("display poweroff" for
-        /// "display poweroff <display>"): what an invocation is matched on.
+        /// The literal words before the first placeholder ("display toggle" for
+        /// "display toggle <display>"): what an invocation is matched on.
         var words: [String] {
             Array(usage.split(separator: " ").map(String.init).prefix { !$0.hasPrefix("<") })
         }
@@ -501,11 +469,6 @@ enum CrispControlCLIModel {
         Entry(group: .display, usage: "display toggle <display>", summary: "Disconnect if connected, connect if not", detail: """
             The reply comes after the window server has answered. If it is lost, run
             'display list' before retrying: the display may already have changed state.
-            """),
-        Entry(group: .display, usage: "display poweroff <display>", summary: "Ask the monitor to switch itself off", detail: """
-            One DDC/CI write (VCP D6). One-way: the monitor's DDC/CI goes with it and its
-            power button brings it back. Firmware decides whether it is honoured; ok means
-            the write was taken. The built-in display has no DDC/CI and is refused.
             """),
         Entry(group: .brightness, usage: "brightness get <display>", summary: "Read brightness and its live maximum", detail: ""),
         Entry(group: .brightness, usage: "brightness set <display> <percent>", summary: "Set brightness", detail: """
@@ -611,8 +574,6 @@ enum CrispControlCLIModel {
         // The window server answers inside the app's 10 s wrapper, but the DDC hold
         // ahead of the transaction can wait 15 s and the mode restore after it 3 s.
         case .connectDisplay, .disconnectDisplay, .toggleDisplay: return 30
-        // Three write attempts, each able to sit on a wedged channel for the 6 s I2C timeout.
-        case .powerOffDisplay: return 20
         default: return 2
         }
     }
@@ -692,7 +653,6 @@ enum CrispControlCLIModel {
         case "connect": return .init(command: .connectDisplay, selector: arguments[2])
         case "disconnect": return .init(command: .disconnectDisplay, selector: arguments[2])
         case "toggle": return .init(command: .toggleDisplay, selector: arguments[2])
-        case "poweroff": return .init(command: .powerOffDisplay, selector: arguments[2])
         default: return nil
         }
     }

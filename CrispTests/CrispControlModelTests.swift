@@ -73,12 +73,7 @@ final class CrispControlModelTests: XCTestCase {
                 ["display", "disconnect", "DECC7CEF-5E36-4E9B-8F18-CE11AE5902AD"],
                 .init(command: .disconnectDisplay, selector: "DECC7CEF-5E36-4E9B-8F18-CE11AE5902AD")
             ),
-            (["display", "toggle", "42"], .init(command: .toggleDisplay, selector: "42")),
-            (["display", "poweroff", "42"], .init(command: .powerOffDisplay, selector: "42")),
-            (
-                ["display", "poweroff", "decc7cef-5e36-4e9b-8f18-ce11ae5902ad"],
-                .init(command: .powerOffDisplay, selector: "decc7cef-5e36-4e9b-8f18-ce11ae5902ad")
-            )
+            (["display", "toggle", "42"], .init(command: .toggleDisplay, selector: "42"))
         ]
         for (arguments, request) in cases {
             XCTAssertEqual(CrispControlCLIModel.parse(arguments: arguments), .request(request))
@@ -95,10 +90,10 @@ final class CrispControlModelTests: XCTestCase {
             XCTAssertEqual(CrispControlCLIModel.parse(arguments: arguments), .help(.group(.display)), "\(arguments)")
         }
         XCTAssertEqual(CrispControlCLIModel.parse(arguments: ["hdr"]), .help(.group(.hdr)))
-        let power = CrispControlCLIModel.entries.first { $0.usage == "display poweroff <display>" }!
+        let toggle = CrispControlCLIModel.entries.first { $0.usage == "display toggle <display>" }!
         let boostSet = CrispControlCLIModel.entries.first { $0.usage == "brightness boost set <display> on|off" }!
-        XCTAssertEqual(CrispControlCLIModel.parse(arguments: ["display", "poweroff", "--help"]), .help(.command(power)))
-        XCTAssertEqual(CrispControlCLIModel.parse(arguments: ["display", "poweroff", "3", "-h"]), .help(.command(power)))
+        XCTAssertEqual(CrispControlCLIModel.parse(arguments: ["display", "toggle", "--help"]), .help(.command(toggle)))
+        XCTAssertEqual(CrispControlCLIModel.parse(arguments: ["display", "toggle", "3", "-h"]), .help(.command(toggle)))
         XCTAssertEqual(CrispControlCLIModel.parse(arguments: ["brightness", "boost", "set", "--help"]), .help(.command(boostSet)))
         XCTAssertEqual(CrispControlCLIModel.parse(arguments: ["brightness", "nope", "--help"]), .help(.group(.brightness)))
         for arguments in [["version"], ["--version"]] {
@@ -110,7 +105,7 @@ final class CrispControlModelTests: XCTestCase {
         for word in ["help", "version", "crispctl <command>"] {
             XCTAssertTrue(CrispControlCLIModel.help.contains(word), word)
         }
-        XCTAssertEqual(CrispControlCLIModel.entries.count, 11)
+        XCTAssertEqual(CrispControlCLIModel.entries.count, 10)
         for entry in CrispControlCLIModel.entries {
             let columns = entry.columns
             XCTAssertTrue(CrispControlCLIModel.help.contains("  " + columns.command + " "), entry.usage)
@@ -135,8 +130,7 @@ final class CrispControlModelTests: XCTestCase {
             (["brightness", "boost", "set", "42"], "usage: crispctl brightness boost set <display> on|off"),
             (["brightness", "boost"],
              "usage: crispctl brightness boost get <display> or crispctl brightness boost set <display> on|off"),
-            (["display", "poweroff", "42", "now"], "usage: crispctl display poweroff <display>"),
-            (["display", "power", "42", "off"], "unknown command 'display power'; run 'crispctl display' for the display commands")
+            (["display", "toggle", "42", "now"], "usage: crispctl display toggle <display>")
         ]
         for (arguments, message) in cases {
             XCTAssertEqual(CrispControlCLIModel.parse(arguments: arguments), .failure(message), "\(arguments)")
@@ -160,10 +154,7 @@ final class CrispControlModelTests: XCTestCase {
             ["hdr", "set", "42", "true"], ["hdr", "set", "42", "ON"],
             ["hdr", "set", "42", "on", "extra"],
             ["display", "toggle"], ["display", "toggle", ""], ["display", "reboot", "42"],
-            ["display", "toggle", "42", "now"],
-            // Power is one-way by design: there is no on, standby or two-word form.
-            ["display", "poweroff"], ["display", "poweroff", ""], ["display", "poweroff", "42", "off"],
-            ["display", "power", "42", "off"]
+            ["display", "toggle", "42", "now"]
         ]
         for arguments in cases {
             guard case .failure = CrispControlCLIModel.parse(arguments: arguments) else {
@@ -184,7 +175,6 @@ final class CrispControlModelTests: XCTestCase {
         for command in [CrispControlRequest.Command.connectDisplay, .disconnectDisplay, .toggleDisplay] {
             XCTAssertEqual(CrispControlCLIModel.receiveTimeoutSeconds(for: command), 30)
         }
-        XCTAssertEqual(CrispControlCLIModel.receiveTimeoutSeconds(for: .powerOffDisplay), 20)
         for command in [
             CrispControlRequest.Command.list, .getBrightness, .setBrightness, .getBrightnessBoost, .getHDR
         ] {
@@ -656,7 +646,7 @@ final class CrispControlModelTests: XCTestCase {
     private var commands: [CrispControlRequest.Command] {
         [
             .list, .getBrightness, .setBrightness, .getBrightnessBoost, .setBrightnessBoost, .getHDR, .setHDR,
-            .connectDisplay, .disconnectDisplay, .toggleDisplay, .powerOffDisplay
+            .connectDisplay, .disconnectDisplay, .toggleDisplay
         ]
     }
 
@@ -723,29 +713,6 @@ final class CrispControlModelTests: XCTestCase {
             let result = CrispControlModel.handle(Data(request.utf8), displays: displays)
             XCTAssertFalse(result.response.ok, request)
             XCTAssertNil(result.connectionChange, request)
-        }
-    }
-
-    func testPowerOffResolvesAnExternalAndRefusesBuiltinAndHeld() {
-        let builtin = CrispControlDisplay(id: 1, name: "Built-in", brightness: 50, isBuiltin: true, uuid: "B")
-        let displays = [display, held, builtin]
-        for selector in ["7", "37d8832a-2d66-02ca-b9f7-8f30a301b230"] {
-            let result = CrispControlModel.handle(
-                Data(#"{"command":"powerOffDisplay","selector":"\#(selector)"}"#.utf8), displays: displays
-            )
-            XCTAssertTrue(result.response.ok, selector)
-            XCTAssertEqual(result.powerChange, .init(displayID: display.id), selector)
-            XCTAssertNil(result.connectionChange, selector)
-        }
-        for request in [
-            #"{"command":"powerOffDisplay"}"#,
-            #"{"command":"powerOffDisplay","selector":"404"}"#,
-            #"{"command":"powerOffDisplay","selector":"1"}"#,
-            #"{"command":"powerOffDisplay","selector":"9"}"#
-        ] {
-            let result = CrispControlModel.handle(Data(request.utf8), displays: displays)
-            XCTAssertFalse(result.response.ok, request)
-            XCTAssertNil(result.powerChange, request)
         }
     }
 
