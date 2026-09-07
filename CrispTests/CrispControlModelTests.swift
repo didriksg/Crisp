@@ -87,34 +87,40 @@ final class CrispControlModelTests: XCTestCase {
 
     func testParserReturnsHelpForNoArgumentsAndHelpFlags() {
         for arguments in [[], ["help"], ["--help"], ["-h"]] {
-            XCTAssertEqual(CrispControlCLIModel.parse(arguments: arguments), .help(nil), "\(arguments)")
+            XCTAssertEqual(CrispControlCLIModel.parse(arguments: arguments), .help(.all), "\(arguments)")
         }
-        // A bare group, or anything in it that asks, prints that group's reference.
-        for arguments in [["display"], ["display", "help"], ["display", "--help"], ["display", "-h"],
-                          ["display", "power", "--help"]] {
-            XCTAssertEqual(CrispControlCLIModel.parse(arguments: arguments), .help(.display), "\(arguments)")
+        // A bare group, or the group asked, prints the group's page; an invocation of a
+        // command that ends in --help or -h prints that command's page.
+        for arguments in [["display"], ["display", "help"], ["display", "--help"], ["display", "-h"]] {
+            XCTAssertEqual(CrispControlCLIModel.parse(arguments: arguments), .help(.group(.display)), "\(arguments)")
         }
-        XCTAssertEqual(CrispControlCLIModel.parse(arguments: ["brightness", "set", "-h"]), .help(.brightness))
-        XCTAssertEqual(CrispControlCLIModel.parse(arguments: ["hdr"]), .help(.hdr))
+        XCTAssertEqual(CrispControlCLIModel.parse(arguments: ["hdr"]), .help(.group(.hdr)))
+        let power = CrispControlCLIModel.entries.first { $0.usage == "display power <display> off" }!
+        let boostSet = CrispControlCLIModel.entries.first { $0.usage == "brightness boost set <display> on|off" }!
+        XCTAssertEqual(CrispControlCLIModel.parse(arguments: ["display", "power", "--help"]), .help(.command(power)))
+        XCTAssertEqual(CrispControlCLIModel.parse(arguments: ["display", "power", "3", "-h"]), .help(.command(power)))
+        XCTAssertEqual(CrispControlCLIModel.parse(arguments: ["brightness", "boost", "set", "--help"]), .help(.command(boostSet)))
+        XCTAssertEqual(CrispControlCLIModel.parse(arguments: ["brightness", "nope", "--help"]), .help(.group(.brightness)))
         for arguments in [["version"], ["--version"]] {
             XCTAssertEqual(CrispControlCLIModel.parse(arguments: arguments), .version, "\(arguments)")
         }
-        // The top-level reference names every command, and each group's reference names
-        // its own, so a wrong invocation still leads to the full text.
+        // The top-level reference names every command, each group's page names its own
+        // subcommands without the group, and each command's page opens with its usage.
         let commands = [
             "display list", "brightness get <display>", "brightness set <display>",
             "brightness boost get <display>", "brightness boost set <display>",
             "hdr get <display>", "hdr set <display>", "display power <display> off",
             "display connect <display>", "display disconnect <display>", "display toggle <display>"
         ]
-        for command in commands + ["help", "version", "crispctl display"] {
+        for command in commands + ["help", "version", "crispctl <command>"] {
             XCTAssertTrue(CrispControlCLIModel.help.contains(command), command)
         }
-        for group in CrispControlCLIModel.Group.allCases {
-            let text = CrispControlCLIModel.help(for: group)
-            for command in commands where command.hasPrefix(group.rawValue + " ") {
-                XCTAssertTrue(text.contains(command), "\(group): \(command)")
-            }
+        XCTAssertEqual(CrispControlCLIModel.entries.count, commands.count)
+        for entry in CrispControlCLIModel.entries {
+            let page = CrispControlCLIModel.help(for: entry.group)
+            XCTAssertTrue(page.contains("  " + entry.subcommand + " "), entry.usage)
+            XCTAssertFalse(page.contains("  " + entry.usage), entry.usage)
+            XCTAssertTrue(CrispControlCLIModel.help(for: entry).hasPrefix("Usage:  crispctl " + entry.usage + "\n"), entry.usage)
         }
     }
 

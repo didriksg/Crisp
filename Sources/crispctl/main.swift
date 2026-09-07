@@ -107,8 +107,12 @@ private func bundledVersion() -> String {
 let request: CrispControlRequest
 switch CrispControlCLIModel.parse(arguments: Array(CommandLine.arguments.dropFirst())) {
 case let .request(value): request = value
-case let .help(group):
-    print(group.map(CrispControlCLIModel.help(for:)) ?? CrispControlCLIModel.help)
+case let .help(topic):
+    switch topic {
+    case .all: print(CrispControlCLIModel.help)
+    case let .group(group): print(CrispControlCLIModel.help(for: group))
+    case let .command(entry): print(CrispControlCLIModel.help(for: entry))
+    }
     Darwin.exit(EXIT_SUCCESS)
 case .version:
     print("crispctl \(bundledVersion())")
