@@ -169,6 +169,24 @@ final class CoreBrightnessService: ObservableObject {
         trueToneEnabled = on
     }
 
+    /// After a full wake macOS computes True Tone against the built-in panel while an
+    /// external is still training its link, and the external keeps that tint until
+    /// True Tone is toggled (issue #131). This is that toggle, off and back on with a
+    /// beat between so CoreBrightness does not fold the two into nothing. The state
+    /// is read live, never from the published value, so a stale read cannot switch
+    /// True Tone on for someone who has it off. Returns whether it ran.
+    @discardableResult
+    func reassertTrueTone() -> Bool {
+        guard let c = trueToneClient, Self.boolCall(c, "supported"), Self.boolCall(c, "available"),
+              Self.boolCall(c, "enabled") else { return false }
+        Self.setBoolCall(c, "setEnabled:", false)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            Self.setBoolCall(c, "setEnabled:", true)
+            self.trueToneEnabled = true
+        }
+        return true
+    }
+
     // MARK: - ObjC runtime call helpers
 
     private nonisolated static func boolCall(_ obj: NSObject, _ name: String) -> Bool {

@@ -23,6 +23,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     /// Coalesces the wake chain: a full system wake posts didWake and
     /// screensDidWake both, and one pass covers both.
     private var wakeTask: Task<Void, Never>?
+    /// Set by didWake only, never by screensDidWake: the True Tone re-assert below is
+    /// for a full system wake, where the external is still training its link when
+    /// macOS computes True Tone (issue #131); a display sleep never has that.
+    private var fullWakePending = false
     private var screenObserver: NSObjectProtocol?
     /// Debounces panel re-anchoring across the storm of screen-param changes a
     /// display connect/disconnect fires (see screenObserver).
@@ -152,7 +156,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 queue: .main
             ) { [weak self] _ in
                 // Delivered on `queue: .main`, so the main actor is current.
-                MainActor.assumeIsolated { self?.onWake?() }
+                MainActor.assumeIsolated {
+                    if name == NSWorkspace.didWakeNotification { self?.fullWakePending = true }
+                    self?.onWake?()
+                }
             })
         }
 
@@ -281,7 +288,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             guard let self, self.wakeTask == nil else { return }
             let dm = self.displayManager
             self.wakeTask = Task { @MainActor [weak self] in
-                defer { self?.wakeTask = nil }
+                defer {
+                    self?.wakeTask = nil
+                    self?.fullWakePending = false
+                }
                 // Give WindowServer 2 seconds to stabilize after wake before
                 // touching display state.
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
@@ -303,6 +313,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                         GammaService.shared.reapplyIfNeeded(for: display)
                         // Re-apply any custom resolution that macOS may have reset on wake
                         ResolutionService.shared.reapplySavedModeIfNeeded(for: display.displayID)
+                    }
+                    // Once an external is back after a full wake, toggle True Tone so macOS
+                    // recomputes it with that display present (issue #131). Once per wake,
+                    // at the first pass that lists an external; a desk with no external
+                    // never gets the tint blink.
+                    if self?.fullWakePending == true, dm.displays.contains(where: { !$0.isBuiltin }) {
+                        self?.fullWakePending = false
+                        if CoreBrightnessService.shared.reassertTrueTone() {
+                            Self.log.notice("True Tone re-asserted after wake with an external display back (issue #131)")
+                        }
                     }
                 }
                 // Re-establish EDR boost overlays (Metal drawables and HDR
