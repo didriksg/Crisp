@@ -421,7 +421,7 @@ enum CrispControlCLIModel {
         }
         var description: String {
             switch self {
-            case .display: return "List, connect, disconnect and power off the displays Crisp controls."
+            case .display: return "List, connect and disconnect the displays Crisp controls."
             case .brightness: return "Read and set brightness and Extra Brightness."
             case .hdr: return "Read and switch HDR on external displays."
             }
