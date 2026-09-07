@@ -161,14 +161,20 @@ final class PhysicalDisplayToggleService: ObservableObject {
 
     /// Count of active displays that are real physical screens, excluding virtual
     /// displays managed by VirtualDisplayService (a virtual display is active in
-    /// CGGetActiveDisplayList but is not a viewable screen).
+    /// CGGetActiveDisplayList but is not a viewable screen). This is what the Disconnect
+    /// row and the launch re-apply read; the blackout rescue reads
+    /// phantomAwareActiveDisplayCount instead.
     private func physicalActiveDisplayCount() -> Int {
+        viewableActiveDisplays().count
+    }
+
+    private func viewableActiveDisplays() -> [CGDirectDisplayID] {
         var count: UInt32 = 0
-        guard CGGetActiveDisplayList(0, nil, &count) == .success, count > 0 else { return 0 }
+        guard CGGetActiveDisplayList(0, nil, &count) == .success, count > 0 else { return [] }
         var ids = [CGDirectDisplayID](repeating: 0, count: Int(count))
-        guard CGGetActiveDisplayList(count, &ids, &count) == .success else { return 0 }
+        guard CGGetActiveDisplayList(count, &ids, &count) == .success else { return [] }
         let virtual = VirtualDisplayService.shared
-        let viewable = ids.prefix(Int(count)).filter { id in
+        return ids.prefix(Int(count)).filter { id in
             guard !virtual.isVirtualDisplay(id) else { return false }
             // Real panels carry 16-bit EDID vendor and product codes. Two kinds of
             // entry enumerate as active without a screen behind them, and both fail
@@ -185,50 +191,75 @@ final class PhysicalDisplayToggleService: ObservableObject {
             let hasNoPanel = vendor == 0 || model == 0 || vendor > 0xFFFF || model > 0xFFFF
             return !hasNoPanel
         }
-        // The shape filter above catches an entry with nothing behind it. It cannot catch
-        // the third kind, from #112: after an undock while asleep, WindowServer
-        // re-enumerates the absent externals at the full wake with their EDID identities
-        // intact, so they are active, 16-bit and completely real-looking, and they stay
-        // that way until the dock goes back in -- measured at 104 s with the desk dark the
-        // whole time and the rescue standing down on a count of 2.
-        //
-        // What actually left with the cable is the port's transport node, so ask the ports
-        // instead and cap the external count at what they can be carrying. Presence alone
-        // is not enough: an empty HDMI port keeps its node, reading hpd Unknown and sink 0
-        // in every sample of a whole run, and a phantom could hide behind it. Hot-plug
-        // detect is the part that tracks the cable.
-        //
-        // Only a display that came through a port is capped. The built-in is not on one,
-        // and neither is a display WindowServer draws for a virtual device: a DisplayLink
-        // dock's USB framebuffer, which CoreDisplay marks kCGDisplayIsVirtualDevice.
-        // Measured on such a dock with the lid closed: the machine exposes a transport
-        // node for its own HDMI port only (hpd Low, sink 0), so capping that display
-        // read 0 with the screen lit, which would hide every Disconnect row with the lid
-        // open, refuse a remembered built-in disconnect at launch, and fire this rescue
-        // on every callback.
-        //
-        // The info dictionary costs 2.5 to 8 ms per display, and this count runs from a
-        // view body for every card, so it is only read once the ports say fewer than the
-        // externals lit, which is the phantom state or a virtual-device desk. An ordinary
-        // desk never pays for it.
+    }
+
+    /// The count the blackout rescue reads: physicalActiveDisplayCount with the #112
+    /// phantoms taken out. Read by restoreIfNoActiveDisplay and nowhere else, on
+    /// purpose: the Disconnect row and the launch re-apply keep the plain count, so a
+    /// wrong answer from the ports on a desk shape this has never seen can only make
+    /// the rescue fire, which re-enables a display Crisp itself turned off, and can
+    /// never hide a row or refuse a remembered disconnect.
+    ///
+    /// The shape filter in viewableActiveDisplays catches an entry with nothing behind
+    /// it. It cannot catch the third kind, from #112: after an undock while asleep,
+    /// WindowServer re-enumerates the absent externals at the full wake with their EDID
+    /// identities intact, so they are active, 16-bit and completely real-looking, and
+    /// they stay that way until the dock goes back in -- measured at 104 s with the desk
+    /// dark the whole time and the rescue standing down on a count of 2.
+    ///
+    /// What actually left with the cable is the port's transport node, so ask the ports
+    /// instead and cap the external count at what they can be carrying. Presence alone
+    /// is not enough: an empty HDMI port keeps its node, reading hpd Unknown and sink 0
+    /// in every sample of a whole run, and a phantom could hide behind it. Hot-plug
+    /// detect is the part that tracks the cable.
+    ///
+    /// Only a display that came through a port is capped. The built-in is not on one,
+    /// and neither is an external that still carries its product name while no port
+    /// carries it: a DisplayLink dock's USB framebuffer, measured here with the lid
+    /// closed (the machine exposes a transport node for its own HDMI port only, hpd Low,
+    /// sink 0, so the plain cap read 0 with the screen lit). It is the name and not
+    /// kCGDisplayIsVirtualDevice because the flag reads 1 on the phantoms too, and on
+    /// any real monitor while WindowServer re-enumerates it: through a display sleep
+    /// @ncchen99 measured virtual 0 to 1, transport 1 to 0 and the product name to
+    /// empty, all back at wake. The flag means "CoreDisplay knows nothing about this
+    /// entry yet", and a phantom is that state made permanent. The lit DisplayLink
+    /// display reads the same two flags and a full product name, which is where they
+    /// part.
+    ///
+    /// Two residuals, stated rather than patched. A phantom that turns out to carry a
+    /// name is counted and the rescue stands down, which is what it does without this
+    /// rule. And a DisplayLink-only desk in display sleep reads 0 for the length of the
+    /// sleep, since the name empties and no port carries it, so with a record on the
+    /// books the rescue would fire there and bring a screen back that the user turned
+    /// off. Reports from a release build decide whether either needs more.
+    ///
+    /// The info dictionary costs 2.5 to 8 ms per display, so it is read only once the
+    /// ports say fewer than the externals lit, which is the phantom state or a
+    /// DisplayLink desk. An ordinary desk never pays for it.
+    private func phantomAwareActiveDisplayCount() -> Int {
+        let viewable = viewableActiveDisplays()
         let externals = viewable.filter { CGDisplayIsBuiltin($0) != 1 }
         let portCap = liveDisplayPortCount()
         var onPort = externals.count
         if let portCap, portCap < externals.count {
-            onPort = externals.filter { !Self.isVirtualDevice($0) }.count
+            onPort = externals.filter { !Self.hasProductName($0) }.count
         }
         return PhantomPortCap.activeCount(offPort: viewable.count - onPort, onPort: onPort, portCap: portCap)
     }
 
-    /// A display WindowServer draws for a virtual device rather than for a panel on a
-    /// port (DisplayLink and similar USB framebuffers), from CoreDisplay's info
-    /// dictionary. False when the dictionary cannot be read, which leaves the display
+    /// Whether CoreDisplay still knows the display by name. Populated for a lit panel
+    /// whether or not a port carries it; empty for an entry WindowServer is
+    /// re-enumerating, or has re-enumerated with no hardware behind it (the #112
+    /// phantom). False when the dictionary cannot be read, which leaves the display
     /// subject to the cap, the behaviour the rule had before this exemption.
-    private static func isVirtualDevice(_ id: CGDirectDisplayID) -> Bool {
+    private static func hasProductName(_ id: CGDirectDisplayID) -> Bool {
         guard let info = _CoreDisplayCreateInfoDictionary?(id)?.takeRetainedValue() as? [String: Any] else {
             return false
         }
-        return (info["kCGDisplayIsVirtualDevice"] as? NSNumber)?.boolValue ?? false
+        if let names = info["DisplayProductName"] as? [String: Any] {
+            return names.values.contains { ($0 as? String)?.isEmpty == false }
+        }
+        return (info["DisplayProductName"] as? String)?.isEmpty == false
     }
 
     /// The number of ports that can have a display behind them right now: a DisplayPort or
@@ -947,17 +978,18 @@ final class PhysicalDisplayToggleService: ObservableObject {
     /// The contract, written down after the rescue had grown a layer per desk shape (#91,
     /// #99, #106, #117, #112): it exists to bring back a screen that Crisp itself turned
     /// off when nothing viewable is left. It reads CoreGraphics and, for the undock case,
-    /// the port transport nodes. A display that is not on a port, the built-in or a
-    /// virtual device, is never doubted. It accepts about three seconds of dark. This is
-    /// the last layer: a desk shape it does not cover waits for a report from a release
-    /// build, not for a new predicate.
+    /// the port transport nodes; nothing else in Crisp reads the ports. A display that is
+    /// not on a port is never doubted: the built-in, and an external that keeps its
+    /// product name with no port carrying it (a DisplayLink display). It accepts about
+    /// three seconds of dark. This is the last layer: a desk shape it does not cover
+    /// waits for a report from a release build, not for a new predicate.
     func restoreIfNoActiveDisplay() {
         guard isSupported, !disconnected.isEmpty else { return }
         // With records to act on, every stand-down is worth a line: a capture of a dark
         // desk otherwise cannot tell "never asked" from "asked and refused", and which guard
         // refused (issue #92: a dock pulled during sleep can keep its displays in the online
         // list until the link times out, and those count as active).
-        let active = physicalActiveDisplayCount()
+        let active = phantomAwareActiveDisplayCount()
         guard !restoreInFlight, active == 0 else {
             Self.log.notice("restore asked with \(self.disconnected.count, privacy: .public) record(s): \(active, privacy: .public) active display(s), in flight \(self.restoreInFlight, privacy: .public), standing down")
             return
@@ -986,12 +1018,12 @@ final class PhysicalDisplayToggleService: ObservableObject {
             // a zero-count desk that is only asleep. What keeps this guard clear of that
             // state is that it runs from reconfiguration callbacks, and none arrive while
             // the displays are down.
-            var settled = self.physicalActiveDisplayCount()
+            var settled = self.phantomAwareActiveDisplayCount()
             var repolls = 0
             while settled == 0, repolls < Self.settleRepolls {
                 try? await Task.sleep(nanoseconds: Self.settleRepollInterval)
                 guard !Task.isCancelled else { return }
-                settled = self.physicalActiveDisplayCount()
+                settled = self.phantomAwareActiveDisplayCount()
                 repolls += 1
             }
             guard settled == 0 else {
@@ -1016,14 +1048,14 @@ final class PhysicalDisplayToggleService: ObservableObject {
             for (record, _) in candidates {
                 // macOS re-probes displays by itself in this state and often wins the race;
                 // stop as soon as anything viewable is back, whoever brought it back.
-                guard self.physicalActiveDisplayCount() == 0 else { return }
+                guard self.phantomAwareActiveDisplayCount() == 0 else { return }
                 guard case .success = await self.reconnect(uuid: record.uuid) else { continue }
                 // A successful transaction is NOT proof of recovery (see verifyBackOnline):
                 // around sleep transitions it reports success while the display stays
                 // disabled, and that lie used to end the restore with every screen still
                 // black. Only enumeration ends it; otherwise move on to the next record.
                 for _ in 0..<20 {
-                    if self.physicalActiveDisplayCount() > 0 { return }
+                    if self.phantomAwareActiveDisplayCount() > 0 { return }
                     try? await Task.sleep(nanoseconds: 100_000_000)
                 }
             }

@@ -20,11 +20,11 @@ final class PhantomPortCapTests: XCTestCase {
         XCTAssertEqual(cap(builtin: 1, external: 2, portCap: 0), 1)
     }
 
-    /// A DisplayLink desk: the dock's display is a virtual device that no port carries,
-    /// and the only transport node the machine exposes is its own empty HDMI port. Lid
-    /// closed it is the only screen, lid open it sits beside the built-in; neither may
-    /// read as dark. (offPort carries it, like the built-in.)
-    func testVirtualDeviceDisplayIsNeverCapped() {
+    /// A DisplayLink desk: the dock's display keeps its product name while no port
+    /// carries it, and the only transport node the machine exposes is its own empty HDMI
+    /// port. Lid closed it is the only screen, lid open it sits beside the built-in;
+    /// neither may read as dark. (offPort carries it, like the built-in.)
+    func testNamedDisplayOffPortIsNeverCapped() {
         XCTAssertEqual(PhantomPortCap.activeCount(offPort: 1, onPort: 0, portCap: 0), 1)
         XCTAssertEqual(PhantomPortCap.activeCount(offPort: 2, onPort: 0, portCap: 0), 2)
         XCTAssertEqual(PhantomPortCap.activeCount(offPort: 1, onPort: 1, portCap: 0), 1)

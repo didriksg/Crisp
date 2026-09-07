@@ -11,12 +11,12 @@ import Foundation
 /// carrying one.
 enum PhantomPortCap {
     /// - Parameters:
-    ///   - offPort: active displays that no port carries: the built-in panel, and a
-    ///     display WindowServer draws for a virtual device (a DisplayLink dock's USB
-    ///     framebuffer, marked kCGDisplayIsVirtualDevice). Never capped: what the ports
-    ///     say has nothing to do with them. Measured on a DisplayLink dock with the lid
-    ///     closed: the machine exposes a transport node for its own HDMI port only, so
-    ///     capping that display read 0 with the screen lit.
+    ///   - offPort: active displays that no port carries: the built-in panel, and an
+    ///     external that still carries its product name while no port carries it (a
+    ///     DisplayLink dock's USB framebuffer). Never capped: what the ports say has
+    ///     nothing to do with them. Measured on a DisplayLink dock with the lid closed:
+    ///     the machine exposes a transport node for its own HDMI port only, so capping
+    ///     that display read 0 with the screen lit.
     ///   - onPort: active displays that arrived through a port.
     ///   - portCap: ports with a DisplayPort or Thunderbolt transport node and hot-plug
     ///     detect asserted, or nil when the machine exposes no transport nodes at all.
