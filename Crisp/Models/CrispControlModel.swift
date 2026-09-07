@@ -468,10 +468,16 @@ enum CrispControlCLIModel {
         let usage: String
         let summary: String
         let detail: String
-        /// The usage without the group: "power <display> off" on the group's page.
+        /// The usage without the group: "poweroff <display>" on the group's page.
         var subcommand: String { String(usage.drop { $0 != " " }.dropFirst()) }
-        /// The literal words before the first placeholder ("display power" for
-        /// "display power <display> off"): what an invocation is matched on.
+        /// The usage split at the first placeholder: ("display poweroff", "<display>").
+        var columns: (command: String, arguments: String) {
+            let parts = usage.split(separator: " ").map(String.init)
+            let command = parts.prefix { !$0.hasPrefix("<") }
+            return (command.joined(separator: " "), parts.dropFirst(command.count).joined(separator: " "))
+        }
+        /// The literal words before the first placeholder ("display poweroff" for
+        /// "display poweroff <display>"): what an invocation is matched on.
         var words: [String] {
             Array(usage.split(separator: " ").map(String.init).prefix { !$0.hasPrefix("<") })
         }
@@ -496,7 +502,7 @@ enum CrispControlCLIModel {
             The reply comes after the window server has answered. If it is lost, run
             'display list' before retrying: the display may already have changed state.
             """),
-        Entry(group: .display, usage: "display power <display> off", summary: "Ask the monitor to switch itself off", detail: """
+        Entry(group: .display, usage: "display poweroff <display>", summary: "Ask the monitor to switch itself off", detail: """
             One DDC/CI write (VCP D6). One-way: the monitor's DDC/CI goes with it and its
             power button brings it back. Firmware decides whether it is honoured; ok means
             the write was taken. The built-in display has no DDC/CI and is refused.
@@ -541,14 +547,14 @@ enum CrispControlCLIModel {
     /// theirs out. The detail lives on the group and command pages.
     static let help: String = {
         var lines = [intro, "", "Usage:  crispctl <command> <subcommand> [<args>]", ""]
-        let column = 2 + (entries.map(\.usage.count) + otherRows.map(\.usage.count)).max()!
+        let widths = columnWidths(entries.map(\.columns) + otherRows.map { ($0.usage, "") })
         for group in Group.allCases {
             lines.append(group.title + ":")
-            for entry in entries where entry.group == group { lines.append(row(entry.usage, entry.summary, column)) }
+            for entry in entries where entry.group == group { lines.append(row(entry.columns, entry.summary, widths)) }
             lines.append("")
         }
         lines.append("Other commands:")
-        for other in otherRows { lines.append(row(other.usage, other.summary, column)) }
+        for other in otherRows { lines.append(row((other.usage, ""), other.summary, widths)) }
         lines += ["", displayNote, "", contract, "", "Run 'crispctl <command> --help' for more information on a command."]
         return lines.joined(separator: "\n")
     }()
@@ -557,9 +563,13 @@ enum CrispControlCLIModel {
     /// and `crispctl display --help`: what `docker container --help` prints.
     static func help(for group: Group) -> String {
         let inGroup = entries.filter { $0.group == group }
-        let column = 2 + inGroup.map(\.subcommand.count).max()!
+        let rows = inGroup.map { entry -> (command: String, arguments: String) in
+            let columns = entry.columns
+            return (String(columns.command.dropFirst(group.rawValue.count + 1)), columns.arguments)
+        }
+        let widths = columnWidths(rows)
         var lines = [group.description, "", "Usage:  crispctl \(group.rawValue) <subcommand> [<args>]", "", "Commands:"]
-        lines += inGroup.map { row($0.subcommand, $0.summary, column) }
+        lines += zip(rows, inGroup).map { row($0, $1.summary, widths) }
         lines += ["", "Run 'crispctl \(group.rawValue) <subcommand> --help' for more information on a command."]
         return lines.joined(separator: "\n")
     }
@@ -571,8 +581,15 @@ enum CrispControlCLIModel {
         return lines.joined(separator: "\n")
     }
 
-    private static func row(_ usage: String, _ summary: String, _ column: Int) -> String {
-        "  " + usage.padding(toLength: column, withPad: " ", startingAt: 0) + summary
+    /// Three aligned columns: command, its arguments, what it does. An empty
+    /// argument column collapses so a table without arguments has no gap.
+    private static func columnWidths(_ rows: [(command: String, arguments: String)]) -> (Int, Int) {
+        let arguments = rows.map(\.arguments.count).max()!
+        return (1 + rows.map(\.command.count).max()!, arguments == 0 ? 0 : 2 + arguments)
+    }
+    private static func row(_ columns: (command: String, arguments: String), _ summary: String, _ widths: (Int, Int)) -> String {
+        "  " + columns.command.padding(toLength: widths.0, withPad: " ", startingAt: 0)
+            + columns.arguments.padding(toLength: widths.1, withPad: " ", startingAt: 0) + summary
     }
 
     enum HelpTopic: Equatable {
@@ -667,10 +684,6 @@ enum CrispControlCLIModel {
             default: break
             }
         }
-        if arguments.count == 4, arguments[0...1] == ["display", "power"], !arguments[2].isEmpty,
-           arguments[3] == "off" {
-            return .init(command: .powerOffDisplay, selector: arguments[2])
-        }
         return connectionRequest(arguments)
     }
     private static func connectionRequest(_ arguments: [String]) -> CrispControlRequest? {
@@ -679,6 +692,7 @@ enum CrispControlCLIModel {
         case "connect": return .init(command: .connectDisplay, selector: arguments[2])
         case "disconnect": return .init(command: .disconnectDisplay, selector: arguments[2])
         case "toggle": return .init(command: .toggleDisplay, selector: arguments[2])
+        case "poweroff": return .init(command: .powerOffDisplay, selector: arguments[2])
         default: return nil
         }
     }

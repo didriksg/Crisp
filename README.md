@@ -103,7 +103,7 @@ crispctl display list
 crispctl display connect <display>
 crispctl display disconnect <display>
 crispctl display toggle <display>
-crispctl display power <display> off
+crispctl display poweroff <display>
 
 crispctl brightness get <display>
 crispctl brightness set <display> <percent>
@@ -127,7 +127,7 @@ For example, `brightness boost get` returns `{"ok":true,"brightnessBoost":{"disp
 
 `display disconnect`, `connect` and `toggle` are the menu's Disconnect Display and Reconnect from a script, for a KVM desk or a button: Apple Silicon only, and a disconnect is refused when it would leave no active display. A display Crisp is holding disconnected is absent from every macOS display list, so `display list` still shows it with `connected:false` and its last-known id; use the uuid for it. Asking for the state a display is already in succeeds and changes nothing, and the reply comes after the window server has answered, which can take a few seconds.
 
-`display power <display> off` tells the monitor to switch itself off over DDC/CI (the MCCS power-mode control, VCP D6). It is one-way: a monitor that has switched itself off has no DDC/CI left to hear an on, so its power button brings it back, and whether a monitor honours the value is up to its firmware. The reply means the monitor took the write, nothing more. The built-in display is refused, since it has no DDC/CI; display sleep is the tool for that one.
+`display poweroff <display>` tells the monitor to switch itself off over DDC/CI (the MCCS power-mode control, VCP D6). It is one-way: a monitor that has switched itself off has no DDC/CI left to hear an on, so its power button brings it back, and whether a monitor honours the value is up to its firmware. The reply means the monitor took the write, nothing more. The built-in display is refused, since it has no DDC/CI; display sleep is the tool for that one.
 
 `hdr get` and `hdr set` work on the external displays Crisp shows its HDR toggle for; the built-in panel and externals without HDR modes are refused. `get` reads the live state. `set` writes once through the same path as the toggle and reports success only when the read-back agrees; when it cannot tell (a timeout, or the display going away mid-way) it says so and does not retry, so run `hdr get` before retrying. Exit codes are unchanged.
 

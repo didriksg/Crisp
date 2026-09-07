@@ -74,9 +74,9 @@ final class CrispControlModelTests: XCTestCase {
                 .init(command: .disconnectDisplay, selector: "DECC7CEF-5E36-4E9B-8F18-CE11AE5902AD")
             ),
             (["display", "toggle", "42"], .init(command: .toggleDisplay, selector: "42")),
-            (["display", "power", "42", "off"], .init(command: .powerOffDisplay, selector: "42")),
+            (["display", "poweroff", "42"], .init(command: .powerOffDisplay, selector: "42")),
             (
-                ["display", "power", "decc7cef-5e36-4e9b-8f18-ce11ae5902ad", "off"],
+                ["display", "poweroff", "decc7cef-5e36-4e9b-8f18-ce11ae5902ad"],
                 .init(command: .powerOffDisplay, selector: "decc7cef-5e36-4e9b-8f18-ce11ae5902ad")
             )
         ]
@@ -95,10 +95,10 @@ final class CrispControlModelTests: XCTestCase {
             XCTAssertEqual(CrispControlCLIModel.parse(arguments: arguments), .help(.group(.display)), "\(arguments)")
         }
         XCTAssertEqual(CrispControlCLIModel.parse(arguments: ["hdr"]), .help(.group(.hdr)))
-        let power = CrispControlCLIModel.entries.first { $0.usage == "display power <display> off" }!
+        let power = CrispControlCLIModel.entries.first { $0.usage == "display poweroff <display>" }!
         let boostSet = CrispControlCLIModel.entries.first { $0.usage == "brightness boost set <display> on|off" }!
-        XCTAssertEqual(CrispControlCLIModel.parse(arguments: ["display", "power", "--help"]), .help(.command(power)))
-        XCTAssertEqual(CrispControlCLIModel.parse(arguments: ["display", "power", "3", "-h"]), .help(.command(power)))
+        XCTAssertEqual(CrispControlCLIModel.parse(arguments: ["display", "poweroff", "--help"]), .help(.command(power)))
+        XCTAssertEqual(CrispControlCLIModel.parse(arguments: ["display", "poweroff", "3", "-h"]), .help(.command(power)))
         XCTAssertEqual(CrispControlCLIModel.parse(arguments: ["brightness", "boost", "set", "--help"]), .help(.command(boostSet)))
         XCTAssertEqual(CrispControlCLIModel.parse(arguments: ["brightness", "nope", "--help"]), .help(.group(.brightness)))
         for arguments in [["version"], ["--version"]] {
@@ -106,20 +106,19 @@ final class CrispControlModelTests: XCTestCase {
         }
         // The top-level reference names every command, each group's page names its own
         // subcommands without the group, and each command's page opens with its usage.
-        let commands = [
-            "display list", "brightness get <display>", "brightness set <display>",
-            "brightness boost get <display>", "brightness boost set <display>",
-            "hdr get <display>", "hdr set <display>", "display power <display> off",
-            "display connect <display>", "display disconnect <display>", "display toggle <display>"
-        ]
-        for command in commands + ["help", "version", "crispctl <command>"] {
-            XCTAssertTrue(CrispControlCLIModel.help.contains(command), command)
+        // The tables are three columns, so a command and its arguments are padded apart.
+        for word in ["help", "version", "crispctl <command>"] {
+            XCTAssertTrue(CrispControlCLIModel.help.contains(word), word)
         }
-        XCTAssertEqual(CrispControlCLIModel.entries.count, commands.count)
+        XCTAssertEqual(CrispControlCLIModel.entries.count, 11)
         for entry in CrispControlCLIModel.entries {
+            let columns = entry.columns
+            XCTAssertTrue(CrispControlCLIModel.help.contains("  " + columns.command + " "), entry.usage)
+            XCTAssertTrue(columns.arguments.isEmpty || CrispControlCLIModel.help.contains(columns.arguments), entry.usage)
             let page = CrispControlCLIModel.help(for: entry.group)
-            XCTAssertTrue(page.contains("  " + entry.subcommand + " "), entry.usage)
-            XCTAssertFalse(page.contains("  " + entry.usage), entry.usage)
+            let name = String(columns.command.dropFirst(entry.group.rawValue.count + 1))
+            XCTAssertTrue(page.contains("  " + name + " "), entry.usage)
+            XCTAssertFalse(page.contains("  " + entry.group.rawValue + " "), entry.usage)
             XCTAssertTrue(CrispControlCLIModel.help(for: entry).hasPrefix("Usage:  crispctl " + entry.usage + "\n"), entry.usage)
         }
     }
@@ -136,7 +135,8 @@ final class CrispControlModelTests: XCTestCase {
             (["brightness", "boost", "set", "42"], "usage: crispctl brightness boost set <display> on|off"),
             (["brightness", "boost"],
              "usage: crispctl brightness boost get <display> or crispctl brightness boost set <display> on|off"),
-            (["display", "power", "42", "on"], "usage: crispctl display power <display> off")
+            (["display", "poweroff", "42", "now"], "usage: crispctl display poweroff <display>"),
+            (["display", "power", "42", "off"], "unknown command 'display power'; run 'crispctl display' for the display commands")
         ]
         for (arguments, message) in cases {
             XCTAssertEqual(CrispControlCLIModel.parse(arguments: arguments), .failure(message), "\(arguments)")
@@ -161,9 +161,9 @@ final class CrispControlModelTests: XCTestCase {
             ["hdr", "set", "42", "on", "extra"],
             ["display", "toggle"], ["display", "toggle", ""], ["display", "reboot", "42"],
             ["display", "toggle", "42", "now"],
-            // Power is one-way by design: there is no on, standby or bare form.
-            ["display", "power", "42"], ["display", "power", "42", "on"], ["display", "power", "", "off"],
-            ["display", "power", "42", "off", "now"]
+            // Power is one-way by design: there is no on, standby or two-word form.
+            ["display", "poweroff"], ["display", "poweroff", ""], ["display", "poweroff", "42", "off"],
+            ["display", "power", "42", "off"]
         ]
         for arguments in cases {
             guard case .failure = CrispControlCLIModel.parse(arguments: arguments) else {
