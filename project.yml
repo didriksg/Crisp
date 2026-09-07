@@ -81,6 +81,7 @@ targets:
       - path: Crisp/Models/DisplayPreset.swift
       - path: Crisp/Models/CrispControlModel.swift
       - path: Crisp/Models/BrightnessKeySteps.swift
+      - path: Crisp/Models/PhantomPortCap.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.crisp.tests
