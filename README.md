@@ -96,28 +96,32 @@ Crisp ships with `crispctl`, a command line tool for the same controls. It lives
 xcodegen generate && xcodebuild -scheme crispctl -configuration Release
 ```
 
-It supports eleven control commands:
+`crispctl help` prints the commands, and `crispctl display`, `crispctl brightness` or `crispctl hdr` one group with `--help` on any command for its details; point an agent at them before it does anything else.
 
-```sh
-crispctl display list
-crispctl display connect <display>
-crispctl display disconnect <display>
-crispctl display toggle <display>
-crispctl display poweroff <display>
+```
+Display commands:
+  display list                              List displays as JSON
+  display connect      <display>            Put a disconnected display back
+  display disconnect   <display>            Take a display out of the layout
+  display toggle       <display>            Disconnect if connected, connect if not
+  display poweroff     <display>            Ask the monitor to switch itself off
 
-crispctl brightness get <display>
-crispctl brightness set <display> <percent>
-crispctl brightness boost get <display>
-crispctl brightness boost set <display> on|off
+Brightness commands:
+  brightness get       <display>            Read brightness and its live maximum
+  brightness set       <display> <percent>  Set brightness
+  brightness boost get <display>            Read Extra Brightness state
+  brightness boost set <display> on|off     Switch Extra Brightness
 
-crispctl hdr get <display>
-crispctl hdr set <display> on|off
+HDR commands:
+  hdr get              <display>            Read HDR state
+  hdr set              <display> on|off     Switch HDR on an eligible external
 
-crispctl help
-crispctl version
+Other commands:
+  help                                      Show this help (also -h, --help)
+  version                                   Show the Crisp version this tool ships with (also --version)
 ```
 
-`<display>` is a runtime id or a uuid from `display list`. Ids can change after an unplug or a wake; uuids do not, so scripts should prefer them. `crispctl help` prints the reference (commands, output format, exit codes) and `crispctl display`, `crispctl brightness` or `crispctl hdr` the details of one group; point an agent at them before it does anything else.
+`<display>` is a runtime id or a uuid from `display list`. Ids can change after an unplug or a wake; uuids do not, so scripts should prefer them.
 
 `display list` reports each display's uuid, current resolution, logical `brightness`, logical `maxBrightness`, and brightness backend. The backend is Crisp's current route (`builtin`, `ddc`, `software`, or `unknown` while external DDC availability is undetermined); HDR software dimming reports `software`. Output is one JSON object per call.
 
