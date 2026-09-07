@@ -93,13 +93,27 @@ private func fail(_ message: String, code: Int32) -> Never {
     FileHandle.standardError.write(CrispControlModel.encode(.failure(message)))
     Darwin.exit(code)
 }
+/// The version of the Crisp this tool ships inside: crispctl lives at
+/// Crisp.app/Contents/MacOS/crispctl, so the app's Info.plist is two levels up from
+/// the executable once the /usr/local/bin link is resolved.
+private func bundledVersion() -> String {
+    guard let executable = Bundle.main.executableURL?.resolvingSymlinksInPath() else { return "unknown" }
+    let plist = executable.deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Info.plist")
+    guard let info = NSDictionary(contentsOf: plist), let version = info["CFBundleShortVersionString"] as? String else {
+        return "unknown (not inside Crisp.app)"
+    }
+    return version
+}
 let request: CrispControlRequest
 switch CrispControlCLIModel.parse(arguments: Array(CommandLine.arguments.dropFirst())) {
 case let .request(value): request = value
-case .help:
-    print(CrispControlCLIModel.help)
+case let .help(group):
+    print(group.map(CrispControlCLIModel.help(for:)) ?? CrispControlCLIModel.help)
     Darwin.exit(EXIT_SUCCESS)
-case .failure: fail(CrispControlCLIModel.usage, code: 2)
+case .version:
+    print("crispctl \(bundledVersion())")
+    Darwin.exit(EXIT_SUCCESS)
+case let .failure(message): fail(message, code: 2)
 }
 do {
     let client = try connectToCrisp(

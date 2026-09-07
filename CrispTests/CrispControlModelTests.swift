@@ -87,24 +87,59 @@ final class CrispControlModelTests: XCTestCase {
 
     func testParserReturnsHelpForNoArgumentsAndHelpFlags() {
         for arguments in [[], ["help"], ["--help"], ["-h"]] {
-            XCTAssertEqual(CrispControlCLIModel.parse(arguments: arguments), .help, "\(arguments)")
+            XCTAssertEqual(CrispControlCLIModel.parse(arguments: arguments), .help(nil), "\(arguments)")
         }
-        // The reference must name every command it documents, and the usage line must
-        // point at it, so a wrong invocation still leads to the full text.
-        for command in [
+        // A bare group, or anything in it that asks, prints that group's reference.
+        for arguments in [["display"], ["display", "help"], ["display", "--help"], ["display", "-h"],
+                          ["display", "power", "--help"]] {
+            XCTAssertEqual(CrispControlCLIModel.parse(arguments: arguments), .help(.display), "\(arguments)")
+        }
+        XCTAssertEqual(CrispControlCLIModel.parse(arguments: ["brightness", "set", "-h"]), .help(.brightness))
+        XCTAssertEqual(CrispControlCLIModel.parse(arguments: ["hdr"]), .help(.hdr))
+        for arguments in [["version"], ["--version"]] {
+            XCTAssertEqual(CrispControlCLIModel.parse(arguments: arguments), .version, "\(arguments)")
+        }
+        // The top-level reference names every command, and each group's reference names
+        // its own, so a wrong invocation still leads to the full text.
+        let commands = [
             "display list", "brightness get <display>", "brightness set <display>",
             "brightness boost get <display>", "brightness boost set <display>",
-            "hdr get <display>", "hdr set <display>",
-            "display connect <display>", "display disconnect <display>", "display toggle <display>", "help"
-        ] {
+            "hdr get <display>", "hdr set <display>", "display power <display> off",
+            "display connect <display>", "display disconnect <display>", "display toggle <display>"
+        ]
+        for command in commands + ["help", "version", "crispctl display"] {
             XCTAssertTrue(CrispControlCLIModel.help.contains(command), command)
         }
-        XCTAssertTrue(CrispControlCLIModel.usage.contains("crispctl help"))
+        for group in CrispControlCLIModel.Group.allCases {
+            let text = CrispControlCLIModel.help(for: group)
+            for command in commands where command.hasPrefix(group.rawValue + " ") {
+                XCTAssertTrue(text.contains(command), "\(group): \(command)")
+            }
+        }
+    }
+
+    func testParserNamesTheUsageAWrongInvocationWasClosestTo() {
+        let cases: [([String], String)] = [
+            (["bogus"], "unknown command 'bogus'; run 'crispctl help' for the commands"),
+            (["help", "me"], "unknown command 'help'; run 'crispctl help' for the commands"),
+            (["displays", "list"], "unknown command 'displays'; run 'crispctl help' for the commands"),
+            (["display", "reboot", "42"], "unknown command 'display reboot'; run 'crispctl display' for the display commands"),
+            (["display", "list", "--json"], "usage: crispctl display list"),
+            (["brightness", "set", "42"], "usage: crispctl brightness set <display> <percent>"),
+            (["brightness", "set", "42", "nan"], "usage: crispctl brightness set <display> <percent>"),
+            (["brightness", "boost", "set", "42"], "usage: crispctl brightness boost set <display> on|off"),
+            (["brightness", "boost"],
+             "usage: crispctl brightness boost get <display> or crispctl brightness boost set <display> on|off"),
+            (["display", "power", "42", "on"], "usage: crispctl display power <display> off")
+        ]
+        for (arguments, message) in cases {
+            XCTAssertEqual(CrispControlCLIModel.parse(arguments: arguments), .failure(message), "\(arguments)")
+        }
     }
 
     func testParserRejectsInvalidArityIDsOptionsAndPercent() {
         let cases = [
-            ["help", "me"], ["display"], ["displays", "list"], ["display", "list", "--json"],
+            ["help", "me"], ["displays", "list"], ["display", "list", "--json"],
             ["brightness", "get"], ["brightness", "get", ""], ["brightness", "set", "42"],
             ["brightness", "set", "42", "nan"], ["brightness", "set", "42", "inf"],
             ["brightness", "set", "42", "-0.1"],
@@ -125,7 +160,9 @@ final class CrispControlModelTests: XCTestCase {
             ["display", "power", "42", "off", "now"]
         ]
         for arguments in cases {
-            XCTAssertEqual(CrispControlCLIModel.parse(arguments: arguments), .failure)
+            guard case .failure = CrispControlCLIModel.parse(arguments: arguments) else {
+                XCTFail("\(arguments) parsed"); continue
+            }
         }
         for value in ["0", "100", "100.1", "175"] {
             guard case let .request(request) = CrispControlCLIModel.parse(

@@ -442,55 +442,128 @@ enum CrispControlModel {
     }
 }
 enum CrispControlCLIModel {
-    static let usage = "usage: crispctl <command> [<args>]; run 'crispctl help' for the commands"
+    enum Group: String, CaseIterable {
+        case display, brightness, hdr
+        var title: String {
+            switch self {
+            case .display: return "Display commands"
+            case .brightness: return "Brightness commands"
+            case .hdr: return "HDR commands"
+            }
+        }
+    }
 
-    /// The full reference, for a person at a terminal and for an agent that reads it
-    /// before acting. Kept in the shared model so the app and the CLI cannot drift.
-    static let help = """
-        Usage: crispctl <command> [<args>]
+    /// One documented command: the usage as typed, a one-line summary for the
+    /// top-level table, and the detail the group's help prints under it. Kept in the
+    /// shared model so the app and the CLI cannot drift.
+    struct Entry {
+        let group: Group
+        let usage: String
+        let summary: String
+        let detail: String
+        /// The literal words before the first placeholder ("display power" for
+        /// "display power <display> off"): what a wrong invocation is matched on.
+        var words: [String] {
+            Array(usage.split(separator: " ").map(String.init).prefix { !$0.hasPrefix("<") })
+        }
+    }
 
+    static let entries: [Entry] = [
+        Entry(group: .display, usage: "display list", summary: "List displays as JSON", detail: """
+            Each display: id, uuid, name, resolution, brightness, maxBrightness,
+            brightnessBackend and connected (false while Crisp holds it off).
+            """),
+        Entry(group: .display, usage: "display connect <display>", summary: "Put a disconnected display back", detail: ""),
+        Entry(group: .display, usage: "display disconnect <display>", summary: "Take a display out of the layout", detail: """
+            As the menu's Disconnect Display does; refused if it would leave no active
+            display. Apple Silicon only.
+            """),
+        Entry(group: .display, usage: "display toggle <display>", summary: "Disconnect if connected, connect if not", detail: ""),
+        Entry(group: .display, usage: "display power <display> off", summary: "Ask the monitor to switch itself off", detail: """
+            One DDC/CI write (VCP D6). One-way: the monitor's DDC/CI goes with it and its
+            power button brings it back. Firmware decides whether it is honoured; ok means
+            the write was taken.
+            """),
+        Entry(group: .brightness, usage: "brightness get <display>", summary: "Read brightness and its live maximum", detail: ""),
+        Entry(group: .brightness, usage: "brightness set <display> <percent>", summary: "Set brightness", detail: """
+            0-100, or up to maxBrightness while Extra Brightness is enabled and eligible;
+            boosted values past the live maximum are refused, not clamped. A set is a
+            manual change like the slider and clears the active preset. The reply means
+            Crisp accepted the request, not that the panel was read back.
+            """),
+        Entry(group: .brightness, usage: "brightness boost get <display>", summary: "Read Extra Brightness state",
+              detail: "Whether the display is eligible and whether it is on."),
+        Entry(group: .brightness, usage: "brightness boost set <display> on|off", summary: "Switch Extra Brightness", detail: ""),
+        Entry(group: .hdr, usage: "hdr get <display>", summary: "Read HDR state",
+              detail: "The live state of an eligible external display."),
+        Entry(group: .hdr, usage: "hdr set <display> on|off", summary: "Switch HDR on an eligible external", detail: """
+            Verified against the live state after the switch. If the reply is lost, do not
+            retry automatically: run 'hdr get' first.
+            """)
+    ]
+    static let otherRows: [(usage: String, summary: String)] = [
+        ("help", "Show this help (also -h, --help)"),
+        ("version", "Show the Crisp version this tool ships with (also --version)")
+    ]
+
+    static let intro = """
         Control a running Crisp from the command line. Crisp must be running for the
         same user; crispctl talks to it over a local socket and never launches it.
-
-        Commands:
-          display list                           Displays as JSON: id, uuid, name, resolution,
-                                                 brightness, maxBrightness, brightnessBackend,
-                                                 connected (false while Crisp holds it off)
-          display connect <display>              Put a disconnected display back
-          display disconnect <display>           Take the display out of the layout, as the menu's
-                                                 Disconnect Display does; refused if it would leave
-                                                 no active display. Apple Silicon only
-          display toggle <display>               Disconnect if connected, connect if not
-          display power <display> off            Tell the monitor to switch itself off over DDC/CI
-                                                 (VCP D6). One-way: its DDC/CI goes with it and the
-                                                 power button brings it back. Firmware decides
-                                                 whether it is honoured; ok means the write was taken
-
-          brightness get <display>               Read logical brightness and its live maximum
-          brightness set <display> <percent>     Set 0-100, or up to maxBrightness while Extra
-                                                 Brightness is enabled and eligible; clears preset
-          brightness boost get <display>         Read Extra Brightness eligibility and state
-          brightness boost set <display> on|off  Enable or disable Extra Brightness
-
-          hdr get <display>                      Read live HDR state for an eligible external display
-          hdr set <display> on|off               Set HDR on an eligible external and verify live state
-
-          help                                   Show this help (also -h, --help)
-
+        """
+    static let displayNote = """
         <display> is a runtime id or a uuid from 'display list'. Ids can change after
         an unplug or a wake; uuids do not. A disconnected display is gone from every
         macOS display list, so its id is only a last-known value: use the uuid for it.
+        """
+    static let connectionNote = """
         Asking for the connection state a display is already in succeeds and changes
         nothing. A connection reply comes after the window server has answered.
-
+        """
+    static let contract = """
         Output is one JSON object per call: {"ok":true,...} or {"ok":false,"error":"..."}.
         Exit codes: 0 ok, 1 Crisp unreachable, 2 bad arguments, 3 Crisp refused.
         """
 
+    /// The top-level reference: one line per command, the way docker and gh lay
+    /// theirs out. The detail lives in each group's own help.
+    static let help: String = {
+        var lines = [intro, "", "Usage:  crispctl <command> <subcommand> [<args>]", ""]
+        for group in Group.allCases {
+            lines.append(group.title + ":")
+            for entry in entries where entry.group == group { lines.append(row(entry.usage, entry.summary)) }
+            lines.append("")
+        }
+        lines.append("Other commands:")
+        for other in otherRows { lines.append(row(other.usage, other.summary)) }
+        lines += ["", displayNote, contract, "",
+                  "Run 'crispctl <command>' for the details of a command group, e.g. 'crispctl display'."]
+        return lines.joined(separator: "\n")
+    }()
+
+    /// One group's reference, printed for `crispctl display`, `crispctl display help`
+    /// and any invocation in the group that ends in --help or -h.
+    static func help(for group: Group) -> String {
+        var lines = ["Usage:  crispctl \(group.rawValue) <subcommand> [<args>]", "", group.title + ":"]
+        for entry in entries where entry.group == group {
+            lines.append(row(entry.usage, entry.summary))
+            for line in entry.detail.split(separator: "\n") { lines.append("      " + line) }
+        }
+        lines += ["", displayNote]
+        if group == .display { lines.append(connectionNote) }
+        lines.append(contract)
+        return lines.joined(separator: "\n")
+    }
+
+    private static let column = 2 + (entries.map(\.usage.count) + otherRows.map(\.usage.count)).max()!
+    private static func row(_ usage: String, _ summary: String) -> String {
+        "  " + usage.padding(toLength: column, withPad: " ", startingAt: 0) + summary
+    }
+
     enum ParseResult: Equatable {
         case request(CrispControlRequest)
-        case help
-        case failure
+        case help(Group?)
+        case version
+        case failure(String)
     }
     enum ResponseResult: Equatable { case success, serverFailure, invalid }
     static func receiveTimeoutSeconds(for command: CrispControlRequest.Command) -> Int {
@@ -506,53 +579,83 @@ enum CrispControlCLIModel {
         }
     }
     static func parse(arguments: [String]) -> ParseResult {
-        if arguments.isEmpty || arguments == ["help"] || arguments == ["--help"] || arguments == ["-h"] {
-            return .help
+        if let help = helpRequest(arguments) { return help }
+        if let request = matchedRequest(arguments) { return .request(request) }
+        return .failure(usageMessage(for: arguments))
+    }
+    private static func helpRequest(_ arguments: [String]) -> ParseResult? {
+        let helpWords: Set<String> = ["help", "--help", "-h"]
+        if arguments.isEmpty || (arguments.count == 1 && helpWords.contains(arguments[0])) { return .help(nil) }
+        if arguments == ["version"] || arguments == ["--version"] { return .version }
+        guard let group = Group(rawValue: arguments[0]) else { return nil }
+        if arguments.count == 1 || helpWords.contains(arguments[1]) || arguments.last == "--help" || arguments.last == "-h" {
+            return .help(group)
         }
+        return nil
+    }
+    /// What a wrong invocation gets: the usage of the command it was closest to, or,
+    /// for a word that is no command at all, where the commands are listed.
+    static func usageMessage(for arguments: [String]) -> String {
+        guard let first = arguments.first, let group = Group(rawValue: first) else {
+            let word = arguments.first.map { "unknown command '\($0)'; " } ?? ""
+            return word + "run 'crispctl help' for the commands"
+        }
+        let inGroup = entries.filter { $0.group == group }
+        // The longest command whose literal words open the invocation, else every
+        // command the invocation is a prefix of ("brightness boost" names two).
+        let opened = inGroup.filter { arguments.starts(with: $0.words) }.max { $0.words.count < $1.words.count }
+        let matches = opened.map { [$0] } ?? inGroup.filter { $0.words.starts(with: arguments) }
+        guard !matches.isEmpty else {
+            let name = arguments.prefix(2).joined(separator: " ")
+            return "unknown command '\(name)'; run 'crispctl \(group.rawValue)' for the \(group.rawValue) commands"
+        }
+        return "usage: " + matches.map { "crispctl " + $0.usage }.joined(separator: " or ")
+    }
+    private static func matchedRequest(_ arguments: [String]) -> CrispControlRequest? {
         if arguments == ["display", "list"] {
-            return .request(.init(command: .list))
+            return .init(command: .list)
         }
         if arguments.count == 3, arguments[0...1] == ["brightness", "get"], !arguments[2].isEmpty {
-            return .request(.init(command: .getBrightness, selector: arguments[2]))
+            return .init(command: .getBrightness, selector: arguments[2])
         }
         if arguments.count == 4, arguments[0...1] == ["brightness", "set"], !arguments[2].isEmpty,
            let value = Double(arguments[3]), value.isFinite, value >= 0 {
-            return .request(.init(command: .setBrightness, brightness: value, selector: arguments[2]))
+            return .init(command: .setBrightness, brightness: value, selector: arguments[2])
         }
         if arguments.count == 4, arguments[0...2] == ["brightness", "boost", "get"],
            !arguments[3].isEmpty {
-            return .request(.init(command: .getBrightnessBoost, selector: arguments[3]))
+            return .init(command: .getBrightnessBoost, selector: arguments[3])
         }
         if arguments.count == 5, arguments[0...2] == ["brightness", "boost", "set"],
            !arguments[3].isEmpty {
             switch arguments[4] {
-            case "on": return .request(.init(command: .setBrightnessBoost, selector: arguments[3], enabled: true))
-            case "off": return .request(.init(command: .setBrightnessBoost, selector: arguments[3], enabled: false))
+            case "on": return .init(command: .setBrightnessBoost, selector: arguments[3], enabled: true)
+            case "off": return .init(command: .setBrightnessBoost, selector: arguments[3], enabled: false)
             default: break
             }
         }
         if arguments.count == 3, arguments[0...1] == ["hdr", "get"], !arguments[2].isEmpty {
-            return .request(.init(command: .getHDR, selector: arguments[2]))
+            return .init(command: .getHDR, selector: arguments[2])
         }
         if arguments.count == 4, arguments[0...1] == ["hdr", "set"], !arguments[2].isEmpty {
             switch arguments[3] {
-            case "on": return .request(.init(command: .setHDR, selector: arguments[2], enabled: true))
-            case "off": return .request(.init(command: .setHDR, selector: arguments[2], enabled: false))
+            case "on": return .init(command: .setHDR, selector: arguments[2], enabled: true)
+            case "off": return .init(command: .setHDR, selector: arguments[2], enabled: false)
             default: break
             }
         }
         if arguments.count == 4, arguments[0...1] == ["display", "power"], !arguments[2].isEmpty,
            arguments[3] == "off" {
-            return .request(.init(command: .powerOffDisplay, selector: arguments[2]))
+            return .init(command: .powerOffDisplay, selector: arguments[2])
         }
-        return connectionRequest(arguments) ?? .failure
+        return connectionRequest(arguments)
     }
-    private static func connectionRequest(_ arguments: [String]) -> ParseResult? {
+    private static func connectionRequest(_ arguments: [String]) -> CrispControlRequest? {
         guard arguments.count == 3, arguments[0] == "display", !arguments[2].isEmpty else { return nil }
         switch arguments[1] {
-        case "connect": return .request(.init(command: .connectDisplay, selector: arguments[2]))
-        case "disconnect": return .request(.init(command: .disconnectDisplay, selector: arguments[2]))
-        case "toggle": return .request(.init(command: .toggleDisplay, selector: arguments[2]))
+        case "connect": return .init(command: .connectDisplay, selector: arguments[2])
+        case "disconnect": return .init(command: .disconnectDisplay, selector: arguments[2])
+        case "toggle": return .init(command: .toggleDisplay, selector: arguments[2])
         default: return nil
         }
     }

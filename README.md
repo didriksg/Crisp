@@ -114,9 +114,10 @@ crispctl hdr get <display>
 crispctl hdr set <display> on|off
 
 crispctl help
+crispctl version
 ```
 
-`<display>` is a runtime id or a uuid from `display list`. Ids can change after an unplug or a wake; uuids do not, so scripts should prefer them. `crispctl help` prints the reference (commands, output format, exit codes); point an agent at it before it does anything else.
+`<display>` is a runtime id or a uuid from `display list`. Ids can change after an unplug or a wake; uuids do not, so scripts should prefer them. `crispctl help` prints the reference (commands, output format, exit codes) and `crispctl display`, `crispctl brightness` or `crispctl hdr` the details of one group; point an agent at them before it does anything else.
 
 `display list` reports each display's uuid, current resolution, logical `brightness`, logical `maxBrightness`, and brightness backend. The backend is Crisp's current route (`builtin`, `ddc`, `software`, or `unknown` while external DDC availability is undetermined); HDR software dimming reports `software`. Output is one JSON object per call.
 
