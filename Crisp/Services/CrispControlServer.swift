@@ -205,21 +205,6 @@ final class CrispControlServer {
         if let change = result.connectionChange, let error = await apply(change, among: managedDisplays) {
             return CrispControlModel.encode(.failure(error))
         }
-        if let change = result.powerChange {
-            guard let display = managedDisplays.first(where: { $0.displayID == change.displayID }) else {
-                return CrispControlModel.encode(.failure("display not found"))
-            }
-            let taken = await withCheckedContinuation { continuation in
-                DDCService.shared.writeAsync(
-                    displayID: display.displayID,
-                    command: DDCService.powerModeVCP,
-                    value: DDCService.powerModeOff
-                ) { continuation.resume(returning: $0) }
-            }
-            return CrispControlModel.encode(
-                taken ? .success() : .failure("the monitor did not take the DDC power write")
-            )
-        }
         return CrispControlModel.encode(result.response)
     }
 
