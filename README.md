@@ -90,7 +90,7 @@ To keep Keep Awake off on company Macs, push a configuration profile for the `co
 
 ## Automation
 
-Source builds include a minimal `crispctl` target:
+Crisp ships with `crispctl`, a command line tool for the same controls. It lives inside the app at `Crisp.app/Contents/MacOS/crispctl`; Settings > crispctl Command Line Tool links it into `/usr/local/bin` after one admin prompt, and the Homebrew cask makes the same link on install. Source builds get it with:
 
 ```sh
 xcodegen generate && xcodebuild -scheme crispctl -configuration Release
@@ -123,8 +123,6 @@ For example, `brightness boost get` returns `{"ok":true,"brightnessBoost":{"disp
 `display disconnect`, `connect` and `toggle` are the menu's Disconnect Display and Reconnect from a script, for a KVM desk or a button: Apple Silicon only, and a disconnect is refused when it would leave no active display. A display Crisp is holding disconnected is absent from every macOS display list, so `display list` still shows it with `connected:false` and its last-known id; use the uuid for it. Asking for the state a display is already in succeeds and changes nothing, and the reply comes after the window server has answered, which can take a few seconds.
 
 `hdr get` and `hdr set` work on the external displays Crisp shows its HDR toggle for; the built-in panel and externals without HDR modes are refused. `get` reads the live state. `set` writes once through the same path as the toggle and reports success only when the read-back agrees; when it cannot tell (a timeout, or the display going away mid-way) it says so and does not retry, so run `hdr get` before retrying. Exit codes are unchanged.
-
-The current public Crisp 1.5.0 release, normal DMG, and Homebrew cask do not include `crispctl`.
 
 ## Building
 

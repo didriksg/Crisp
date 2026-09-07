@@ -50,6 +50,18 @@ for a in arm64 x86_64; do
 done
 lipo -create "$BUILD/Crisp-arm64" "$BUILD/Crisp-x86_64" -output "$APP/Contents/MacOS/Crisp"
 
+# crispctl ships inside the bundle (Contents/MacOS/crispctl); Settings links it
+# into /usr/local/bin and the Homebrew cask's binary stanza does the same. The
+# source list mirrors the crispctl target in project.yml. No -parse-as-library:
+# main.swift is top-level code.
+echo "==> Compiling crispctl (arm64 + x86_64)…"
+for a in arm64 x86_64; do
+  swiftc -O -target "$a-apple-macos14.0" \
+    Sources/crispctl/main.swift Crisp/Models/CrispControlModel.swift Crisp/Models/BrightnessKeySteps.swift \
+    -o "$BUILD/crispctl-$a"
+done
+lipo -create "$BUILD/crispctl-arm64" "$BUILD/crispctl-x86_64" -output "$APP/Contents/MacOS/crispctl"
+
 echo "==> Embedding Sparkle.framework…"
 mkdir -p "$APP/Contents/Frameworks"
 cp -R "$ROOT/vendor/Sparkle/Sparkle.framework" "$APP/Contents/Frameworks/"
@@ -123,7 +135,7 @@ PLIST
 # Sparkle's docs explicitly warn against it.
 xattr -cr "$APP"
 SPARKLE_FW="$APP/Contents/Frameworks/Sparkle.framework"
-SPARKLE_NESTED=("$SPARKLE_FW/Versions/B/Autoupdate" "$SPARKLE_FW/Versions/B/Updater.app" "$SPARKLE_FW")
+SPARKLE_NESTED=("$SPARKLE_FW/Versions/B/Autoupdate" "$SPARKLE_FW/Versions/B/Updater.app" "$SPARKLE_FW" "$APP/Contents/MacOS/crispctl")
 if [ -n "${CRISP_SIGN_ID:-}" ]; then
   echo "==> Signing (Developer ID: $CRISP_SIGN_ID, hardened runtime)…"
   for item in "${SPARKLE_NESTED[@]}"; do
@@ -188,6 +200,7 @@ fi
 SHA=$(shasum -a 256 "$DMG" | awk '{print $1}')
 echo "==> Built $DMG"
 echo "    version $(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$APP/Contents/Info.plist"), archs $(lipo -archs "$APP/Contents/MacOS/Crisp"), sha256 $SHA"
+echo "    crispctl archs $(lipo -archs "$APP/Contents/MacOS/crispctl")"
 
 if [ "$PUBLISH" != true ]; then
   echo "==> Dry run. Pass --publish to create the release and bump the tap."

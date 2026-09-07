@@ -11,6 +11,10 @@ the `project.yml` version bump. In-app updates go live only when GitHub Pages
 serves the new appcast; until then installed apps simply keep waiting (they
 never break, they just see no update).
 
+## crispctl
+
+`release.sh` compiles `crispctl` universal from the same source list as the `crispctl` target in `project.yml` and puts it at `Crisp.app/Contents/MacOS/crispctl`, signed inside-out before the app like Sparkle's nested code. Settings links it into `/usr/local/bin`; the cask needs the same link once, so the first release that ships it also sends homebrew/cask a PR adding `binary "#{appdir}/Crisp.app/Contents/MacOS/crispctl"` under the `app` stanza. Autobump only moves the version, so that line has to be added by hand.
+
 ## Signing and notarization
 
 `release.sh` signs, notarizes and staples two separate artifacts: the app,
