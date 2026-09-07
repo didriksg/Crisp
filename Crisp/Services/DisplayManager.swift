@@ -292,6 +292,9 @@ class DisplayManager: ObservableObject {
         // A physical unplug bypasses disconnect()'s last-screen guard: internal disabled via
         // Crisp + external cable pulled = zero active displays, all black. Bring one back.
         PhysicalDisplayToggleService.shared.restoreIfNoActiveDisplay()
+        // Dock plugged / pulled, lid opened, display woken: let the auto-switch rule settle the
+        // built-in panel's state once the reconfiguration burst has died down.
+        AutoDisplaySwitchService.shared.evaluateSoon()
 
         // Keep the built-in brightness observer pointed at the current built-in so the
         // slider tracks system brightness changes (keys, auto-brightness) live.

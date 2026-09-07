@@ -36,7 +36,11 @@ struct DisconnectDisplayRow: View {
                     busy = true
                     errorMessage = nil
                     Task { @MainActor in
+                        let uuid = display.displayUUID
                         let result = await service.disconnect(display)
+                        // Doing it by hand clears any standing "keep the built-in" override,
+                        // so auto dock switching takes the panel back over from here.
+                        AutoDisplaySwitchService.shared.userDidDisconnect(uuid: uuid)
                         displayManager.refreshDisplays()
                         if case .failure(let err) = result {
                             errorMessage = err.description
@@ -106,6 +110,9 @@ struct ReconnectDisplaysSection: View {
         busyUUIDs.insert(record.uuid)
         Task { @MainActor in
             _ = await service.reconnect(uuid: record.uuid)
+            // Bringing the built-in back by hand while still docked overrides auto dock
+            // switching until the external set changes, instead of being undone seconds later.
+            AutoDisplaySwitchService.shared.userDidReconnect(uuid: record.uuid)
             displayManager.refreshDisplays()
             busyUUIDs.remove(record.uuid)
         }

@@ -655,6 +655,43 @@ struct SettingsView: View {
                 .padding(.vertical, 3)
             }
 
+            // Auto dock switching (Apple Silicon laptops only): the built-in panel follows
+            // whether an external is attached, so docking and undocking stop being two menu
+            // trips. Off by default, since switching it on takes a screen away by itself.
+            if AutoDisplaySwitchService.shared.isAvailable {
+                VStack(alignment: .leading, spacing: 0) {
+                    Toggle(isOn: Binding(
+                        get: { settings.autoBuiltinFollowsExternal },
+                        set: { newValue in
+                            withAnimation(.panelResize) { settings.autoBuiltinFollowsExternal = newValue }
+                        }
+                    )) {
+                        HStack(spacing: 8) {
+                            MenuItemIcon(systemName: "laptopcomputer.and.arrow.down",
+                                         color: .orange,
+                                         active: settings.autoBuiltinFollowsExternal)
+                                .accessibilityHidden(true)
+                            Text("Disconnect Built-in While Docked")
+                                .font(.body)
+                            Spacer()
+                        }
+                    }
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 3)
+
+                    if settings.autoBuiltinFollowsExternal {
+                        Text("The built-in display switches off while an external is connected, and back on when the last is unplugged.")
+                            .font(.caption)
+                            .foregroundColor(.secondaryReadable)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.horizontal, 12)
+                            .padding(.bottom, 4)
+                    }
+                }
+            }
+
             // Which displays the hardware brightness keys adjust. Once Accessibility is granted,
             // an expandable row + checkmark list (the Resolution / Color Profile idiom). Before
             // that there is no row or target subtitle at all, only the opt-in toggle, so enabling

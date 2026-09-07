@@ -120,21 +120,21 @@
     "%lld%%" : {
       "shouldTranslate" : false
     },
-    "Stays disconnected until you reconnect it here." : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "将保持断开，直到你在这里重新连接。"
-          }
-        }
-      }
-    },
     "×" : {
       "shouldTranslate" : false
     },
     "∞" : {
       "shouldTranslate" : false
+    },
+    "Absolute brightness ratio" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "绝对亮度比率"
+          }
+        }
+      }
     },
     "Activate" : {
       "localizations" : {
@@ -363,16 +363,6 @@
         }
       }
     },
-    "Absolute brightness ratio" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "绝对亮度比率"
-          }
-        }
-      }
-    },
     "Cancel" : {
       "localizations" : {
         "zh-Hans" : {
@@ -511,6 +501,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "合并亮度"
+          }
+        }
+      }
+    },
+    "Command Line Tool" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "命令行工具"
           }
         }
       }
@@ -692,6 +692,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "删除"
+          }
+        }
+      }
+    },
+    "Disconnect Built-in While Docked" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "接上外接显示器时关闭内建屏幕"
           }
         }
       }
@@ -927,6 +937,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "为不报告音量支持的显示器强制启用音量控制。Crisp 可以设置音量，但无法读取当前音量。"
+          }
+        }
+      }
+    },
+    "From each panel's rated nits. HDR monitors report their HDR peak, so lower this if the built-in runs too bright" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "根据各屏幕的标称 nit 值计算。HDR 显示器报告的是其 HDR 峰值，若内建屏幕过亮请调低此值"
           }
         }
       }
@@ -1190,16 +1211,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "登录时启动"
-          }
-        }
-      }
-    },
-    "Command Line Tool" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "命令行工具"
           }
         }
       }
@@ -1862,6 +1873,16 @@
         }
       }
     },
+    "Stays disconnected until you reconnect it here." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "将保持断开，直到你在这里重新连接。"
+          }
+        }
+      }
+    },
     "Support Crisp" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -1930,6 +1951,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "蓝绿色"
+          }
+        }
+      }
+    },
+    "The built-in display switches off while an external is connected, and back on when the last is unplugged." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "连接外接显示器时自动关闭内建屏幕，拔除最后一台外接显示器后自动恢复。"
           }
         }
       }
@@ -2033,16 +2064,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "更新为当前值"
-          }
-        }
-      }
-    },
-    "From each panel's rated nits. HDR monitors report their HDR peak, so lower this if the built-in runs too bright" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "根据各屏幕的标称 nit 值计算。HDR 显示器报告的是其 HDR 峰值，若内建屏幕过亮请调低此值"
           }
         }
       }

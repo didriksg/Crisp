@@ -151,7 +151,7 @@ final class PhysicalDisplayToggleService: ObservableObject {
 
     /// All display IDs known to the window server, INCLUDING ones disabled via
     /// `SLSConfigureDisplayEnabled` (which `CGGetOnlineDisplayList` omits).
-    private func allDisplaysIncludingDisabled() -> [CGDirectDisplayID] {
+    func allDisplaysIncludingDisabled() -> [CGDirectDisplayID] {
         var count: UInt32 = 0
         guard SLSGetDisplayList(0, nil, &count) == .success, count > 0 else { return [] }
         var ids = [CGDirectDisplayID](repeating: 0, count: Int(count))
@@ -168,7 +168,10 @@ final class PhysicalDisplayToggleService: ObservableObject {
         viewableActiveDisplays().count
     }
 
-    private func viewableActiveDisplays() -> [CGDirectDisplayID] {
+    /// Online, real, viewable physical displays: what the user can actually see. Also
+    /// what the dock rule reads, and it must stay the same test as the count's: a display
+    /// that does not count as a screen here cannot count as an external there.
+    func viewableActiveDisplays() -> [CGDirectDisplayID] {
         var count: UInt32 = 0
         guard CGGetActiveDisplayList(0, nil, &count) == .success, count > 0 else { return [] }
         var ids = [CGDirectDisplayID](repeating: 0, count: Int(count))
@@ -295,6 +298,29 @@ final class PhysicalDisplayToggleService: ObservableObject {
             }
         }
         return nodes == 0 ? nil : asserted
+    }
+
+    /// Displays the window server knows but has switched off (ours or another app's).
+    func disabledDisplayIDs() -> [CGDirectDisplayID] {
+        let online = onlineDisplayIDs()
+        return allDisplaysIncludingDisabled().filter { !online.contains($0) }
+    }
+
+    /// True while a softReconnect blink is toggling a framebuffer. The display list is
+    /// legitimately short (sometimes empty) for ~1s; nothing else may act on it meanwhile.
+    var isBlinking: Bool { !softReconnectInFlight.isEmpty }
+
+    /// Stable identity for a display ID, exposed for the auto-switch rule.
+    func displayUUID(for displayID: CGDirectDisplayID) -> String { uuid(for: displayID) }
+
+    /// Re-enables one display directly, bypassing the `disconnected` bookkeeping. The rescue
+    /// path uses it for displays the window server has off with no matching record (a state a
+    /// crash, a relaunch, or a wake from a multi-day standby can leave behind).
+    @discardableResult
+    func forceEnable(displayID: CGDirectDisplayID) async -> Bool {
+        guard isSupported else { return false }
+        guard case .success = await setEnabled(true, displayID: displayID) else { return false }
+        return true
     }
 
     private func uuid(for displayID: CGDirectDisplayID) -> String {
@@ -641,7 +667,7 @@ final class PhysicalDisplayToggleService: ObservableObject {
 
     /// Display IDs currently online. SLS-disabled displays are omitted here (see
     /// allDisplaysIncludingDisabled), so "online" doubles as the enabled check.
-    private func onlineDisplayIDs() -> Set<CGDirectDisplayID> {
+    func onlineDisplayIDs() -> Set<CGDirectDisplayID> {
         var count: UInt32 = 0
         CGGetOnlineDisplayList(0, nil, &count)
         var ids = [CGDirectDisplayID](repeating: 0, count: Int(count))
@@ -653,7 +679,7 @@ final class PhysicalDisplayToggleService: ObservableObject {
     /// `timeout` seconds. A successful SLSConfigureDisplayEnabled transaction is NOT proof
     /// of recovery: around sleep transitions it reports success while the display stays
     /// disabled (verified live in clamshell). Only enumeration counts.
-    private func verifyBackOnline(uuid displayUUID: String, timeout: TimeInterval = 1.0) async -> Bool {
+    func verifyBackOnline(uuid displayUUID: String, timeout: TimeInterval = 1.0) async -> Bool {
         for _ in 0..<max(Int(timeout * 10), 1) {
             if let id = allDisplaysIncludingDisabled().first(where: { uuid(for: $0) == displayUUID }),
                onlineDisplayIDs().contains(id) { return true }
@@ -765,10 +791,22 @@ final class PhysicalDisplayToggleService: ObservableObject {
         }
         // A blink (softReconnect) puts its own display back online on purpose, and a
         // reconnect in flight is the user (or the restore path) asking for exactly that.
+        // Waking undocked (the dock pulled while asleep) must bring the built-in back, and
+        // re-applying a stale disconnect here is how both screens end up dark. The
+        // last-screen guard inside the re-apply is not enough by itself: a transient second
+        // display during the wake satisfies it. So while auto dock switching owns the
+        // built-in, leave its record alone unless a real external is actually up; if one
+        // arrives later, the rule re-disconnects then.
+        let holdBuiltin = AutoDisplaySwitchService.shared.ownsBuiltinState
+            && !viewableActiveDisplays().contains { CGDisplayIsBuiltin($0) == 0 }
+        let builtinUUIDs = holdBuiltin
+            ? Set(onlineIDs.filter { CGDisplayIsBuiltin($0) != 0 }.map { uuid(for: $0) })
+            : []
         let pending = resurfaced.filter {
             !reapplyInFlight.contains($0.uuid)
                 && !softReconnectInFlight.contains($0.uuid)
                 && !reconnectInFlight.contains($0.uuid)
+                && !builtinUUIDs.contains($0.uuid)
         }
         guard !pending.isEmpty else { return }
         let leaving = Set(onlineIDs.filter { id in

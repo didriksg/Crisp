@@ -139,6 +139,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // it only starts the first time the menu panel is opened (its only other ref).
         _ = AutoBrightnessService.shared
 
+        // Auto dock switching, and the blackout rescue behind it. The rescue arms whether or not
+        // the rule is switched on: a display the window server has off with every screen dark is
+        // never a state to leave the Mac in, and a wake from a long standby can produce it.
+        AutoDisplaySwitchService.shared.start()
+
         // Re-establish Extra Brightness (EDR upscaling) for displays whose
         // toggle is persisted on. Deferred a beat so DisplayManager's initial
         // display list is populated.
@@ -158,8 +163,22 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 // Delivered on `queue: .main`, so the main actor is current.
                 MainActor.assumeIsolated {
                     if name == NSWorkspace.didWakeNotification { self?.fullWakePending = true }
+                    AutoDisplaySwitchService.shared.displaysDidWake()
                     self?.onWake?()
                 }
+            })
+        }
+
+        // The matching half: while asleep every display is out of the active list, which reads
+        // exactly like every screen having gone dark. Auto dock switching has to know the
+        // difference, or its rescue switches displays back on mid-sleep.
+        for name in [NSWorkspace.willSleepNotification, NSWorkspace.screensDidSleepNotification] {
+            wakeObservers.append(NSWorkspace.shared.notificationCenter.addObserver(
+                forName: name,
+                object: nil,
+                queue: .main
+            ) { _ in
+                MainActor.assumeIsolated { AutoDisplaySwitchService.shared.displaysWillSleep() }
             })
         }
 
@@ -328,6 +347,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 // Re-establish EDR boost overlays (Metal drawables and HDR
                 // mode may not survive sleep).
                 BrightnessBoostService.shared.reapplyAll()
+                // Last: settle the built-in against what is actually attached now. Waking
+                // undocked must bring the panel back, waking docked must keep it away, and a
+                // wake that came up with nothing viewable at all must be rescued.
+                await AutoDisplaySwitchService.shared.evaluate()
             }
         }
     }

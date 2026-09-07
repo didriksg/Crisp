@@ -63,6 +63,7 @@ final class SettingsService: ObservableObject, @unchecked Sendable {
         static let brightnessKeyTarget    = "crisp.brightnessKeyTarget"
         static let brightnessKeySelected  = "crisp.brightnessKeySelectedDisplays"
         static let hidpiShortcut          = "crisp.hidpiShortcut"
+        static let autoBuiltinFollowsExternal = "crisp.autoBuiltinFollowsExternal"
         // Per-display keys use prefix + displayID
         static let brightnessPrefix       = "crisp.brightness_"
         static let contrastPrefix         = "crisp.contrast_"
@@ -134,6 +135,16 @@ final class SettingsService: ObservableObject, @unchecked Sendable {
             } else {
                 defaults.removeObject(forKey: Keys.hidpiShortcut)
             }
+        }
+    }
+
+    /// Auto dock switching: while an external display is connected, disconnect the built-in
+    /// panel; when the last external goes away, bring it back. Off by default, since it takes
+    /// a screen away on its own. See AutoDisplaySwitchService for the rule and its safety nets.
+    @Published var autoBuiltinFollowsExternal: Bool = false {
+        didSet {
+            defaults.set(autoBuiltinFollowsExternal, forKey: Keys.autoBuiltinFollowsExternal)
+            AutoDisplaySwitchService.shared.settingDidChange()
         }
     }
 
@@ -216,5 +227,6 @@ final class SettingsService: ObservableObject, @unchecked Sendable {
         brightnessKeySelectedDisplayUUIDs = Set(defaults.stringArray(forKey: Keys.brightnessKeySelected) ?? [])
         hidpiShortcut = defaults.data(forKey: Keys.hidpiShortcut)
             .flatMap { try? JSONDecoder().decode(KeyboardShortcut.self, from: $0) }
+        autoBuiltinFollowsExternal = defaults.bool(forKey: Keys.autoBuiltinFollowsExternal)
     }
 }
