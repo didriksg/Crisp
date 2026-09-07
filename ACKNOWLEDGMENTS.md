@@ -41,6 +41,8 @@ SOFTWARE.
 - [@dboleslawski](https://github.com/dboleslawski) ([#87](https://github.com/didriksg/Crisp/pull/87))
 - [@ncchen99](https://github.com/ncchen99) ([#101](https://github.com/didriksg/Crisp/pull/101), [#104](https://github.com/didriksg/Crisp/pull/104))
 - [@celsinho17](https://github.com/celsinho17) ([#97](https://github.com/didriksg/Crisp/pull/97))
+- [@alexlee2046](https://github.com/alexlee2046) ([#83](https://github.com/didriksg/Crisp/pull/83))
+- [@DEOWL-kan](https://github.com/DEOWL-kan) ([#71](https://github.com/didriksg/Crisp/pull/71))
 
 ## Translations
 

@@ -31,6 +31,10 @@ class DisplayInfo: ObservableObject, Identifiable {
     let vendorNumber: UInt32
     let modelNumber: UInt32
     let serialNumber: UInt32
+    /// Nominal SDR luminance ceiling in nits, used only to put the combined
+    /// brightness control on one scale across unlike panels. Filled by
+    /// loadDetails, since the external lookup walks the whole IORegistry.
+    @Published var nominalMaxNits: Double?
 
     /// A stable identifier for the physical display that persists across sleep/wake
     /// even if macOS reassigns the CGDirectDisplayID.
@@ -106,5 +110,10 @@ class DisplayInfo: ObservableObject, Identifiable {
         }.value
 
         self.availableModes = modes
+
+        let builtin = self.isBuiltin
+        self.nominalMaxNits = await Task.detached(priority: .userInitiated) {
+            DisplayLuminanceService.maximumSDRNits(displayID: displayID, isBuiltin: builtin)
+        }.value
     }
 }

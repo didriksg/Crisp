@@ -28,6 +28,7 @@ identifier_name:
   excluded:
     - _DisplayServices_GetBrightness  # dlsym'd private symbols keep their real names
     - _CoreDisplay_GetBrightness
+    - _CoreDisplayCreateInfoDictionary
 
 type_name:
   excluded:

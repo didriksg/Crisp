@@ -1,0 +1,29 @@
+import XCTest
+
+final class DDCOperationGenerationTests: XCTestCase {
+    func testNewRequestMakesOlderRequestStaleWithinSameTopology() {
+        var generations = DDCOperationGeneration()
+        let read = generations.currentToken(for: 5)
+        let first = generations.nextRequest(for: 5)
+        let second = generations.nextRequest(for: 5)
+
+        XCTAssertFalse(generations.isLatestRequest(read, for: 5))
+        XCTAssertTrue(generations.isCurrentTopology(first, for: 5))
+        XCTAssertFalse(generations.isLatestRequest(first, for: 5))
+        XCTAssertTrue(generations.isLatestRequest(second, for: 5))
+    }
+
+    func testInvalidationRejectsCompletionFromPreviousTopology() {
+        var generations = DDCOperationGeneration()
+        let readBeforeReconnect = generations.currentToken(for: 5)
+        let writeBeforeReconnect = generations.nextRequest(for: 5)
+
+        generations.invalidate(displayID: 5)
+        let afterReconnect = generations.nextRequest(for: 5)
+
+        XCTAssertFalse(generations.isCurrentTopology(readBeforeReconnect, for: 5))
+        XCTAssertFalse(generations.isCurrentTopology(writeBeforeReconnect, for: 5))
+        XCTAssertFalse(generations.isLatestRequest(writeBeforeReconnect, for: 5))
+        XCTAssertTrue(generations.isLatestRequest(afterReconnect, for: 5))
+    }
+}

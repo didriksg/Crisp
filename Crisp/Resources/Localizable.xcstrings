@@ -363,6 +363,16 @@
         }
       }
     },
+    "Absolute brightness ratio" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "绝对亮度比率"
+          }
+        }
+      }
+    },
     "Cancel" : {
       "localizations" : {
         "zh-Hans" : {
@@ -2003,6 +2013,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "更新为当前值"
+          }
+        }
+      }
+    },
+    "From each panel's rated nits. HDR monitors report their HDR peak, so lower this if the built-in runs too bright" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "根据各屏幕的标称 nit 值计算。HDR 显示器报告的是其 HDR 峰值，若内建屏幕过亮请调低此值"
           }
         }
       }

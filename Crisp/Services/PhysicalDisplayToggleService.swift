@@ -896,6 +896,15 @@ final class PhysicalDisplayToggleService: ObservableObject {
         }
     }
 
+    /// How many times the settle check re-reads the count before committing to a restore,
+    /// and how long it waits between reads. The count is per-process and refreshed by
+    /// reconfiguration callback delivery, so the read taken the instant the timer expires
+    /// can trail the truth (issue #117). Ten reads at 100 ms covers the margins measured
+    /// there without becoming a standing watch -- see the comment in the settle Task for
+    /// why the bound matters.
+    private static let settleRepolls = 10
+    private static let settleRepollInterval: UInt64 = 100_000_000
+
     /// Guards against overlapping restore attempts from reconfiguration-callback bursts.
     private var restoreInFlight = false
 
@@ -921,9 +930,35 @@ final class PhysicalDisplayToggleService: ObservableObject {
             try? await Task.sleep(nanoseconds: 2_000_000_000)
             guard let self else { return }
             defer { self.restoreInFlight = false }
-            let settled = self.physicalActiveDisplayCount()
+            // One sample here is not enough. The count comes from this process's own copy
+            // of the display configuration, and that copy is only as fresh as the last
+            // reconfiguration callback delivered to it: on #117 the external was back in
+            // the active list for 284 ms, visible to any other process, while this read
+            // still returned 0 and the callback that would have said so arrived 37 ms
+            // after the decision. Measured three times on two builds, the margins were
+            // 37 ms, 37 ms and 158 ms, so a few hundred milliseconds of re-reading covers
+            // it where a longer sleep does not -- a single sample is stale whenever it
+            // lands, and Task.sleep above already overruns by 418-1254 ms on a wake.
+            //
+            // Bounded to settleRepolls deliberately, rather than made a watch. The
+            // margins being answered are 37-158 ms, so ten reads already carry an order
+            // of magnitude of headroom, and what the count does during a display sleep is
+            // not something to lean on: measured on this desk it stayed at 1 through a
+            // 35 s sleep with Crisp running, and read 0 for 2 min 57 s on the same desk
+            // with Crisp quit. A poll outliving the settle window could therefore sit on
+            // a zero-count desk that is only asleep. What keeps this guard clear of that
+            // state is that it runs from reconfiguration callbacks, and none arrive while
+            // the displays are down.
+            var settled = self.physicalActiveDisplayCount()
+            var repolls = 0
+            while settled == 0, repolls < Self.settleRepolls {
+                try? await Task.sleep(nanoseconds: Self.settleRepollInterval)
+                guard !Task.isCancelled else { return }
+                settled = self.physicalActiveDisplayCount()
+                repolls += 1
+            }
             guard settled == 0 else {
-                Self.log.notice("restore settled: \(settled, privacy: .public) active display(s) after 2 s, standing down")
+                Self.log.notice("restore settled: \(settled, privacy: .public) active display(s) after 2 s and \(repolls, privacy: .public) re-poll(s), standing down")
                 return
             }
             // This path acts with every screen black, so without a line here a capture
