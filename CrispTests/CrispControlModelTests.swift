@@ -73,7 +73,12 @@ final class CrispControlModelTests: XCTestCase {
                 ["display", "disconnect", "DECC7CEF-5E36-4E9B-8F18-CE11AE5902AD"],
                 .init(command: .disconnectDisplay, selector: "DECC7CEF-5E36-4E9B-8F18-CE11AE5902AD")
             ),
-            (["display", "toggle", "42"], .init(command: .toggleDisplay, selector: "42"))
+            (["display", "toggle", "42"], .init(command: .toggleDisplay, selector: "42")),
+            (["display", "power", "42", "off"], .init(command: .powerOffDisplay, selector: "42")),
+            (
+                ["display", "power", "decc7cef-5e36-4e9b-8f18-ce11ae5902ad", "off"],
+                .init(command: .powerOffDisplay, selector: "decc7cef-5e36-4e9b-8f18-ce11ae5902ad")
+            )
         ]
         for (arguments, request) in cases {
             XCTAssertEqual(CrispControlCLIModel.parse(arguments: arguments), .request(request))
@@ -114,7 +119,10 @@ final class CrispControlModelTests: XCTestCase {
             ["hdr", "set", "42", "true"], ["hdr", "set", "42", "ON"],
             ["hdr", "set", "42", "on", "extra"],
             ["display", "toggle"], ["display", "toggle", ""], ["display", "reboot", "42"],
-            ["display", "toggle", "42", "now"]
+            ["display", "toggle", "42", "now"],
+            // Power is one-way by design: there is no on, standby or bare form.
+            ["display", "power", "42"], ["display", "power", "42", "on"], ["display", "power", "", "off"],
+            ["display", "power", "42", "off", "now"]
         ]
         for arguments in cases {
             XCTAssertEqual(CrispControlCLIModel.parse(arguments: arguments), .failure)
@@ -133,6 +141,7 @@ final class CrispControlModelTests: XCTestCase {
         for command in [CrispControlRequest.Command.connectDisplay, .disconnectDisplay, .toggleDisplay] {
             XCTAssertEqual(CrispControlCLIModel.receiveTimeoutSeconds(for: command), 30)
         }
+        XCTAssertEqual(CrispControlCLIModel.receiveTimeoutSeconds(for: .powerOffDisplay), 20)
         for command in [
             CrispControlRequest.Command.list, .getBrightness, .setBrightness, .getBrightnessBoost, .getHDR
         ] {
@@ -604,7 +613,7 @@ final class CrispControlModelTests: XCTestCase {
     private var commands: [CrispControlRequest.Command] {
         [
             .list, .getBrightness, .setBrightness, .getBrightnessBoost, .setBrightnessBoost, .getHDR, .setHDR,
-            .connectDisplay, .disconnectDisplay, .toggleDisplay
+            .connectDisplay, .disconnectDisplay, .toggleDisplay, .powerOffDisplay
         ]
     }
 
@@ -671,6 +680,29 @@ final class CrispControlModelTests: XCTestCase {
             let result = CrispControlModel.handle(Data(request.utf8), displays: displays)
             XCTAssertFalse(result.response.ok, request)
             XCTAssertNil(result.connectionChange, request)
+        }
+    }
+
+    func testPowerOffResolvesAnExternalAndRefusesBuiltinAndHeld() {
+        let builtin = CrispControlDisplay(id: 1, name: "Built-in", brightness: 50, isBuiltin: true, uuid: "B")
+        let displays = [display, held, builtin]
+        for selector in ["7", "37d8832a-2d66-02ca-b9f7-8f30a301b230"] {
+            let result = CrispControlModel.handle(
+                Data(#"{"command":"powerOffDisplay","selector":"\#(selector)"}"#.utf8), displays: displays
+            )
+            XCTAssertTrue(result.response.ok, selector)
+            XCTAssertEqual(result.powerChange, .init(displayID: display.id), selector)
+            XCTAssertNil(result.connectionChange, selector)
+        }
+        for request in [
+            #"{"command":"powerOffDisplay"}"#,
+            #"{"command":"powerOffDisplay","selector":"404"}"#,
+            #"{"command":"powerOffDisplay","selector":"1"}"#,
+            #"{"command":"powerOffDisplay","selector":"9"}"#
+        ] {
+            let result = CrispControlModel.handle(Data(request.utf8), displays: displays)
+            XCTAssertFalse(result.response.ok, request)
+            XCTAssertNil(result.powerChange, request)
         }
     }
 
