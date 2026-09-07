@@ -35,6 +35,10 @@ final class DDCService: ObservableObject, @unchecked Sendable {
     static let brightnessVCP: UInt8 = 0x10
     static let contrastVCP: UInt8   = 0x12
     static let volumeVCP: UInt8     = 0x62
+    /// MCCS power mode. 0x05 is the write-only "switch off" value: the monitor cuts its
+    /// own controller, DDC/CI included, and the power button brings it back.
+    static let powerModeVCP: UInt8  = 0xD6
+    static let powerModeOff: UInt16 = 0x05
 
     /// Diagnostics for support threads. Transitions and failures go out at
     /// notice/error (persisted; reporters run `log show --predicate

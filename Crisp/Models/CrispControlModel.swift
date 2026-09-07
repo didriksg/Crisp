@@ -75,6 +75,7 @@ struct CrispControlRequest: Codable, Equatable {
         case connectDisplay
         case disconnectDisplay
         case toggleDisplay
+        case powerOffDisplay
     }
 
     let command: Command
@@ -165,25 +166,34 @@ struct CrispControlConnectionChange: Equatable {
     let uuid: String
     let connect: Bool
 }
+/// A resolved `display power off`: one DDC/CI write of VCP D6 asking the monitor to
+/// switch itself off. One-way by the MCCS definition of that value (the power button
+/// brings it back), so there is no direction field.
+struct CrispControlPowerChange: Equatable {
+    let displayID: UInt32
+}
 struct CrispControlResult {
     let response: CrispControlResponse
     let brightnessChange: CrispControlBrightnessChange?
     let brightnessBoostChange: CrispControlBrightnessBoostChange?
     let hdrChange: CrispControlHDRChange?
     let connectionChange: CrispControlConnectionChange?
+    let powerChange: CrispControlPowerChange?
 
     init(
         _ response: CrispControlResponse,
         _ brightnessChange: CrispControlBrightnessChange?,
         _ brightnessBoostChange: CrispControlBrightnessBoostChange?,
         _ hdrChange: CrispControlHDRChange?,
-        _ connectionChange: CrispControlConnectionChange? = nil
+        _ connectionChange: CrispControlConnectionChange? = nil,
+        powerChange: CrispControlPowerChange? = nil
     ) {
         self.response = response
         self.brightnessChange = brightnessChange
         self.brightnessBoostChange = brightnessBoostChange
         self.hdrChange = hdrChange
         self.connectionChange = connectionChange
+        self.powerChange = powerChange
     }
 }
 enum CrispControlModel {
@@ -280,7 +290,29 @@ enum CrispControlModel {
             )
         case .connectDisplay, .disconnectDisplay, .toggleDisplay:
             return handleConnection(request, displays: displays)
+        case .powerOffDisplay:
+            return handlePowerOff(request, displays: displays)
         }
+    }
+
+    /// The built-in has no DDC/CI, and a display Crisp is holding disconnected has no
+    /// channel to write to; everything else is the monitor's call.
+    private static func handlePowerOff(
+        _ request: CrispControlRequest, displays: [CrispControlDisplay]
+    ) -> CrispControlResult {
+        guard hasDisplaySelector(request) else {
+            return .init(.failure("display is required"), nil, nil, nil)
+        }
+        guard let display = target(of: request, in: displays) else {
+            return .init(.failure("display not found"), nil, nil, nil)
+        }
+        guard !display.isBuiltin else {
+            return .init(.failure("the built-in display has no DDC/CI; use display sleep"), nil, nil, nil)
+        }
+        guard display.connected ?? true else {
+            return .init(.failure("display is disconnected, so there is no DDC channel to write to"), nil, nil, nil)
+        }
+        return .init(.success(), nil, nil, nil, powerChange: .init(displayID: display.id))
     }
 
     /// Resolves a connection request against the online list plus the displays Crisp
@@ -429,6 +461,10 @@ enum CrispControlCLIModel {
                                                  Disconnect Display does; refused if it would leave
                                                  no active display. Apple Silicon only
           display toggle <display>               Disconnect if connected, connect if not
+          display power <display> off            Tell the monitor to switch itself off over DDC/CI
+                                                 (VCP D6). One-way: its DDC/CI goes with it and the
+                                                 power button brings it back. Firmware decides
+                                                 whether it is honoured; ok means the write was taken
 
           brightness get <display>               Read logical brightness and its live maximum
           brightness set <display> <percent>     Set 0-100, or up to maxBrightness while Extra
@@ -464,6 +500,8 @@ enum CrispControlCLIModel {
         // The window server answers inside the app's 10 s wrapper, but the DDC hold
         // ahead of the transaction can wait 15 s and the mode restore after it 3 s.
         case .connectDisplay, .disconnectDisplay, .toggleDisplay: return 30
+        // Three write attempts, each able to sit on a wedged channel for the 6 s I2C timeout.
+        case .powerOffDisplay: return 20
         default: return 2
         }
     }
@@ -502,6 +540,10 @@ enum CrispControlCLIModel {
             case "off": return .request(.init(command: .setHDR, selector: arguments[2], enabled: false))
             default: break
             }
+        }
+        if arguments.count == 4, arguments[0...1] == ["display", "power"], !arguments[2].isEmpty,
+           arguments[3] == "off" {
+            return .request(.init(command: .powerOffDisplay, selector: arguments[2]))
         }
         return connectionRequest(arguments) ?? .failure
     }
