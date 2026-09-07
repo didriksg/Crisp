@@ -392,6 +392,12 @@ final class PhysicalDisplayToggleService: ObservableObject {
         defer { reconnectInFlight.remove(uuid) }
         let result = await setEnabled(true, displayID: targetID)
         if case .success = result {
+            // A reported success is not proof (see verifyBackOnline). The record is
+            // dropped either way: keeping it would have reconcile take the display
+            // away again the moment it does appear. The log says which case it was.
+            if !(await verifyBackOnline(uuid: uuid, timeout: 2.0)) {
+                Self.log.notice("reconnect of \(uuid, privacy: .public) reported success but the display is not back online after 2 s, record dropped")
+            }
             disconnected.removeAll { $0.uuid == uuid }
             saveDesired()
         }

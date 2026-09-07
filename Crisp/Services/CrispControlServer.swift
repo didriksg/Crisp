@@ -1,9 +1,16 @@
 import Darwin
 import Foundation
+import os
 
 @MainActor
 final class CrispControlServer {
     private nonisolated static let requestLimit = 8 * 1_024
+    /// Same-user clients only, so these bound a runaway script rather than an
+    /// attacker: a connection holds a cooperative-pool thread until it is answered,
+    /// and the per-recv timeout alone lets a client trickle bytes for ever.
+    private nonisolated static let readDeadline: DispatchTimeInterval = .seconds(5)
+    private nonisolated static let connectionLimit = 16
+    private nonisolated static let openConnections = OSAllocatedUnfairLock(initialState: 0)
     private let displayManager: DisplayManager
     private let acceptQueue = DispatchQueue(label: "com.crisp.app.control", qos: .utility)
     private var listenerFD: Int32 = -1
@@ -58,12 +65,15 @@ final class CrispControlServer {
                 if errno == EINTR { continue }
                 return
             }
-            guard Self.configure(client), Self.isCurrentUser(client) else {
+            guard Self.configure(client), Self.isCurrentUser(client), Self.admit() else {
                 Darwin.close(client)
                 continue
             }
             Task.detached { [weak self] in
-                defer { Darwin.close(client) }
+                defer {
+                    Darwin.close(client)
+                    Self.openConnections.withLock { $0 -= 1 }
+                }
                 await self?.serve(client)
             }
         }
@@ -273,15 +283,25 @@ final class CrispControlServer {
         return display
     }
 
+    private nonisolated static func admit() -> Bool {
+        openConnections.withLock { open in
+            guard open < connectionLimit else { return false }
+            open += 1
+            return true
+        }
+    }
+
     private nonisolated static func read(_ client: Int32) -> CrispControlFrame.Result {
         var data = Data()
         var buffer = [UInt8](repeating: 0, count: 1_024)
+        let deadline = DispatchTime.now() + readDeadline
         while true {
             let count = Darwin.recv(client, &buffer, buffer.count, 0)
             if count > 0 { data.append(contentsOf: buffer.prefix(Int(count))) }
             let result = CrispControlFrame.parse(data, maximumBytes: requestLimit, endOfStream: count == 0)
             if result != .incomplete { return result }
             if count < 0, errno != EINTR { return .failure("request read failed") }
+            if DispatchTime.now() >= deadline { return .failure("request read timed out") }
         }
     }
 

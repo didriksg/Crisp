@@ -424,18 +424,21 @@ enum CrispControlCLIModel {
           display list                           Displays as JSON: id, uuid, name, resolution,
                                                  brightness, maxBrightness, brightnessBackend,
                                                  connected (false while Crisp holds it off)
-          brightness get <display>               Read logical brightness and its live maximum
-          brightness set <display> <pct>         Set 0-100, or up to maxBrightness while Extra
-                                                 Brightness is enabled and eligible; clears preset
-          brightness boost get <display>         Read Extra Brightness eligibility and state
-          brightness boost set <display> on|off  Enable or disable Extra Brightness
-          hdr get <display>                      Read live HDR state for an eligible external display
-          hdr set <display> on|off               Set HDR on an eligible external and verify live state
+          display connect <display>              Put a disconnected display back
           display disconnect <display>           Take the display out of the layout, as the menu's
                                                  Disconnect Display does; refused if it would leave
                                                  no active display. Apple Silicon only
-          display connect <display>              Put a disconnected display back
           display toggle <display>               Disconnect if connected, connect if not
+
+          brightness get <display>               Read logical brightness and its live maximum
+          brightness set <display> <percent>     Set 0-100, or up to maxBrightness while Extra
+                                                 Brightness is enabled and eligible; clears preset
+          brightness boost get <display>         Read Extra Brightness eligibility and state
+          brightness boost set <display> on|off  Enable or disable Extra Brightness
+
+          hdr get <display>                      Read live HDR state for an eligible external display
+          hdr set <display> on|off               Set HDR on an eligible external and verify live state
+
           help                                   Show this help (also -h, --help)
 
         <display> is a runtime id or a uuid from 'display list'. Ids can change after

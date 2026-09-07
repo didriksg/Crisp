@@ -96,6 +96,18 @@ write restarts the fade. Seen on other Dells too; accepted as a quirk.
    controller stays powered). This is the only cure for a fully deaf
    controller, and per ddcutil's tracker even it is not guaranteed.
 
+## The hold around enable and disable
+
+WindowServer's display enable waits behind an in-flight I2C transaction on
+the DCP, and the whole Mac freezes with it (2.8 to 3.0 s measured on a
+wedged channel, #110). So every SkyLight enable and disable is wrapped in
+`DDCService.hold()`: it drains the DDC queues, parks them until the
+transaction has landed, and logs `waited N ms for DDC to go idle` past
+500 ms. The 15 s safety timeout bounds only the parked phase. The drain
+itself waits for whatever read or write is in flight with no Crisp-side
+bound, on purpose: a read that takes 6 s to give up costs 6 s of waiting,
+where issuing the transaction under it costs 6 s of a frozen Mac.
+
 ## Rules of engagement
 
 - Never trust an acked write as proof DDC works; only a checksum-valid

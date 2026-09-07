@@ -203,7 +203,7 @@ echo "    version $(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString
 echo "    crispctl archs $(lipo -archs "$APP/Contents/MacOS/crispctl")"
 
 if [ "$PUBLISH" != true ]; then
-  echo "==> Dry run. Pass --publish to create the release and bump the tap."
+  echo "==> Dry run. Pass --publish to create the release and regenerate the appcast."
   exit 0
 fi
 

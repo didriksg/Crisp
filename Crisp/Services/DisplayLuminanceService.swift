@@ -19,6 +19,8 @@ let _CoreDisplayCreateInfoDictionary: (@convention(c) (CGDirectDisplayID) -> Unm
 /// external monitor publishes CTA/EDID max luminance in IORegistry as 16.16.
 enum DisplayLuminanceService {
     private static let log = Logger(subsystem: "com.crisp.app", category: "brightness")
+    /// Below 40 nits nothing is a display panel; above 10 000 nothing is a nominal peak.
+    private static let plausibleNits: ClosedRange<Double> = 40...10_000
 
     static func maximumSDRNits(displayID: CGDirectDisplayID, isBuiltin: Bool) -> Double? {
         let nits = isBuiltin ? builtinMaximumSDRNits(displayID: displayID) : externalMaximumNits(displayID: displayID)
@@ -32,7 +34,7 @@ enum DisplayLuminanceService {
         // Non-reference is the normal Apple XDR preset; the reference peak
         // is the fallback for fixed-luminance reference presets.
         for key in ["NonReferencePeakSDRLuminance", "ReferencePeakSDRLuminance"] {
-            if let value = number(dictionary[key]), value > 0 { return value }
+            if let value = number(dictionary[key]), plausibleNits.contains(value) { return value }
         }
         return nil
     }
@@ -106,7 +108,7 @@ enum DisplayLuminanceService {
     private static func maximumNits(in luminance: [String: Any]?) -> Double? {
         guard let raw = number(luminance?["Max"]), raw > 0 else { return nil }
         let nits = raw > 10_000 ? raw / 65_536.0 : raw
-        return (40...10_000).contains(nits) ? nits : nil
+        return plausibleNits.contains(nits) ? nits : nil
     }
 
     private static func number(_ value: Any?) -> Double? {

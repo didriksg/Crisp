@@ -539,10 +539,16 @@ final class BrightnessService: @unchecked Sendable {
             to: target,
             steps: max(8, Int(duration / 0.016)),
             duration: duration
-        ) { [weak display] value, _ in
-            guard let display, set(displayID, Float(value)) == 0, let get = _DSGetBrightness else { return }
-            var user: Float = 0
-            if get(displayID, &user) == 0 { display.brightness = Double(user) * 100.0 }
+        ) { [weak self, weak display] value, _ in
+            // The private DisplayServices calls are IPC: keep them off the main
+            // thread like the single-shot path above, publish the read-back on main.
+            self?.queue.async {
+                guard set(displayID, Float(value)) == 0, let get = _DSGetBrightness else { return }
+                var user: Float = 0
+                guard get(displayID, &user) == 0 else { return }
+                let brightness = Double(user) * 100.0
+                DispatchQueue.main.async { display?.brightness = brightness }
+            }
         }
     }
 
@@ -751,10 +757,14 @@ final class BrightnessService: @unchecked Sendable {
             return
         }
         queue.async {
-            self.ddcPumpLock.withLock {
-                guard self.ddcOperationGeneration.isLatestRequest(
-                    target.token, for: displayID
-                ), self.pendingDDCTarget[displayID] == nil else { return }
+            // Decide under the lock, write outside it: setSoftwareBrightness is a
+            // WindowServer gamma IPC plus a defaults write, and the refresh path
+            // takes this lock on the main actor to adopt a read.
+            let settle: Bool = self.ddcPumpLock.withLock {
+                self.ddcOperationGeneration.isLatestRequest(target.token, for: displayID)
+                    && self.pendingDDCTarget[displayID] == nil
+            }
+            if settle {
                 let softwarePercent = target.percent < self.gammaBlendThreshold
                     ? target.percent / self.gammaBlendThreshold * 100.0
                     : 100.0
@@ -792,12 +802,11 @@ final class BrightnessService: @unchecked Sendable {
             Self.log.notice("display \(displayID, privacy: .public): 3 consecutive DDC brightness writes failed, brightness now software gamma until reconnect")
         }
         queue.async {
-            self.ddcPumpLock.withLock {
-                guard self.ddcOperationGeneration.isLatestRequest(
-                    fallback.token, for: displayID
-                ) else { return }
-                self.setSoftwareBrightness(fallback.percent, for: displayID)
+            let isLatest = self.ddcPumpLock.withLock {
+                self.ddcOperationGeneration.isLatestRequest(fallback.token, for: displayID)
             }
+            guard isLatest else { return }
+            self.setSoftwareBrightness(fallback.percent, for: displayID)
         }
     }
 
