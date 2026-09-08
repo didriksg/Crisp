@@ -106,6 +106,12 @@ extern CGError SLSGetDisplayList(uint32_t maxDisplays,
                                  CGDirectDisplayID *displays,
                                  uint32_t *displayCount);
 
+// Sets a display's rotation, the switch System Settings > Displays > Rotation drives. Reading
+// it is public (CGDisplayRotation), setting it is not, and the old Intel route through
+// IOServiceRequestProbe does nothing on a DCP-driven display. Takes degrees (0, 90, 180, 270)
+// and messages WindowServer directly, outside any CGBeginDisplayConfiguration transaction.
+extern CGError SLSSetDisplayRotation(CGDirectDisplayID display, int rotation);
+
 // MARK: - IOAVService Private API (Apple Silicon DDC)
 
 typedef void * IOAVServiceRef;

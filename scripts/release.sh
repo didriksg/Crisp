@@ -46,6 +46,7 @@ for a in arm64 x86_64; do
     -Xlinker -rpath -Xlinker @executable_path/../Frameworks \
     -Xlinker -U -Xlinker _SLSConfigureDisplayEnabled \
     -Xlinker -U -Xlinker _SLSGetDisplayList \
+    -Xlinker -U -Xlinker _SLSSetDisplayRotation \
     $SRC -o "$BUILD/Crisp-$a"
 done
 lipo -create "$BUILD/Crisp-arm64" "$BUILD/Crisp-x86_64" -output "$APP/Contents/MacOS/Crisp"

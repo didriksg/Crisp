@@ -24,6 +24,10 @@ final class PhysicalDisplayToggleService: ObservableObject {
         loadDesired()
     }
 
+    /// Set by DisplayManager at launch. The restore below needs a DisplayInfo to read and put
+    /// back a display's HDR switch, and this service otherwise works from CGDirectDisplayIDs.
+    weak var displayManager: DisplayManager?
+
     /// Snapshot of a display we disconnected, kept because a disconnected display no longer
     /// appears in DisplayManager.displays, so we need its metadata to render a Reconnect row.
     struct DisconnectedDisplay: Identifiable, Codable, Sendable, Equatable {
@@ -326,40 +330,68 @@ final class PhysicalDisplayToggleService: ObservableObject {
         )
 
         Self.log.notice("disconnect requested: \(display.displayUUID, privacy: .public) id \(displayID, privacy: .public)")
-        let otherModes = currentModes(excluding: [displayID])
+        let otherStates = currentStates(excluding: [displayID])
         let result = await setEnabled(false, displayID: displayID)
         if case .success = result {
             disconnected.removeAll { $0.uuid == snapshot.uuid }
             disconnected.append(snapshot)
             saveDesired()
-            Task { [weak self] in await self?.restoreModes(otherModes) }
+            Task { [weak self] in await self?.restoreStates(otherStates) }
         }
         return result
     }
 
-    /// The mode of every online display bar the ones about to be taken off, so the rest can
+    /// What an arrangement decides for one display: its mode, its rotation, and whether it is
+    /// in HDR. `hdr` is nil for a display that has no HDR switch to put back.
+    struct DisplayState {
+        let id: CGDirectDisplayID
+        let mode: CGDisplayMode
+        let rotation: Double
+        let hdr: Bool?
+    }
+
+    /// The state of every online display bar the ones about to be taken off, so the rest can
     /// be put back afterwards. macOS keeps an arrangement per set of attached displays and applies
     /// it whenever the set changes, so taking one display away can move the others to
     /// whatever they last ran at in the smaller set: on this Mac a 1440p 165 Hz panel dropped
     /// to 1080p 60 Hz and the built-in changed scale (issue #108). It is WindowServer's doing,
     /// not Crisp's: the same SkyLight disable from a bare probe with Crisp quit does it too,
     /// and pinning the other modes inside the disable transaction is accepted and ignored.
-    /// The user asked for one display to go, not for the rest to change, so the modes they
-    /// had go back in a second transaction once the arrangement has landed.
-    private func currentModes(excluding displayIDs: Set<CGDirectDisplayID> = []) -> [(CGDirectDisplayID, CGDisplayMode)] {
+    /// The user asked for one display to go, not for the rest to change, so what they had goes
+    /// back in a second transaction once the arrangement has landed.
+    ///
+    /// The mode is not all an arrangement carries: a portrait panel came back at 0 degrees when
+    /// another display was disconnected, and a monitor switched itself into HDR because the
+    /// arrangement it fell back to had been left that way. Both are replayed the same way the
+    /// mode is, so all three go in the snapshot.
+    private func currentStates(excluding displayIDs: Set<CGDirectDisplayID> = []) -> [DisplayState] {
         onlineDisplayIDs().filter { !displayIDs.contains($0) }.compactMap { id in
-            CGDisplayCopyDisplayMode(id).map { (id, $0) }
+            CGDisplayCopyDisplayMode(id).map {
+                DisplayState(id: id, mode: $0, rotation: CGDisplayRotation(id), hdr: liveHDR(id))
+            }
         }
     }
 
-    private func restoreModes(_ modes: [(CGDirectDisplayID, CGDisplayMode)]) async {
+    /// The HDR switch as it stands, or nil when this display has none to restore. Read through
+    /// DisplayManager because that is where the DisplayInfo the HDR API works from lives; a
+    /// display missing from the list mid-rebuild simply keeps its HDR state out of the snapshot.
+    private func liveHDR(_ displayID: CGDirectDisplayID) -> Bool? {
+        guard let display = displayManager?.displays.first(where: { $0.displayID == displayID }),
+              BrightnessBoostService.shared.isEligibleForHDRToggle(display) else { return nil }
+        return BrightnessBoostService.shared.isHDREnabled(for: display)
+    }
+
+    private func restoreStates(_ states: [DisplayState]) async {
         // A mirror target's mode is driven by its source (see ResolutionService).
         let moved = {
-            modes.compactMap { id, mode -> (CGDirectDisplayID, CGDisplayMode, CGDisplayMode)? in
-                guard self.onlineDisplayIDs().contains(id), !MirroredModeService.shared.isActive(for: id),
-                      let current = CGDisplayCopyDisplayMode(id),
-                      current.ioDisplayModeID != mode.ioDisplayModeID else { return nil }
-                return (id, current, mode)
+            states.filter { state in
+                guard self.onlineDisplayIDs().contains(state.id),
+                      !MirroredModeService.shared.isActive(for: state.id) else { return false }
+                if let current = CGDisplayCopyDisplayMode(state.id),
+                   current.ioDisplayModeID != state.mode.ioDisplayModeID { return true }
+                if CGDisplayRotation(state.id) != state.rotation { return true }
+                if let hdr = state.hdr, self.liveHDR(state.id) != hdr { return true }
+                return false
             }
         }
         // The re-arrangement landed about a second after the commit here. Poll for it rather
@@ -372,9 +404,23 @@ final class PhysicalDisplayToggleService: ObservableObject {
         }
         guard !changed.isEmpty else { return }
         try? await Task.sleep(nanoseconds: 100_000_000)
-        for (id, current, mode) in moved() {
-            let restored = await ResolutionService.applyModeSync(mode, on: id)
-            Self.log.notice("display \(id, privacy: .public) moved to \(current.width, privacy: .public)x\(current.height, privacy: .public) after the disconnect, restoring \(mode.width, privacy: .public)x\(mode.height, privacy: .public) @\(Int(mode.refreshRate), privacy: .public): \(restored ? "ok" : "failed", privacy: .public)")
+        for state in moved() {
+            let id = state.id
+            if let current = CGDisplayCopyDisplayMode(id),
+               current.ioDisplayModeID != state.mode.ioDisplayModeID {
+                let restored = await ResolutionService.applyModeSync(state.mode, on: id)
+                Self.log.notice("display \(id, privacy: .public) moved to \(current.width, privacy: .public)x\(current.height, privacy: .public) after the disconnect, restoring \(state.mode.width, privacy: .public)x\(state.mode.height, privacy: .public) @\(Int(state.mode.refreshRate), privacy: .public): \(restored ? "ok" : "failed", privacy: .public)")
+            }
+            let rotation = CGDisplayRotation(id)
+            if rotation != state.rotation {
+                let err = SLSSetDisplayRotation(id, Int32(state.rotation))
+                Self.log.notice("display \(id, privacy: .public) turned to \(Int(rotation), privacy: .public) degrees after the disconnect, restoring \(Int(state.rotation), privacy: .public): \(err == .success ? "ok" : "failed", privacy: .public)")
+            }
+            if let hdr = state.hdr, liveHDR(id) != hdr,
+               let display = displayManager?.displays.first(where: { $0.displayID == id }) {
+                let restored = await BrightnessBoostService.shared.setHDRPreference(hdr, for: display)
+                Self.log.notice("display \(id, privacy: .public) switched \(hdr ? "out of" : "into", privacy: .public) HDR after the disconnect, restoring: \(restored ? "ok" : "failed", privacy: .public)")
+            }
         }
     }
 
@@ -753,7 +799,7 @@ final class PhysicalDisplayToggleService: ObservableObject {
         guard !resurfaced.isEmpty else {
             // Every refresh with the remembered displays still off is a baseline: a
             // resolution the user picks in between is then what goes back, not a stale one.
-            baselineModes = currentModes()
+            baselineModes = currentStates()
             return
         }
         // Intel has no working disconnect to re-apply, so there the old behaviour is all
@@ -775,8 +821,8 @@ final class PhysicalDisplayToggleService: ObservableObject {
             let displayUUID = uuid(for: id)
             return pending.contains { $0.uuid == displayUUID }
         })
-        pendingPassModes = (baselineModes.isEmpty ? currentModes() : baselineModes)
-            .filter { !leaving.contains($0.0) }
+        pendingPassModes = (baselineModes.isEmpty ? currentStates() : baselineModes)
+            .filter { !leaving.contains($0.id) }
         for record in pending {
             reapplyInFlight.insert(record.uuid)
             Task { [weak self] in
@@ -804,21 +850,21 @@ final class PhysicalDisplayToggleService: ObservableObject {
     /// 1512x982 on the enable, was put back to 1352x878 when the display went off, and the
     /// restore pushed it to 1512x982 again. Empty only at launch, where there is no earlier
     /// refresh and the live snapshot is all there is.
-    private var baselineModes: [(CGDirectDisplayID, CGDisplayMode)] = []
+    private var baselineModes: [DisplayState] = []
 
     /// The snapshot this reconcile pass restores to, taken once and consumed by whichever
     /// record's disable lands first. One restore per pass, not one per record: two records
     /// each took their own snapshot and each ran restoreModes, landing the same restore twice
     /// 19 ms apart.
-    private var pendingPassModes: [(CGDirectDisplayID, CGDisplayMode)]?
+    private var pendingPassModes: [DisplayState]?
 
     /// Starts this pass's single restore, if it has not been started already. Called once a
     /// disable has been issued, since that is what moves the other displays; before it there
     /// is nothing to poll for, and restoreModes' window is finite.
     private func startPassRestoreIfNeeded() {
-        guard let modes = pendingPassModes else { return }
+        guard let states = pendingPassModes else { return }
         pendingPassModes = nil
-        Task { [weak self] in await self?.restoreModes(modes) }
+        Task { [weak self] in await self?.restoreStates(states) }
     }
 
     /// One display's half of reconcile: put it back the way the user left it, or forget it.
