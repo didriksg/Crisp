@@ -1,8 +1,19 @@
-<?xml version="1.0" standalone="yes"?><!-- sparkle-sign-warning:
+<?xml version="1.0" standalone="yes"?>
+<!-- sparkle-sign-warning:
 IMPORTANT: This file was signed by Sparkle. Any modifications to this file requires re-signing this file with generate_appcast or sign_update! The signed signature will be embedded at the end of this file.
---><rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+-->
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
     <channel>
         <title>Crisp</title>
+        <item>
+            <title>1.6.0</title>
+            <pubDate>Tue, 08 Sep 2026 16:20:24 +0200</pubDate>
+            <link>https://github.com/didriksg/Crisp/releases</link>
+            <sparkle:version>1.6.0</sparkle:version>
+            <sparkle:shortVersionString>1.6.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/didriksg/Crisp/releases/download/v1.6.0/Crisp.dmg" length="4766696" type="application/octet-stream" sparkle:edSignature="dgqRmGY5U7mhTDmtztHjhT0QJTNQCYASvtME/KoHZdbfMcpPwMRAXT58XJYAnC1aHMHV078ci75PGDH00AwRBQ=="/>
+        </item>
         <item>
             <title>1.5.0</title>
             <pubDate>Wed, 19 Aug 2026 03:56:17 +0200</pubDate>
@@ -10,10 +21,11 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
             <sparkle:version>1.5.0</sparkle:version>
             <sparkle:shortVersionString>1.5.0</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/didriksg/Crisp/releases/download/v1.5.0/Crisp.dmg" length="4134145" type="application/octet-stream" sparkle:edSignature="387tQdp/1P0YbKVMstUg4YrPF1UTFvya0XWkV0ypio/gXbqGgCNAhgDfQFrdav/RwoUMAKIsKTYivaYwdPHrCg=="></enclosure>
+            <enclosure url="https://github.com/didriksg/Crisp/releases/download/v1.5.0/Crisp.dmg" length="4134145" type="application/octet-stream" sparkle:edSignature="387tQdp/1P0YbKVMstUg4YrPF1UTFvya0XWkV0ypio/gXbqGgCNAhgDfQFrdav/RwoUMAKIsKTYivaYwdPHrCg=="/>
         </item>
     </channel>
-</rss><!-- sparkle-signatures:
-edSignature: jjn2gkg1QEy4I7vreyj9ECfhBBfUkoSDeywXbW/6h6GCBcWXSpX51cJLeSbc1zSgHKNT6QZyq/AiAC12gNuEDw==
-length: 1098
+</rss>
+<!-- sparkle-signatures:
+edSignature: eTz6+wdFKpAFkis82/VuU4ff0LOUENTbzaD+spwfSo1ndR5JGj47gI8VMr8vvGGxzae9DtyUD6QAYHBxmF51Ag==
+length: 1751
 -->
