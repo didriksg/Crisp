@@ -221,13 +221,18 @@ gh release create "$TAG" --title "Crisp ${TAG}" --notes-file "$NOTES" "$DMG"
 # ./vendor/Sparkle/bin/generate_keys) and points the enclosure at the release
 # asset uploaded above.
 # ponytail: single-entry appcast, latest release only; old installs only ever
-# need the newest version. Embed HTML release notes here if ever wanted.
+# need the newest version.
+# generate_appcast reads release notes from a .md/.html/.txt file whose name matches
+# the archive, so the notes we just published to GitHub land in the update dialog too.
 echo "==> Generating Sparkle appcast…"
 APPCAST_STAGE="$BUILD/appcast"; mkdir -p "$APPCAST_STAGE"
 cp "$DMG" "$APPCAST_STAGE/Crisp.dmg"
+cp "$NOTES" "$APPCAST_STAGE/Crisp.md"
 "$ROOT/vendor/Sparkle/bin/generate_appcast" \
   --download-url-prefix "https://github.com/didriksg/Crisp/releases/download/${TAG}/" \
   --link "https://github.com/didriksg/Crisp/releases" \
+  --full-release-notes-url "https://github.com/didriksg/Crisp/releases" \
+  --embed-release-notes \
   -o "$ROOT/docs/appcast.xml" "$APPCAST_STAGE"
 
 echo "==> Released ${TAG}."

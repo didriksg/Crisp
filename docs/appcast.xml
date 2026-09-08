@@ -1,31 +1,66 @@
-<?xml version="1.0" standalone="yes"?>
-<!-- sparkle-sign-warning:
+<?xml version="1.0" standalone="yes"?><!-- sparkle-sign-warning:
 IMPORTANT: This file was signed by Sparkle. Any modifications to this file requires re-signing this file with generate_appcast or sign_update! The signed signature will be embedded at the end of this file.
--->
-<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+--><rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
     <channel>
         <title>Crisp</title>
         <item>
             <title>1.6.0</title>
-            <pubDate>Tue, 08 Sep 2026 16:20:24 +0200</pubDate>
+            <pubDate>Tue, 08 Sep 2026 23:44:51 +0200</pubDate>
             <link>https://github.com/didriksg/Crisp/releases</link>
+            <sparkle:fullReleaseNotesLink>https://github.com/didriksg/Crisp/releases</sparkle:fullReleaseNotesLink>
             <sparkle:version>1.6.0</sparkle:version>
             <sparkle:shortVersionString>1.6.0</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/didriksg/Crisp/releases/download/v1.6.0/Crisp.dmg" length="4766696" type="application/octet-stream" sparkle:edSignature="dgqRmGY5U7mhTDmtztHjhT0QJTNQCYASvtME/KoHZdbfMcpPwMRAXT58XJYAnC1aHMHV078ci75PGDH00AwRBQ=="/>
-        </item>
-        <item>
-            <title>1.5.0</title>
-            <pubDate>Wed, 19 Aug 2026 03:56:17 +0200</pubDate>
-            <link>https://github.com/didriksg/Crisp/releases</link>
-            <sparkle:version>1.5.0</sparkle:version>
-            <sparkle:shortVersionString>1.5.0</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/didriksg/Crisp/releases/download/v1.5.0/Crisp.dmg" length="4134145" type="application/octet-stream" sparkle:edSignature="387tQdp/1P0YbKVMstUg4YrPF1UTFvya0XWkV0ypio/gXbqGgCNAhgDfQFrdav/RwoUMAKIsKTYivaYwdPHrCg=="/>
+            <description sparkle:format="markdown"><![CDATA[Crisp 1.6.0 ships crispctl, a command line tool, inside the app, draws its own brightness and volume OSD on macOS 26, and remembers the displays you disconnect. It also fixes a freeze when reconnecting a display, one slow monitor holding up the others, resolutions jumping after a wake, and colour temperature after display sleep.
+
+## New
+
+- **crispctl.** The command line tool now ships inside Crisp.app, and a Command Line Tool switch in Settings links it into /usr/local/bin. It talks to the running app over a same-user socket: `display list`, `connect`, `disconnect` and `toggle`, `brightness get` and `set`, `brightness boost get` and `set` for Extra Brightness, and `hdr get` and `set`, all by display id or uuid, with a help page per group and per command. Bind one to a key with a Shortcut and you have a desk button. (#75, #81, #97, #98, #102, #116)
+- **A native OSD on macOS 26.** When you press the brightness or volume keys on an external, Crisp draws the capsule itself now. macOS 26 moved its own HUD to a capsule under the menu bar and left the old bottom-centre bezel to third parties, which is what Crisp showed before. The new one hangs under Crisp's menu bar item the way the system's sits under the Sound item, and it is fitted to the system HUD: the same glass, blur and edge bend, the same entry and exit, a slider when you hover with a close badge, Reduce Transparency, and the midline placement over a full-screen app. macOS 14 and 15 keep the system bezel, which still matches there. (#76)
+- **Disconnects that stick.** A display you disconnect in Crisp stays disconnected across relaunch, sleep and reboot, until you reconnect it from the panel or from crispctl, and the card says so. Before, Crisp forgot the moment the display came back online. If a disconnect ever leaves you with no viewable screen, a dock pulled while the Mac slept for instance, Crisp brings a screen back within seconds. (#91, #93, #101, #104, #112)
+- **HiDPI past the cap on ultrawides.** WindowServer refuses scaled backings wider than about 6720 px, so a 5120x1440 panel never got the top of its scaling ladder. Crisp now routes those stops through a mirrored virtual display, so the panel gets them anyway. The mirror stays out of the display list and presets capture it. Wider panels only for now: 16:9 4K and 5K hit the same cap, but I haven't verified them, so they keep the old ladder. (#65)
+- **Combined Brightness by light output.** With Show Combined Brightness on, the built-in now tracks the external by estimated nits from each display's EDID instead of by percentage, so a 1000-nit monitor and a 500-nit panel land on the same brightness. One caveat: the only luminance an EDID carries is the HDR block, so an HDR monitor reports its HDR peak even in SDR, and the built-in tops out early beside it. The ratio slider in Settings is the way to balance that. (#83)
+- **Keys on the system's stops.** The brightness and volume keys move between the same sixteen stops macOS uses, so the fill lands on the dots, and a held key steps once per repeat at the system's rate instead of crawling toward the first stop. Keyboards that send F14 and F15, Logitech MX Keys among them, step brightness too. (#69)
+- **True Tone after wake.** Some externals came back from a full sleep with the tint computed while they were still link-training. Crisp now re-asserts True Tone once after a full wake, as soon as an external is back. Display sleep is left alone. (#131)
+- **Managed Macs.** A configuration profile for com.crisp.app with crisp.disableKeepAwake set to true keeps Keep Awake off on company Macs. Crisp hides the row and never takes the assertion, and a user's own defaults cannot override it. (#70)
+- **Diagnostics.** Crisp writes to the unified log under com.crisp.app, with categories for ddc, brightness, volume, keys, display and app, and the bug report form now asks for that capture. `defaults write com.crisp.app crisp.showBrightnessControlMode -bool true` puts DDC or Software under each slider, so you can see which route a monitor is on. (#88, #90)
+
+## Fixed
+
+- Reconnecting a display through Crisp no longer freezes the Mac for seconds. WindowServer's enable was waiting behind a DDC read in flight, so Crisp now keeps DDC off the bus while a display is enabled or disabled. This should also be the freeze reported through a Lenovo hub (#33); I haven't had that one confirmed yet. (#110)
+- Disconnecting one display no longer drags the others to a different resolution, turns a portrait panel back to landscape, or switches a monitor into HDR. macOS applies the arrangement it remembers for the smaller set of displays, and Crisp puts all three back. (#108)
+- One slow DDC monitor no longer delays brightness changes on the others. (#71, #72)
+- A saved resolution no longer jumps to another display after a wake. It is keyed by the display's uuid now, not by its runtime id.
+- The brightness slider no longer comes up on 50 for a display that just reconnected. It was a placeholder that never got replaced when a monitor is slow to answer its first DDC read, and the next key press or click on the track then took the monitor to about half. Crisp remembers what each display was last at instead. (#151)
+- Crisp no longer changes a display's resolution at wake because of a mode you picked on a different desk. It used to remember a resolution per display forever and re-apply it at every wake, so a mode chosen with a monitor attached could override the one macOS correctly restores when that monitor is gone. It now only puts back a mode the sleep itself changed, and logs it when it does. (#152)
+- Colour temperature comes back after a display-only sleep. (#82)
+- Switching Extra Brightness off puts the monitor back in SDR when it was the boost that switched it to HDR.
+- The HDR toggle no longer sends a second request when it resyncs after a change.
+- The Show Volume Sliders row appears as soon as Volume Control is switched on for a display.
+- A crash reading XDR presets from the panel. (#87)
+- The menu panel keeps its window level, so another app's utility window can no longer draw over it.
+
+## Changed
+
+- The panel's icon chips are lighter, matching the system menus. (#85)
+
+## Contributors
+
+- @Juns-g: crispctl (#75), its display metadata (#81), and the Extra Brightness (#102) and HDR (#116) commands
+- @ncchen99: remembered disconnects (#101), the card caption (#104), and two rounds on the blackout rescue (#132, #133)
+- @DEOWL-kan: the slow DDC monitor fix (#71)
+- @alexlee2046: Combined Brightness by light output (#83)
+- @celsinho17: the crispctl connect, disconnect and toggle commands (#97)
+- @dboleslawski: the presets crash (#87)
+
+## Supporting Crisp
+
+Crisp is free and always will be. The nicest thank-you costs nothing: star the repo or tell a friend. If you'd like to help cover the $99/year Apple fee that keeps every build signed and notarized, there's [GitHub Sponsors](https://github.com/sponsors/didriksg), [Ko-fi](https://ko-fi.com/didriksg), or [Afdian (爱发电)](https://ifdian.net/a/didriksg). Thank you @rebelvg, @kuldipmaharjan, @arnor-ingthorsson and @BarryBarrywu for chipping in toward keeping Crisp signed and notarized.
+]]></description>
+            <enclosure url="https://github.com/didriksg/Crisp/releases/download/v1.6.0/Crisp.dmg" length="4766696" type="application/octet-stream" sparkle:edSignature="dgqRmGY5U7mhTDmtztHjhT0QJTNQCYASvtME/KoHZdbfMcpPwMRAXT58XJYAnC1aHMHV078ci75PGDH00AwRBQ=="></enclosure>
         </item>
     </channel>
-</rss>
-<!-- sparkle-signatures:
-edSignature: eTz6+wdFKpAFkis82/VuU4ff0LOUENTbzaD+spwfSo1ndR5JGj47gI8VMr8vvGGxzae9DtyUD6QAYHBxmF51Ag==
-length: 1751
+</rss><!-- sparkle-signatures:
+edSignature: p9H53SZSsOmIsHKloaThIcsFN2L+ObkdoSNBUFH04ZhBPkWQJoZ4XDPB5j/tfunmxUC4cDFfJIMXtiKWorcgAw==
+length: 8477
 -->
