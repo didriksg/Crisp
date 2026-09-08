@@ -44,7 +44,7 @@ targets:
         # SkyLight.framework (physical display disconnect). SkyLight is already
         # loaded in-process via AppKit, so mark just these two symbols as
         # resolved-at-runtime instead of hard-linking a private framework path.
-        OTHER_LDFLAGS: "-Wl,-U,_SLSConfigureDisplayEnabled -Wl,-U,_SLSGetDisplayList"
+        OTHER_LDFLAGS: "-Wl,-U,_SLSConfigureDisplayEnabled -Wl,-U,_SLSGetDisplayList -Wl,-U,_SLSSetDisplayRotation"
         FRAMEWORK_SEARCH_PATHS: "vendor/Sparkle"
         LD_RUNPATH_SEARCH_PATHS: "@executable_path/../Frameworks"
         GENERATE_INFOPLIST_FILE: YES

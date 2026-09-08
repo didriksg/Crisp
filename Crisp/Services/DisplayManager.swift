@@ -104,6 +104,7 @@ class DisplayManager: ObservableObject {
     nonisolated(unsafe) private var screenParamsObserver: NSObjectProtocol?
 
     init() {
+        PhysicalDisplayToggleService.shared.displayManager = self
         refreshDisplays()
         setupReconfigCallback()
         // On connect, the CG reconfiguration callback fires before AppKit's
