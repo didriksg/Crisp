@@ -64,7 +64,9 @@ final class SettingsService: ObservableObject, @unchecked Sendable {
         static let brightnessKeySelected  = "crisp.brightnessKeySelectedDisplays"
         static let hidpiShortcut          = "crisp.hidpiShortcut"
         // Per-display keys use prefix + displayID
-        static let brightnessPrefix       = "crisp.brightness_"
+        // Brightness is the exception: prefix + display UUID, since displayIDs
+        // are reused across reconnects (same reason as crisp.softBrightness.uuid.*).
+        static let brightnessPrefix       = "crisp.brightness.uuid."
         static let contrastPrefix         = "crisp.contrast_"
     }
 
@@ -139,14 +141,16 @@ final class SettingsService: ObservableObject, @unchecked Sendable {
 
     // MARK: - Per-Display Settings
 
-    func brightness(for displayID: CGDirectDisplayID) -> Double? {
-        let key = Keys.brightnessPrefix + "\(displayID)"
+    /// Last known brightness of a physical display, used to seed the slider on
+    /// reconnect until a DDC read lands. Nil for a display never seen before.
+    func brightness(forDisplayUUID uuid: String) -> Double? {
+        let key = Keys.brightnessPrefix + uuid
         guard defaults.object(forKey: key) != nil else { return nil }
         return defaults.double(forKey: key)
     }
 
-    func setBrightness(_ value: Double, for displayID: CGDirectDisplayID) {
-        defaults.set(value, forKey: Keys.brightnessPrefix + "\(displayID)")
+    func setBrightness(_ value: Double, forDisplayUUID uuid: String) {
+        defaults.set(value, forKey: Keys.brightnessPrefix + uuid)
     }
 
     func contrast(for displayID: CGDirectDisplayID) -> Double? {
