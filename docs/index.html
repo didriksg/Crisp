@@ -5,16 +5,16 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="google-site-verification" content="Pb7coFWl3eF3E_6mT6jdH6sbJYJ5VY3iLoSKt-bNy2w">
 <title>Crisp: Free BetterDisplay &amp; Lunar alternative for macOS</title>
-<meta name="description" content="Crisp is a free, open-source, lightweight alternative to BetterDisplay and Lunar for macOS: DDC brightness, HiDPI scaling, presets, virtual displays, and arrangement, all in the menu bar.">
+<meta name="description" content="Crisp is a free, open-source, lightweight alternative to BetterDisplay and Lunar for macOS: DDC brightness, HiDPI scaling, presets, virtual displays, and arrangement, all in the menu bar, plus crispctl, a command line tool for the terminal, scripts and Apple Shortcuts.">
 <meta property="og:title" content="Crisp: Free BetterDisplay &amp; Lunar alternative for macOS">
-<meta property="og:description" content="A free, open-source alternative to BetterDisplay and Lunar: DDC brightness, HiDPI scaling, presets, virtual displays, and arrangement, all in the menu bar.">
+<meta property="og:description" content="A free, open-source alternative to BetterDisplay and Lunar: DDC brightness, HiDPI scaling, presets, virtual displays, and arrangement, all in the menu bar, plus a command line tool.">
 <meta property="og:image" content="https://crispmac.app/og-card.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta property="og:url" content="https://crispmac.app/">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Crisp: Free BetterDisplay &amp; Lunar alternative for macOS">
-<meta name="twitter:description" content="A free, open-source alternative to BetterDisplay and Lunar: DDC brightness, HiDPI scaling, presets, virtual displays, and arrangement, all in the menu bar.">
+<meta name="twitter:description" content="A free, open-source alternative to BetterDisplay and Lunar: DDC brightness, HiDPI scaling, presets, virtual displays, and arrangement, all in the menu bar, plus a command line tool.">
 <meta name="twitter:image" content="https://crispmac.app/og-card.png">
 <link rel="canonical" href="https://crispmac.app/">
 <link rel="alternate" hreflang="en" href="https://crispmac.app/">
@@ -22,7 +22,7 @@
 <link rel="alternate" hreflang="x-default" href="https://crispmac.app/">
 <link rel="icon" href="icon.png">
 <script type="application/ld+json">
-{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Crisp","operatingSystem":"macOS 14+","applicationCategory":"UtilitiesApplication","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"url":"https://crispmac.app/","downloadUrl":"https://github.com/didriksg/Crisp/releases/latest/download/Crisp.dmg","screenshot":"https://crispmac.app/screenshot.png","softwareLicense":"https://github.com/didriksg/Crisp/blob/main/LICENSE","author":{"@type":"Person","name":"Didrik Galteland","url":"https://github.com/didriksg"}}
+{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Crisp","operatingSystem":"macOS 14+","applicationCategory":"UtilitiesApplication","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"url":"https://crispmac.app/","downloadUrl":"https://github.com/didriksg/Crisp/releases/latest/download/Crisp.dmg","screenshot":"https://crispmac.app/screenshot.png","featureList":["HiDPI scaled resolutions on any external monitor","DDC/CI hardware brightness and volume control","Brightness keys for external displays","Extra Brightness using HDR and XDR headroom","Display presets with keyboard shortcuts","Display arrangement and main display switching","Virtual displays","ICC profiles, HDR toggle, gamma and gain","crispctl command line tool for the terminal, shell scripts and Apple Shortcuts"],"softwareLicense":"https://github.com/didriksg/Crisp/blob/main/LICENSE","author":{"@type":"Person","name":"Didrik Galteland","url":"https://github.com/didriksg"}}
 </script>
 <script type="application/ld+json">
 {"@context":"https://schema.org","@type":"VideoObject","name":"Crisp menu bar demo","description":"A tour of Crisp, a free macOS menu bar app for HiDPI scaling, DDC brightness, presets and display arrangement.","thumbnailUrl":"https://crispmac.app/screenshot.png","uploadDate":"2026-07-31T12:00:00+02:00","contentUrl":"https://crispmac.app/demo.mp4","width":1920,"height":1080}
@@ -127,6 +127,10 @@
         <details>
           <summary>What does Crisp require?</summary>
           <p>macOS 14 (Sonoma) or later, on both Apple Silicon and Intel Macs. A few extras, like disconnecting a display from the menu, are Apple Silicon only.</p>
+        </details>
+        <details>
+          <summary>Can I control my displays from the terminal or a script?</summary>
+          <p>Yes. Crisp ships a command line tool, <code>crispctl</code>, inside the app, and a switch in Settings links it into <code>/usr/local/bin</code>. From the terminal, a shell script, or an Apple Shortcut you can list displays, read and set brightness, switch HDR and Extra Brightness, and connect or disconnect a display, by display id or UUID.</p>
         </details>
         <details>
           <summary>How is Crisp different from BetterDisplay and Lunar?</summary>

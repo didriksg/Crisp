@@ -4,16 +4,16 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Crisp：BetterDisplay 和 Lunar 的免费开源平替（macOS 显示器管理）</title>
-<meta name="description" content="Crisp 是 BetterDisplay 和 Lunar 的免费开源平替：一个轻量的 macOS 菜单栏 App，集成 DDC 亮度、HiDPI 缩放、预设、虚拟显示器和排列，连它们的部分收费功能也免费。">
+<meta name="description" content="Crisp 是 BetterDisplay 和 Lunar 的免费开源平替：一个轻量的 macOS 菜单栏 App，集成 DDC 亮度、HiDPI 缩放、预设、虚拟显示器和排列，连它们的部分收费功能也免费；还内置 crispctl 命令行工具，可以在终端、脚本和快捷指令里控制显示器。">
 <meta property="og:title" content="Crisp：BetterDisplay 和 Lunar 的免费开源平替">
-<meta property="og:description" content="免费开源的 macOS 菜单栏工具：DDC 亮度、HiDPI 缩放、预设、虚拟显示器、排列，一个面板全搞定。">
+<meta property="og:description" content="免费开源的 macOS 菜单栏工具：DDC 亮度、HiDPI 缩放、预设、虚拟显示器、排列，一个面板全搞定，还有命令行工具。">
 <meta property="og:image" content="https://crispmac.app/og-card-zh.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta property="og:url" content="https://crispmac.app/zh.html">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Crisp：BetterDisplay 和 Lunar 的免费开源平替">
-<meta name="twitter:description" content="免费开源的 macOS 菜单栏工具：DDC 亮度、HiDPI 缩放、预设、虚拟显示器、排列，一个面板全搞定。">
+<meta name="twitter:description" content="免费开源的 macOS 菜单栏工具：DDC 亮度、HiDPI 缩放、预设、虚拟显示器、排列，一个面板全搞定，还有命令行工具。">
 <meta name="twitter:image" content="https://crispmac.app/og-card-zh.png">
 <link rel="canonical" href="https://crispmac.app/zh.html">
 <link rel="alternate" hreflang="zh-Hans" href="https://crispmac.app/zh.html">
@@ -21,7 +21,7 @@
 <link rel="alternate" hreflang="x-default" href="https://crispmac.app/">
 <link rel="icon" href="icon.png">
 <script type="application/ld+json">
-{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Crisp","operatingSystem":"macOS 14+","applicationCategory":"UtilitiesApplication","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"url":"https://crispmac.app/zh.html","downloadUrl":"https://github.com/didriksg/Crisp/releases/latest/download/Crisp.dmg","screenshot":"https://crispmac.app/screenshot-zh.png","softwareLicense":"https://github.com/didriksg/Crisp/blob/main/LICENSE","author":{"@type":"Person","name":"Didrik Galteland","url":"https://github.com/didriksg"}}
+{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Crisp","operatingSystem":"macOS 14+","applicationCategory":"UtilitiesApplication","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"url":"https://crispmac.app/zh.html","downloadUrl":"https://github.com/didriksg/Crisp/releases/latest/download/Crisp.dmg","screenshot":"https://crispmac.app/screenshot-zh.png","featureList":["给任意外接显示器补上 HiDPI 缩放分辨率","DDC/CI 硬件亮度和音量控制","用键盘亮度键控制外接显示器","额外亮度：利用 HDR 和 XDR 亮度余量","显示器预设与全局快捷键","显示器排列与主显示器切换","虚拟显示器","ICC 描述文件、HDR 开关、伽马与增益","crispctl 命令行工具，支持终端、脚本和快捷指令"],"softwareLicense":"https://github.com/didriksg/Crisp/blob/main/LICENSE","author":{"@type":"Person","name":"Didrik Galteland","url":"https://github.com/didriksg"}}
 </script>
 <script type="application/ld+json">
 {"@context":"https://schema.org","@type":"VideoObject","name":"Crisp 菜单栏演示","description":"Crisp 是一个免费的 macOS 菜单栏工具，支持 HiDPI 缩放、DDC 亮度、预设和显示器排列，这是功能演示。","thumbnailUrl":"https://crispmac.app/screenshot-zh.png","uploadDate":"2026-07-31T12:00:00+02:00","contentUrl":"https://crispmac.app/demo.mp4","width":1920,"height":1080}
@@ -126,6 +126,10 @@
         <details>
           <summary>使用 Crisp 需要什么条件？</summary>
           <p>macOS 14（Sonoma）及以上，Apple 芯片和 Intel Mac 都支持。少数功能（如从菜单断开显示器）仅限 Apple 芯片。</p>
+        </details>
+        <details>
+          <summary>可以在终端或脚本里控制显示器吗？</summary>
+          <p>可以。Crisp 在 App 内置了命令行工具 <code>crispctl</code>，在设置里打开开关就会把它链接到 <code>/usr/local/bin</code>。在终端、Shell 脚本或快捷指令里，你可以列出显示器、读取和设置亮度、开关 HDR 和额外亮度，也可以连接或断开某块显示器，按显示器 id 或 UUID 指定。</p>
         </details>
         <details>
           <summary>Crisp 和 BetterDisplay、Lunar 有什么区别？</summary>
