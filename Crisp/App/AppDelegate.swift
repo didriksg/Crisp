@@ -138,12 +138,29 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // Touch the singleton so auto-brightness polling starts at launch; otherwise
         // it only starts the first time the menu panel is opened (its only other ref).
         _ = AutoBrightnessService.shared
+        // Built here rather than at first use so its init runs on every launch: it
+        // drops the orphaned saved-resolution key.
+        _ = ResolutionService.shared
 
         // Re-establish Extra Brightness (EDR upscaling) for displays whose
         // toggle is persisted on. Deferred a beat so DisplayManager's initial
         // display list is populated.
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
             BrightnessBoostService.shared.reapplyAll()
+        }
+
+        // Record every display's mode as the screens go down, so the wake passes
+        // below can put back what macOS moved and nothing else. Both notifications:
+        // a display idle timeout posts screensDidSleep with no system sleep at all.
+        for name in [NSWorkspace.willSleepNotification, NSWorkspace.screensDidSleepNotification] {
+            wakeObservers.append(NSWorkspace.shared.notificationCenter.addObserver(
+                forName: name,
+                object: nil,
+                queue: .main
+            ) { _ in
+                // Delivered on `queue: .main`, so the main actor is current.
+                MainActor.assumeIsolated { ResolutionService.shared.snapshotModesForSleep() }
+            })
         }
 
         // screensDidWake counts as much as didWake: displays that sleep on their
@@ -312,7 +329,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                         BrightnessService.shared.reapplySoftwareBrightnessIfNeeded(for: display)
                         GammaService.shared.reapplyIfNeeded(for: display)
                         // Re-apply any custom resolution that macOS may have reset on wake
-                        ResolutionService.shared.reapplySavedModeIfNeeded(for: display.displayID)
+                        ResolutionService.shared.restoreModeAfterWakeIfNeeded(for: display.displayID)
                     }
                     // Once an external is back after a full wake, toggle True Tone so macOS
                     // recomputes it with that display present (issue #131). Once per wake,

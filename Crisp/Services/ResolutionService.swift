@@ -1,44 +1,62 @@
 import Foundation
 @preconcurrency import CoreGraphics
 import ColorSync // CGDisplayCreateUUIDFromDisplayID
+import os
 
 /// Service responsible for reading and changing display resolution modes.
 @MainActor
 final class ResolutionService: @unchecked Sendable {
     static let shared = ResolutionService()
-    private init() {}
+    private init() {
+        // Orphaned by the sleep snapshot below. It held modes picked in Crisp
+        // and outlived the desk they were picked on, so leaving it would let a
+        // future reader resurrect a preference the user never set for this set
+        // of displays.
+        UserDefaults.standard.removeObject(forKey: "crisp.ResolutionService.savedModesByUUID")
+    }
 
-    /// A persisted resolution stored as ATTRIBUTES, not the volatile ioDisplayModeID. macOS
+    nonisolated private static let log = Logger(subsystem: "com.crisp.app", category: "display")
+
+    /// A resolution held as ATTRIBUTES, not the volatile ioDisplayModeID. macOS
     /// reassigns that raw ID whenever the mode list is rebuilt (HiDPI override inject/remove,
     /// reconnect, sleep/wake), so matching by ID after a rebuild resolved to a DIFFERENT mode
     /// and set a wrong (often off-aspect, 60Hz) resolution on wake. (w18z)
-    private struct SavedMode: Codable, Equatable {
+    private struct SavedMode: Equatable {
         let width: Int
         let height: Int
         let refresh: Double
         let hidpi: Bool
     }
 
-    /// Keyed by display uuid. The previous key, crisp.ResolutionService.savedModeAttrs, held the
-    /// same entries keyed by CGDirectDisplayID; those are session numbers macOS hands to whichever
-    /// display comes next, so an entry followed its number to a different panel (a 1920x1080 saved
-    /// under id 3 on one display was applied to another display holding id 3 at a later wake).
-    /// A new key rather than a migration: an id cannot be mapped back to the uuid it was saved for.
-    private static let savedModesKey = "crisp.ResolutionService.savedModesByUUID"
+    /// Every active display's mode as the screens went to sleep, keyed by uuid.
+    /// This is the whole memory: it lives for one sleep, so Crisp can only ever
+    /// undo a mode macOS changed while the Mac was away. The store this replaced
+    /// remembered a mode picked in Crisp forever, which meant a resolution
+    /// chosen with a monitor attached was re-applied to the built-in at every
+    /// later wake, overriding the mode macOS correctly keeps per display set.
+    private var sleepModes: [String: SavedMode]?
 
-    /// Last user-set mode per display uuid. Used to re-apply modes after sleep/wake.
-    private var savedModes: [String: SavedMode] = {
-        guard let data = UserDefaults.standard.data(forKey: ResolutionService.savedModesKey),
-              let decoded = try? JSONDecoder().decode([String: SavedMode].self, from: data)
-        else { return [:] }
-        return decoded
-    }()
+    /// Records what every display is at, called as the screens go to sleep.
+    func snapshotModesForSleep() {
+        var snapshot: [String: SavedMode] = [:]
+        for displayID in Self.onlineDisplayIDs() {
+            guard let key = Self.uuidKey(for: displayID),
+                  let mode = CGDisplayCopyDisplayMode(displayID) else { continue }
+            snapshot[key] = SavedMode(width: mode.width, height: mode.height,
+                                      refresh: mode.refreshRate, hidpi: mode.pixelWidth > mode.width)
+        }
+        sleepModes = snapshot
+        Self.log.notice("screens asleep: remembered \(snapshot.count, privacy: .public) display mode(s)")
+    }
 
-    private func persistMode(_ mode: DisplayMode, for displayID: CGDirectDisplayID) {
-        guard let key = Self.uuidKey(for: displayID) else { return }
-        savedModes[key] = SavedMode(width: mode.width, height: mode.height,
-                                    refresh: mode.refreshRate, hidpi: mode.isHiDPI)
-        UserDefaults.standard.set(try? JSONEncoder().encode(savedModes), forKey: Self.savedModesKey)
+    /// Online, not active: a display keeps its mode while it sleeps but drops out
+    /// of the active list, and the snapshot is taken exactly as that happens.
+    private static func onlineDisplayIDs() -> [CGDirectDisplayID] {
+        var count: UInt32 = 0
+        guard CGGetOnlineDisplayList(0, nil, &count) == .success, count > 0 else { return [] }
+        var ids = [CGDirectDisplayID](repeating: 0, count: Int(count))
+        guard CGGetOnlineDisplayList(count, &ids, &count) == .success else { return [] }
+        return Array(ids.prefix(Int(count)))
     }
 
     /// nil while the display is disabled: CGDisplayCreateUUIDFromDisplayID has no uuid for it then.
@@ -56,18 +74,26 @@ final class ResolutionService: @unchecked Sendable {
         return abs(a - b) < 1.0
     }
 
-    /// Re-applies the last user-set mode for `displayID` if it differs from the current active
-    /// mode. Called on wake from sleep so macOS mode resets are corrected. Matches by attributes
-    /// and applies ONLY on an exact match in the current valid mode list; if the saved size no
-    /// longer exists (mode list rebuilt, display swapped) it does nothing rather than forcing an
-    /// off-aspect fallback. (w18z)
-    func reapplySavedModeIfNeeded(for displayID: CGDirectDisplayID) {
-        // A mirrored beyond-cap size (#65) is not a saved mode: the physical
+    /// Puts `displayID` back to the mode it was at when the screens went to sleep, if macOS
+    /// brought it back on a different one. Called on wake. Matches by attributes and applies
+    /// ONLY on an exact match in the current valid mode list; if the size no longer exists
+    /// (mode list rebuilt, display swapped) it does nothing rather than forcing an off-aspect
+    /// fallback. (w18z)
+    func restoreModeAfterWakeIfNeeded(for displayID: CGDirectDisplayID) {
+        // A mirrored beyond-cap size (#65) is not ours to restore: the physical
         // reports the virtual master's looks-like mode, and a "correction" here
         // would redirect to the virtual and fight the mirror. That state is
         // MirroredModeService's to restore, not ours.
         guard !MirroredModeService.shared.isActive(for: displayID) else { return }
-        guard let key = Self.uuidKey(for: displayID), let saved = savedModes[key] else { return }
+        guard let snapshot = sleepModes, let key = Self.uuidKey(for: displayID),
+              let saved = snapshot[key] else { return }
+
+        // A display came or went while the Mac slept, so this is a different desk.
+        // macOS keeps its own mode per set of displays and has just applied the
+        // right one; the pre-sleep mode belongs to the old set. Skip rather than
+        // clear, because the wake passes run while the list is still settling and
+        // a later pass may see the desk whole again.
+        guard Set(snapshot.keys) == Set(Self.onlineDisplayIDs().compactMap(Self.uuidKey(for:))) else { return }
 
         // Already at the saved resolution? Nothing to do.
         if let cur = CGDisplayCopyDisplayMode(displayID),
@@ -91,8 +117,11 @@ final class ResolutionService: @unchecked Sendable {
               })
         else { return }
 
+        let now = CGDisplayCopyDisplayMode(displayID)
+        Self.log.notice("display \(displayID, privacy: .public): came back from sleep on \(now?.width ?? 0, privacy: .public)x\(now?.height ?? 0, privacy: .public), restoring the pre-sleep \(saved.width, privacy: .public)x\(saved.height, privacy: .public) @\(Int(saved.refresh), privacy: .public)")
         Task.detached(priority: .userInitiated) {
-            _ = await ResolutionService.applyModeSync(cgMode, on: targetID)
+            let ok = await ResolutionService.applyModeSync(cgMode, on: targetID)
+            ResolutionService.log.notice("display \(displayID, privacy: .public): mode restore after wake \(ok ? "ok" : "failed", privacy: .public)")
         }
     }
 
@@ -151,9 +180,7 @@ final class ResolutionService: @unchecked Sendable {
             // No CGDisplayMode with this id: the GPU-scaled HiDPI variant CG hides (surfaced from
             // the CGS list), or the mirror-source last resort. Both apply via the CGS transaction
             // API, which addresses modes by the same id (CGS modeNumber == ioDisplayModeID).
-            let ok = await cgsFallback(modeID: UInt32(bitPattern: mode.ioDisplayModeID), on: targetID)
-            if ok { persistMode(mode, for: displayID) }
-            return ok
+            return await cgsFallback(modeID: UInt32(bitPattern: mode.ioDisplayModeID), on: targetID)
         }
 
         // Apply via standard public CG API (off main thread to avoid blocking the UI)
@@ -161,18 +188,10 @@ final class ResolutionService: @unchecked Sendable {
             await ResolutionService.applyModeSync(cgMode, on: targetID)
         }.value
 
-        if success {
-            // Persist so we can re-apply after sleep/wake
-            persistMode(mode, for: displayID)
-            return true
-        }
+        if success { return true }
 
         // Fallback: CGSConfigureDisplayMode
-        let fallbackSuccess = await cgsFallback(modeID: UInt32(bitPattern: cgMode.ioDisplayModeID), on: targetID)
-        if fallbackSuccess {
-            persistMode(mode, for: displayID)
-        }
-        return fallbackSuccess
+        return await cgsFallback(modeID: UInt32(bitPattern: cgMode.ioDisplayModeID), on: targetID)
     }
 
     // MARK: - Mirror resolution
