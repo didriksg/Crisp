@@ -15,7 +15,12 @@ class DisplayInfo: ObservableObject, Identifiable {
     @Published var bounds: CGRect
     @Published var pixelWidth: Int
     @Published var pixelHeight: Int
-    @Published var brightness: Double
+    @Published var brightness: Double {
+        didSet { persistBrightnessIfNeeded() }
+    }
+    /// Last brightness written to defaults, so a glide's per-frame updates
+    /// don't churn the store.
+    private var persistedBrightness: Double?
     /// UI brightness ceiling. 100 normally; above 100 while Extra Brightness
     /// (EDR upscaling) is enabled, where the range 100...maxBrightness maps to
     /// the EDR overlay boost instead of hardware.
@@ -39,12 +44,16 @@ class DisplayInfo: ObservableObject, Identifiable {
     /// A stable identifier for the physical display that persists across sleep/wake
     /// even if macOS reassigns the CGDirectDisplayID.
     var displayUUID: String {
-        if let cfUUID = CGDisplayCreateUUIDFromDisplayID(displayID),
-           let uuidStr = CFUUIDCreateString(nil, cfUUID.takeRetainedValue()) {
-            return uuidStr as String
-        }
         // Fallback: vendor+model+serial hash is more stable than raw displayID
-        return "v\(vendorNumber)-m\(modelNumber)-s\(serialNumber)"
+        Self.cgDisplayUUID(displayID) ?? "v\(vendorNumber)-m\(modelNumber)-s\(serialNumber)"
+    }
+
+    /// CG's UUID for an online display, nil while it is offline. Static because
+    /// init needs it before `self` is fully formed.
+    static func cgDisplayUUID(_ displayID: CGDirectDisplayID) -> String? {
+        guard let cfUUID = CGDisplayCreateUUIDFromDisplayID(displayID),
+              let uuidStr = CFUUIDCreateString(nil, cfUUID.takeRetainedValue()) else { return nil }
+        return uuidStr as String
     }
 
     /// The native (highest non-HiDPI) resolution, used for HiDPI enablement and presets.
@@ -81,9 +90,17 @@ class DisplayInfo: ObservableObject, Identifiable {
         self.bounds = CGDisplayBounds(displayID)
         self.pixelWidth = CGDisplayPixelsWide(displayID)
         self.pixelHeight = CGDisplayPixelsHigh(displayID)
-        // Use persisted brightness as the initial value if available, otherwise 50.0.
-        // BrightnessService will overwrite this with the real hardware value once probed.
-        self.brightness = SettingsService.shared.brightness(for: displayID) ?? 50.0
+        // Seed from the last brightness this physical display was seen at, so a
+        // reconnect (or a displayID reshuffle when another display comes or goes)
+        // doesn't park the slider on a fictional 50 that the next brightness key
+        // or slider click would then write to the monitor. BrightnessService
+        // overwrites it with the real hardware value once the DDC read lands,
+        // which on some panels fails for minutes after link training.
+        let seed = Self.cgDisplayUUID(displayID).flatMap {
+            SettingsService.shared.brightness(forDisplayUUID: $0)
+        }
+        self.brightness = seed ?? 50.0
+        self.persistedBrightness = seed
         self.availableModes = []
         self.currentDisplayMode = DisplayMode.currentMode(for: displayID)
         let vendor = CGDisplayVendorNumber(displayID)
@@ -100,6 +117,17 @@ class DisplayInfo: ObservableObject, Identifiable {
             self.name = NSScreen.screen(for: displayID)?.localizedName ?? String(localized: "Display \(String(displayID))")
         }
 
+    }
+
+    /// Records the brightness this display is at, for the next time it appears.
+    /// Externals only: macOS reports the built-in's real level immediately, and
+    /// its ambient auto-adjust would write on every step. Boost values (above
+    /// 100) are skipped so the stored value stays a plain hardware percentage.
+    private func persistBrightnessIfNeeded() {
+        guard !isBuiltin, brightness <= 100.0 else { return }
+        guard abs(brightness - (persistedBrightness ?? -1)) >= 1.0 else { return }
+        persistedBrightness = brightness
+        SettingsService.shared.setBrightness(brightness, forDisplayUUID: displayUUID)
     }
 
     func loadDetails() async {
