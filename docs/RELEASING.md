@@ -13,7 +13,7 @@ never break, they just see no update).
 
 ## crispctl
 
-`release.sh` compiles `crispctl` universal from the same source list as the `crispctl` target in `project.yml` and puts it at `Crisp.app/Contents/MacOS/crispctl`, signed inside-out before the app like Sparkle's nested code. Settings links it into `/usr/local/bin`; the cask needs the same link once. Right after the first release that ships it, send homebrew/cask one PR by hand with the version bump, the new sha256 and `binary "#{appdir}/Crisp.app/Contents/MacOS/crispctl"` under the `app` stanza (`brew bump-cask-pr crisp --version X.Y.Z` builds the bump; add the line to the same commit). Do not wait for autobump: it only moves the version, and a `binary` line against a release whose bundle has no crispctl breaks `brew install`.
+`release.sh` compiles `crispctl` universal from the same source list as the `crispctl` target in `project.yml` and puts it at `Crisp.app/Contents/MacOS/crispctl`, signed inside-out before the app like Sparkle's nested code. Settings links it into `/usr/local/bin`; the cask needs the same link once, through a `binary "#{appdir}/Crisp.app/Contents/MacOS/crispctl"` line under the `app` stanza. That line has to land *after* a version bump that ships crispctl, never before: Homebrew raises `CaskError, "It seems the binary source ... is not there"` (`cask/artifact/symlinked.rb`) when the target is missing, so a `binary` line against a cask still pinned to a release without crispctl fails every `brew install`. Since the version bump belongs to the bot (see Homebrew below), the order is: wait for the autobump PR to merge, then send one PR adding the single `binary` line. Done once, for 1.6.0; later releases need nothing here.
 
 ## Signing and notarization
 
@@ -47,13 +47,39 @@ instead of shipping.
 ## Homebrew
 
 The cask lives in homebrew/cask (`Casks/c/crisp.rb`, added in
-Homebrew/homebrew-cask#283611). Homebrew's autobump job runs every three
-hours, sees the new GitHub release through livecheck, and opens and merges
-the version bump itself. Nothing to do per release. If a release is still
-missing from `brew info --cask crisp` after a day, open the bump by hand:
-`brew bump-cask-pr crisp --version X.Y.Z`. `auto_updates true` is in the
-cask, so `brew upgrade` reconciles against the on-disk version instead of
-reinstalling over an app that updated itself.
+Homebrew/homebrew-cask#283611), and there is nothing to do per release.
+
+Every cask in the official repo is autobumped unless it says otherwise, so
+BrewTestBot owns the version and sha256. It checks every three hours and opens
+the bump PR itself. Bumping by hand is not an option and not just discouraged:
+`brew bump-cask-pr crisp --version X.Y.Z` refuses with "has its version update
+pull requests automatically opened by BrewTestBot", there is no `--force`, and
+`brew livecheck --cask crisp` answers "Skipping crisp as it is autobumped".
+Only a cask carrying `no_autobump!`, a `livecheck` block with `skip`, or an
+active `deprecate!`/`disable!` is bumped by hand. Anything that is not a
+version bump, the `binary` line above for instance, is still an ordinary PR.
+
+How the bot finds a release: the cask has no `livecheck` block, so livecheck
+picks the `GithubLatest` strategy off the download URL and turns it into
+`https://api.github.com/repos/didriksg/Crisp/releases/latest`, reading the
+version off the tag with `v?(\d+(?:\.\d+)+)`. That endpoint ignores drafts
+and prereleases, so marking a release as a prerelease hides it from Homebrew
+entirely.
+
+`auto_updates true` does not mean brew stops upgrading Crisp. With it,
+`brew upgrade` compares the *installed app bundle's* CFBundleShortVersionString
+against the cask version (`Cask#outdated_version`, gated on
+`HOMEBREW_UPGRADE_AUTO_UPDATES_CASKS`, which defaults to true) instead of
+trusting its own install receipt. So a user still on the old build gets the
+new one from a plain `brew upgrade`, with no `--greedy`, while a user whose app
+already updated itself through Sparkle is skipped rather than having a running
+app quit and replaced by the same version. `--greedy` only matters for
+`version :latest` casks or when `HOMEBREW_NO_UPGRADE_AUTO_UPDATES_CASKS` is set.
+
+One consequence for crispctl: the `binary` symlink is created by a cask
+install, so it appears for new installs and for anyone whose `brew upgrade`
+actually reinstalls. Someone who moves version through Sparkle keeps the tool
+inside the bundle and uses the Command Line Tool switch in Settings.
 
 The old tap (`didriksg/homebrew-tap`) only carries a `tap_migrations.json`
 entry now; installs from it move to the main cask on their next

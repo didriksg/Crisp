@@ -192,6 +192,7 @@ tbody th { font-weight: 600; color: var(--text); }
 tbody tr:last-child td, tbody tr:last-child th { border-bottom: none; }
 td { color: var(--muted); }
 td.c { text-align: center; }
+thead th:not(:first-child) { text-align: center; }
 .yes { color: var(--good); font-weight: 700; }
 .no { color: var(--no); }
 .pro { color: var(--pro); font-weight: 600; font-size: 13px; }
