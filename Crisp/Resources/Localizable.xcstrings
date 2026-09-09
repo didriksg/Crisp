@@ -332,6 +332,16 @@
         }
       }
     },
+    "Brightness Down" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "调低亮度"
+          }
+        }
+      }
+    },
     "Brightness Keys" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -349,6 +359,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "亮度键需要辅助功能权限才能重定向到外接显示器。授权一次即可使用，无需重启。"
+          }
+        }
+      }
+    },
+    "Brightness Up" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "调高亮度"
           }
         }
       }
@@ -1858,6 +1878,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "扬声器音量"
+          }
+        }
+      }
+    },
+    "Steps brightness like the brightness keys, on the same displays. For keyboards without them." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "以与亮度键相同的步进调节亮度，作用于相同的显示器。适用于没有亮度键的键盘。"
           }
         }
       }

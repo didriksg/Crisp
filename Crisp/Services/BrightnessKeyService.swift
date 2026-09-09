@@ -303,29 +303,18 @@ final class BrightnessKeyService: @unchecked Sendable {
     nonisolated private func routeBrightnessPress(up: Bool, event: CGEvent) -> Unmanaged<CGEvent>? {
         // Route by user preference. Read on the main actor, this callback runs on
         // the main run loop (see class docs), so assumeIsolated is safe here.
-        switch MainActor.assumeIsolated({ SettingsService.shared.brightnessKeyTarget }) {
-        case .allDisplays:
-            Task { @MainActor in self.adjustDisplays(DisplayManagerAccessor.shared.displays, up: up) }
-            // Consume: we adjust every display (built-in included) ourselves, so
+        // Which displays a press moves is the same rule for a key and for a bound
+        // shortcut (see adjustFromShortcut). Only the under-cursor case needs the
+        // tap's own pass-through handling, so it is the one that falls through here.
+        // The decision has to be synchronous (consume or not), the work does not.
+        let hasExplicitTargets = MainActor.assumeIsolated { self.explicitTargets() != nil }
+        if hasExplicitTargets {
+            Task { @MainActor in
+                if let targets = self.explicitTargets() { self.adjustDisplays(targets, up: up) }
+            }
+            // Consume: we adjust every target (built-in included) ourselves, so
             // macOS must not also bump the built-in on top.
             return nil
-        case .selected:
-            // Adjust only the chosen displays that are currently attached. If none
-            // are attached, fall through to the under-cursor path so the key still
-            // does something instead of being dead.
-            let selected = MainActor.assumeIsolated { SettingsService.shared.brightnessKeySelectedDisplayUUIDs }
-            let anyAttached = MainActor.assumeIsolated {
-                DisplayManagerAccessor.shared.displays.contains { selected.contains($0.displayUUID) }
-            }
-            if anyAttached {
-                Task { @MainActor in
-                    let targets = DisplayManagerAccessor.shared.displays.filter { selected.contains($0.displayUUID) }
-                    self.adjustDisplays(targets, up: up)
-                }
-                return nil
-            }
-        case .underCursor:
-            break
         }
         // .underCursor (or .selected with none of the chosen displays attached):
         // fall through to the under-cursor path below.
@@ -418,10 +407,47 @@ final class BrightnessKeyService: @unchecked Sendable {
         return nil
     }
 
+    /// The displays the Brightness Keys target setting names outright, or nil when
+    /// it leaves the choice to the pointer: the under-cursor setting, and the chosen
+    /// subset with none of its displays attached, where the pointer is the fallback
+    /// so a press still does something instead of being dead.
+    private func explicitTargets() -> [DisplayInfo]? {
+        let displays = DisplayManagerAccessor.shared.displays
+        switch SettingsService.shared.brightnessKeyTarget {
+        case .allDisplays:
+            return displays
+        case .selected:
+            let selected = SettingsService.shared.brightnessKeySelectedDisplayUUIDs
+            let targets = displays.filter { selected.contains($0.displayUUID) }
+            return targets.isEmpty ? nil : targets
+        case .underCursor:
+            return nil
+        }
+    }
+
+    /// Steps brightness for a shortcut bound in Settings > Keyboard Shortcuts
+    /// (issue #160), for keyboards whose brightness keys are missing or taken.
+    /// Same stops, same fades, same banner and same targets as the keys.
+    /// One difference, and it cannot be otherwise: with the pointer on the built-in
+    /// the keys hand the event to macOS, while a shortcut has no event to hand over,
+    /// so Crisp moves the built-in itself, as it already does in all-displays mode.
+    func adjustFromShortcut(up: Bool) {
+        if let targets = explicitTargets() {
+            adjustDisplays(targets, up: up)
+            return
+        }
+        let mouse = NSEvent.mouseLocation
+        guard let screen = NSScreen.screens.first(where: { NSMouseInRect(mouse, $0.frame, false) }),
+              let displayID = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID,
+              let display = DisplayManagerAccessor.shared.displays.first(where: { $0.displayID == displayID })
+        else { return }
+        adjustDisplays([display], up: up)
+    }
+
     /// Moves each given display (built-in or external) to its next stop,
     /// through BrightnessService's smooth fade (reusing its DDC/gamma/IOKit paths +
     /// coalescing), and shows the brightness HUD on each display's own screen.
-    /// Backs the `.allDisplays` and `.selected` brightness-key modes.
+    /// Backs the `.allDisplays` and `.selected` key modes and the shortcuts.
     @MainActor
     private func adjustDisplays(_ displays: [DisplayInfo], up: Bool) {
         let screens = NSScreen.screens
