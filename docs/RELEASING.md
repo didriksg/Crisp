@@ -4,6 +4,15 @@ Normal flow is unchanged: `./scripts/release.sh vX.Y.Z notes.md --publish`
 (see the script header for setup). The Sparkle auto-update chain adds the
 steps below.
 
+## Before the tag
+
+`release.sh` exiting 0 means the build signed and notarized. It does not mean the release is right. Every check below is here because 1.6.0 shipped without it.
+
+1. **Read the appcast the script wrote.** `docs/appcast.xml` should carry one `<item>` at the new version with a non-empty `<description sparkle:format="markdown">` holding the release notes. 1.6.0 published with no description at all, and with the previous release still in the feed, so for the first eight hours everyone who took the update saw a blank pane. Most people meet a release through that dialog and never visit the site, so treat it as the release's front page. When the notes format itself changes, render it for real with the local feed test at the bottom of this file.
+2. **Open the DMG.** Mount it and confirm the app inside carries the version you are about to tag, and that `Contents/MacOS/crispctl` is there. The `spctl` gate in `release.sh` covers Gatekeeper; this covers the contents. Never run anything out of a copy of the DMG that carries a quarantine flag from an earlier `spctl` test.
+3. **Check what is new in the pipeline, not just what is new in the app.** Both things that needed patching after 1.6.0 were first-time steps in the release process, while the parts that had run before ran clean. Downstream automation only carries forward what already exists: BrewTestBot bumps the cask's version and sha256 and nothing else, so anything new in a downstream package, the `binary` stanza for instance, needs a hand-made PR of its own after the autobump merges (see Homebrew below).
+4. **Run the feature checklist on real hardware.** Displays, DDC, the panel and brightness have no unit tests, so the last check before a tag is exercising the release's own features on the desk. That pass is what found the rotation and HDR gaps in 1.6.0 and what got `display poweroff` pulled the day before the release instead of shipped.
+
 ## Every release
 
 After `--publish` finishes, commit and push `docs/appcast.xml` together with
