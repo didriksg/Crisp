@@ -63,6 +63,8 @@ final class SettingsService: ObservableObject, @unchecked Sendable {
         static let brightnessKeyTarget    = "crisp.brightnessKeyTarget"
         static let brightnessKeySelected  = "crisp.brightnessKeySelectedDisplays"
         static let hidpiShortcut          = "crisp.hidpiShortcut"
+        static let brightnessUpShortcut   = "crisp.brightnessUpShortcut"
+        static let brightnessDownShortcut = "crisp.brightnessDownShortcut"
         // Per-display keys use prefix + displayID
         // Brightness is the exception: prefix + display UUID, since displayIDs
         // are reused across reconnects (same reason as crisp.softBrightness.uuid.*).
@@ -136,6 +138,47 @@ final class SettingsService: ObservableObject, @unchecked Sendable {
             } else {
                 defaults.removeObject(forKey: Keys.hidpiShortcut)
             }
+        }
+    }
+
+    /// Global shortcuts that step brightness up and down exactly as the brightness
+    /// keys do, for keyboards without those keys or with them taken (issue #160);
+    /// nil when not set. Registration is the caller's job, as above.
+    @Published var brightnessUpShortcut: KeyboardShortcut? = nil {
+        didSet {
+            if let brightnessUpShortcut, let data = try? JSONEncoder().encode(brightnessUpShortcut) {
+                defaults.set(data, forKey: Keys.brightnessUpShortcut)
+            } else {
+                defaults.removeObject(forKey: Keys.brightnessUpShortcut)
+            }
+        }
+    }
+
+    @Published var brightnessDownShortcut: KeyboardShortcut? = nil {
+        didSet {
+            if let brightnessDownShortcut, let data = try? JSONEncoder().encode(brightnessDownShortcut) {
+                defaults.set(data, forKey: Keys.brightnessDownShortcut)
+            } else {
+                defaults.removeObject(forKey: Keys.brightnessDownShortcut)
+            }
+        }
+    }
+
+    /// One combo, one action: clears `shortcut` off every other Keyboard Shortcuts
+    /// row and off any preset holding it, then `assign` gives it to this one.
+    /// Carbon refuses a second registration of the same combo, so without this the
+    /// row the user just set would be the dead one.
+    func assignStaticShortcut(_ shortcut: KeyboardShortcut?, assign: (KeyboardShortcut?) -> Void) {
+        if let shortcut {
+            if hidpiShortcut?.sameKeys(as: shortcut) == true { hidpiShortcut = nil }
+            if brightnessUpShortcut?.sameKeys(as: shortcut) == true { brightnessUpShortcut = nil }
+            if brightnessDownShortcut?.sameKeys(as: shortcut) == true { brightnessDownShortcut = nil }
+        }
+        assign(shortcut)
+        if let shortcut {
+            PresetService.shared.stealShortcutFromPresets(shortcut)  // persists and syncs
+        } else {
+            HotkeyService.shared.syncRegistrations()
         }
     }
 
@@ -219,6 +262,10 @@ final class SettingsService: ObservableObject, @unchecked Sendable {
             .flatMap(BrightnessKeyTarget.init(rawValue:)) ?? .underCursor
         brightnessKeySelectedDisplayUUIDs = Set(defaults.stringArray(forKey: Keys.brightnessKeySelected) ?? [])
         hidpiShortcut = defaults.data(forKey: Keys.hidpiShortcut)
+            .flatMap { try? JSONDecoder().decode(KeyboardShortcut.self, from: $0) }
+        brightnessUpShortcut = defaults.data(forKey: Keys.brightnessUpShortcut)
+            .flatMap { try? JSONDecoder().decode(KeyboardShortcut.self, from: $0) }
+        brightnessDownShortcut = defaults.data(forKey: Keys.brightnessDownShortcut)
             .flatMap { try? JSONDecoder().decode(KeyboardShortcut.self, from: $0) }
     }
 }
