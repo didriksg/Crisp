@@ -37,12 +37,20 @@ final class CoreBrightnessService: ObservableObject {
 
     private var blueLightClient: NSObject?
     private var trueToneClient: NSObject?
+    private(set) var nightShiftTemperature: NightShiftTemperatureController?
 
     private init() {
         guard dlopen("/System/Library/PrivateFrameworks/CoreBrightness.framework/CoreBrightness", RTLD_LAZY) != nil else { return }
         if let cls = NSClassFromString("CBBlueLightClient") as? NSObject.Type {
-            blueLightClient = cls.init()
+            let client = cls.init()
+            blueLightClient = client
             nightShiftAvailable = true
+            if let temperatureClient = NightShiftTemperatureClient(client: client) {
+                nightShiftTemperature = NightShiftTemperatureController(
+                    read: { await temperatureClient.read() },
+                    write: { await temperatureClient.write($0) }
+                )
+            }
         }
         if let cls = NSClassFromString("CBTrueToneClient") as? NSObject.Type {
             let client = cls.init()
@@ -82,6 +90,11 @@ final class CoreBrightnessService: ObservableObject {
     /// The reads are XPC round-trips, so they run off the main thread to keep
     /// panel opening snappy; results publish back on main.
     func refresh() {
+        // Strength-only changes do not always emit the status callback. The
+        // existing panel-open and visible-panel refreshes cover those too.
+        if let nightShiftTemperature {
+            Task { await nightShiftTemperature.refresh() }
+        }
         // The CoreBrightness XPC client objects are safe to message from any
         // thread, but NSObject is not Sendable; box them across the hop.
         let blueBox = UncheckedSendable(value: blueLightClient)

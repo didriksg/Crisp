@@ -47,7 +47,7 @@ Installed from `didriksg/tap` earlier? `brew upgrade` moves you to the main cask
 - **Presets**: save named display configurations (resolution, brightness, arrangement) with custom icons and colors, apply with one click, update in place. Image adjustment (gamma, color temperature, contrast) is per-display and not stored in presets
 - **Display arrangement**: drag-to-arrange canvas, main display switching
 - **Disconnect displays**: turn physical displays off and back on from the menu, remembered across sleep/wake (Apple Silicon)
-- **System toggles**: Dark Mode, Night Shift, and True Tone, one click from the menu bar
+- **System toggles**: Dark Mode, Night Shift, and True Tone, one click from the menu bar. Enable Show Night Shift Temperature in Settings for a system warmth slider below the toggles
 - **Color**: ICC profile switching, XDR reference presets, HDR on/off per display, and image adjustment (gamma, contrast, gain, invert colors)
 - **Virtual displays**: create HiDPI virtual screens
 - **Extras**: combined brightness slider, auto brightness following the built-in display, a toggle for macOS's own ambient auto-brightness, keep awake, notch hiding, launch at login

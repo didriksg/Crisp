@@ -33,7 +33,8 @@ targets:
         INFOPLIST_KEY_LSUIElement: true
         INFOPLIST_KEY_NSHumanReadableCopyright: "Crisp - Free & Open Source"
         INFOPLIST_KEY_NSAppleEventsUsageDescription: "Crisp uses System Events to switch Dark Mode with the system's animated transition."
-        SWIFT_VERSION: "6.0"
+        # Match the Swift 5 language mode used by the dev and release builds.
+        SWIFT_VERSION: "5.0"
         CODE_SIGN_ENTITLEMENTS: Crisp/Crisp.entitlements
         ENABLE_HARDENED_RUNTIME: YES
         CODE_SIGNING_REQUIRED: YES
@@ -60,7 +61,7 @@ targets:
     settings:
       base:
         PRODUCT_NAME: crispctl
-        SWIFT_VERSION: "6.0"
+        SWIFT_VERSION: "5.0"
         SWIFT_STRICT_CONCURRENCY: minimal
   CrispTests:
     type: bundle.unit-test
@@ -83,11 +84,12 @@ targets:
       - path: Crisp/Models/BrightnessKeySteps.swift
       - path: Crisp/Models/PhantomPortCap.swift
       - path: Crisp/Models/DDCVolumeMax.swift
+      - path: Crisp/Models/NightShiftTemperatureController.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.crisp.tests
         GENERATE_INFOPLIST_FILE: YES
-        SWIFT_VERSION: "6.0"
+        SWIFT_VERSION: "5.0"
         SWIFT_STRICT_CONCURRENCY: minimal
         TEST_HOST: ""
         BUNDLE_LOADER: ""

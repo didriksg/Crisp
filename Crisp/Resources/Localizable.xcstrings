@@ -1224,6 +1224,16 @@
         }
       }
     },
+    "Less Warm" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "较冷"
+          }
+        }
+      }
+    },
     "Links crispctl into /usr/local/bin" : {
       "localizations" : {
         "zh-Hans" : {
@@ -1282,6 +1292,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "更多空间"
+          }
+        }
+      }
+    },
+    "More Warm" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "较暖"
           }
         }
       }
@@ -1346,6 +1366,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "夜览"
+          }
+        }
+      }
+    },
+    "Night Shift Temperature" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "夜览色温"
           }
         }
       }
@@ -1838,6 +1868,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "显示合并亮度"
+          }
+        }
+      }
+    },
+    "Show Night Shift Temperature" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示夜览色温"
           }
         }
       }
