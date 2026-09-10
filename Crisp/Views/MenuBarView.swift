@@ -656,6 +656,26 @@ struct SettingsView: View {
                 .padding(.vertical, 3)
             }
 
+            if CoreBrightnessService.shared.nightShiftTemperature != nil {
+                Toggle(isOn: Binding(
+                    get: { settings.showNightShiftTemperature },
+                    set: { newValue in withAnimation(.panelResize) { settings.showNightShiftTemperature = newValue } }
+                )) {
+                    HStack(spacing: 8) {
+                        MenuItemIcon(systemName: "thermometer.medium", color: .orange,
+                                     active: settings.showNightShiftTemperature)
+                            .accessibilityHidden(true)
+                        Text("Show Night Shift Temperature")
+                            .font(.body)
+                        Spacer()
+                    }
+                }
+                .toggleStyle(.switch)
+                .controlSize(.small)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 3)
+            }
+
             // Which displays the hardware brightness keys adjust. Once Accessibility is granted,
             // an expandable row + checkmark list (the Resolution / Color Profile idiom). Before
             // that there is no row or target subtitle at all, only the opt-in toggle, so enabling

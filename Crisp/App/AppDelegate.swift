@@ -719,6 +719,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             || CoreBrightnessService.shared.trueToneAvailable {
             blocks.append(block("effects") { ScreenEffectsView() })
         }
+        if let temperature = CoreBrightnessService.shared.nightShiftTemperature {
+            blocks.append(block("nightShiftTemperature", isOpen: { settings.showNightShiftTemperature }) {
+                NightShiftTemperatureView(temperature: temperature)
+            })
+        }
         blocks.append(block("presets") {
             VStack(alignment: .leading, spacing: 0) {
                 SectionDivider()
@@ -800,6 +805,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             Task { @MainActor in self?.canvas.refreshAppearance() }
         }
         SettingsService.shared.$showCombinedBrightness
+            .dropFirst()
+            .sink { [weak self] _ in self?.canvas.requestApply() }
+            .store(in: &canvasCancellables)
+        SettingsService.shared.$showNightShiftTemperature
             .dropFirst()
             .sink { [weak self] _ in self?.canvas.requestApply() }
             .store(in: &canvasCancellables)
