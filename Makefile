@@ -71,7 +71,7 @@ test: vendor
 	xcodegen generate
 	xcodebuild -quiet test -project Crisp.xcodeproj -scheme Crisp \
 		-destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO \
-		SWIFT_VERSION=5 SWIFT_STRICT_CONCURRENCY=minimal \
+		SWIFT_STRICT_CONCURRENCY=minimal \
 		SWIFT_TREAT_WARNINGS_AS_ERRORS=YES
 
 lint:
@@ -84,7 +84,7 @@ loc-check: vendor
 	xcodegen generate
 	xcodebuild -quiet -exportLocalizations -project Crisp.xcodeproj \
 		-localizationPath build/loc CODE_SIGNING_ALLOWED=NO \
-		SWIFT_EMIT_LOC_STRINGS=YES SWIFT_VERSION=5 SWIFT_STRICT_CONCURRENCY=minimal
+		SWIFT_EMIT_LOC_STRINGS=YES SWIFT_STRICT_CONCURRENCY=minimal
 	python3 scripts/check-localization-keys.py build/loc/en.xcloc \
 		Crisp/Resources/Localizable.xcstrings scripts/i18n-missing-allowlist.txt
 
