@@ -16,7 +16,8 @@ final class VolumeService: ObservableObject {
 
     private static let log = Logger(subsystem: "com.crisp.app", category: "volume")
 
-    /// Raw DDC max volume per display (usually 100), from the probe read.
+    /// DDC max volume per display (usually 100), from the probe read through
+    /// DDCVolumeMax.
     private var ddcMax: [CGDirectDisplayID: UInt16] = [:]
     /// Volume to restore on unmute, captured when toggleMute drops to zero.
     private var preMuteVolume: [CGDirectDisplayID: Double] = [:]
@@ -96,16 +97,17 @@ final class VolumeService: ObservableObject {
                     }
                     return
                 }
+                let volumeMax = DDCVolumeMax.from(result.max)
                 if !self.rememberedCapable.contains(uuid) {
-                    Self.log.notice("\(display.name, privacy: .public): volume probe ok \(result.current, privacy: .public)/\(result.max, privacy: .public), slider shown")
+                    Self.log.notice("\(display.name, privacy: .public): volume probe ok \(result.current, privacy: .public)/\(volumeMax, privacy: .public), slider shown")
                 }
-                self.ddcMax[id] = result.max
+                self.ddcMax[id] = volumeMax
                 display.volumeSupported = true
                 self.rememberCapable(uuid)
                 // Adopt the hardware level only while our writer is idle, so a
                 // stale cached read never fights an in-flight drag.
                 if self.pending[id] == nil, !self.pumpActive.contains(id) {
-                    display.volume = Double(result.current) / Double(result.max) * 100.0
+                    display.volume = Double(result.current) / Double(volumeMax) * 100.0
                 }
             }
         }
