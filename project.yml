@@ -82,6 +82,7 @@ targets:
       - path: Crisp/Models/CrispControlModel.swift
       - path: Crisp/Models/BrightnessKeySteps.swift
       - path: Crisp/Models/PhantomPortCap.swift
+      - path: Crisp/Models/DDCVolumeMax.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.crisp.tests
