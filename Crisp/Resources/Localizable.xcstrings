@@ -120,12 +120,32 @@
     "%lld%%" : {
       "shouldTranslate" : false
     },
+    "Fine Brightness Steps" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "精细亮度步进"
+          }
+        }
+      }
+    },
     "Stays disconnected until you reconnect it here." : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "将保持断开，直到你在这里重新连接。"
+          }
+        }
+      }
+    },
+    "Use smaller steps for brightness keys and shortcuts. Hold Option for a fine step." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "为亮度按键和快捷键使用更小的步进。按住 Option 键可进行精细调节。"
           }
         }
       }
