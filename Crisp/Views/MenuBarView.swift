@@ -634,28 +634,6 @@ struct SettingsView: View {
                 }
             }
 
-            // Show volume sliders (issue #23). Hidden while no connected monitor
-            // exposes DDC volume: the toggle would control nothing. Hiding the
-            // sliders does not disable the volume keys.
-            if displayManager.displays.contains(where: { $0.volumeSupported || volumeService.isForced($0) }) {
-                Toggle(isOn: Binding(
-                    get: { settings.showVolumeSliders },
-                    set: { newValue in withAnimation(.panelResize) { settings.showVolumeSliders = newValue } }
-                )) {
-                    HStack(spacing: 8) {
-                        MenuItemIcon(systemName: "speaker.wave.2.fill", color: .blue, active: settings.showVolumeSliders)
-                            .accessibilityHidden(true)
-                        Text("Show Volume Sliders")
-                            .font(.body)
-                        Spacer()
-                    }
-                }
-                .toggleStyle(.switch)
-                .controlSize(.small)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 3)
-            }
-
             // Which displays the hardware brightness keys adjust. Once Accessibility is granted,
             // an expandable row + checkmark list (the Resolution / Color Profile idiom). Before
             // that there is no row or target subtitle at all, only the opt-in toggle, so enabling
@@ -706,6 +684,43 @@ struct SettingsView: View {
                 }
             } else {
                 BrightnessKeysPermissionNotice()
+            }
+
+            Toggle(isOn: $settings.fineBrightnessSteps) {
+                HStack(spacing: 8) {
+                    MenuItemIcon(systemName: "sun.max.fill", color: .yellow, active: settings.fineBrightnessSteps)
+                        .accessibilityHidden(true)
+                    Text("Fine Brightness Steps")
+                        .font(.body)
+                    Spacer()
+                }
+            }
+            .toggleStyle(.switch)
+            .controlSize(.small)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 3)
+            .help("Use smaller steps for brightness keys and shortcuts. Hold Option for a fine step.")
+
+            // Show volume sliders (issue #23). Hidden while no connected monitor
+            // exposes DDC volume: the toggle would control nothing. Hiding the
+            // sliders does not disable the volume keys.
+            if displayManager.displays.contains(where: { $0.volumeSupported || volumeService.isForced($0) }) {
+                Toggle(isOn: Binding(
+                    get: { settings.showVolumeSliders },
+                    set: { newValue in withAnimation(.panelResize) { settings.showVolumeSliders = newValue } }
+                )) {
+                    HStack(spacing: 8) {
+                        MenuItemIcon(systemName: "speaker.wave.2.fill", color: .blue, active: settings.showVolumeSliders)
+                            .accessibilityHidden(true)
+                        Text("Show Volume Sliders")
+                            .font(.body)
+                        Spacer()
+                    }
+                }
+                .toggleStyle(.switch)
+                .controlSize(.small)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 3)
             }
 
             // Global shortcuts: the curated action list (issue #61).

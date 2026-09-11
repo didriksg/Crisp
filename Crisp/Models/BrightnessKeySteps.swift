@@ -10,11 +10,18 @@ import Foundation
 enum BrightnessKeySteps {
     static let stops = 16.0
     static let step = 100.0 / stops
+    /// Six substeps per normal stop, matching NativeDisplayBrightness's fine mode.
+    static let fineStep = step / 6.0
 
     /// The next stop above or below `value`, on the 0...100 scale the keys and
     /// the banner both use. The grid carries on past 100 for displays with
     /// Extra Brightness; clamping to the display's maximum is the caller's.
-    static func next(from value: Double, up: Bool) -> Double {
+    /// Fine mode advances from the nearest substep, so an integer DDC readback
+    /// (e.g. 51% for 51.0417%) cannot cause a repeat to write the same level again.
+    static func next(from value: Double, up: Bool, fine: Bool = false) -> Double {
+        if fine {
+            return ((value / fineStep).rounded() + (up ? 1 : -1)) * fineStep
+        }
         let index = value / step
         // A value already on a stop has to move a whole step, and one a hair
         // off it, which a rounded readback gives, must not move only the hair.

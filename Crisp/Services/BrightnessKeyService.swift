@@ -23,7 +23,8 @@ private func brightnessKeyEventCallback(
 /// Intercepts macOS brightness keys and routes them to the display under the mouse cursor.
 /// When the cursor is on an external display the key event is consumed and the external
 /// display's brightness is adjusted via BrightnessService. When the cursor is on the
-/// built-in display the event is passed through so macOS adjusts it normally.
+/// built-in display the event is passed through unless fine steps are requested;
+/// Crisp then adjusts it too, so the smaller step is not lost to macOS routing.
 /// Also intercepts the volume/mute keys when the default audio output is a monitor with
 /// DDC speaker volume, routing them to VolumeService (see routeVolumePress).
 @MainActor
@@ -284,7 +285,7 @@ final class BrightnessKeyService: @unchecked Sendable {
 
         switch keyCode {
         case Self.nxKeytypeBrightnessUp, Self.nxKeytypeBrightnessDown:
-            // For key-up events always pass through, only consume key-down on external displays.
+            // Key-up always passes through; routing decides which key-downs Crisp owns.
             guard isKeyDown else { return Unmanaged.passRetained(event) }
             return routeBrightnessPress(up: keyCode == Self.nxKeytypeBrightnessUp, event: event)
         case Self.nxKeytypeSoundUp, Self.nxKeytypeSoundDown, Self.nxKeytypeMute:
@@ -297,10 +298,11 @@ final class BrightnessKeyService: @unchecked Sendable {
 
     /// Shared routing for a brightness key-down, called by both the NX_SYSDEFINED media-key path
     /// and the raw-keyDown fallback path. Applies the step to the configured target(s), shows the
-    /// HUD, and returns nil to CONSUME the event when we adjusted an external display (so macOS does
-    /// not also bump the built-in), or a pass-through of `event` when we did not handle it (target
-    /// not attached / cursor on built-in / no controllable external).
+    /// HUD, and consumes the event when Crisp adjusts a display, so macOS does not also
+    /// bump the built-in. A missing target or an ordinary under-cursor built-in press passes through.
     nonisolated private func routeBrightnessPress(up: Bool, event: CGEvent) -> Unmanaged<CGEvent>? {
+        let fine = MainActor.assumeIsolated { SettingsService.shared.fineBrightnessSteps }
+            || event.flags.contains(.maskAlternate)
         // Route by user preference. Read on the main actor, this callback runs on
         // the main run loop (see class docs), so assumeIsolated is safe here.
         // Which displays a press moves is the same rule for a key and for a bound
@@ -310,7 +312,7 @@ final class BrightnessKeyService: @unchecked Sendable {
         let hasExplicitTargets = MainActor.assumeIsolated { self.explicitTargets() != nil }
         if hasExplicitTargets {
             Task { @MainActor in
-                if let targets = self.explicitTargets() { self.adjustDisplays(targets, up: up) }
+                if let targets = self.explicitTargets() { self.adjustDisplays(targets, up: up, fine: fine) }
             }
             // Consume: we adjust every target (built-in included) ourselves, so
             // macOS must not also bump the built-in on top.
@@ -329,42 +331,23 @@ final class BrightnessKeyService: @unchecked Sendable {
             return Unmanaged.passRetained(event)
         }
 
-        // Consume the key ONLY when we can synchronously confirm the cursor is on a
-        // currently-connected, controllable EXTERNAL display. Leaving clamshell mode
-        // (external unplugged, then lid opened) briefly leaves NSScreen reporting a
-        // stale external screen while Crisp's display list has already dropped it. The
-        // old code consumed the key on that stale screen, then no-op'd asynchronously on
-        // the vanished display, swallowing the press so the built-in stayed dead until
-        // macOS settled (~30s). Fail safe instead: if we can't confirm a live external,
-        // pass the key through so macOS drives the built-in immediately. (issue #12)
+        // Confirm a live display before consuming: after leaving clamshell, NSScreen can
+        // briefly report an external that Crisp has already dropped (issue #12). Fine
+        // steps also need Crisp to own built-in presses; ordinary ones stay with macOS.
         let displayID = screenNumber
-        let isControllableExternal = MainActor.assumeIsolated {
+        let shouldHandle = MainActor.assumeIsolated {
             guard let display = DisplayManagerAccessor.shared.displays.first(where: { $0.displayID == displayID })
             else { return false }
-            return !display.isBuiltin
+            return !display.isBuiltin || fine
         }
-        guard isControllableExternal else {
+        guard shouldHandle else {
             return Unmanaged.passRetained(event)
         }
 
-        // All data captured here is Sendable (CGDirectDisplayID = UInt32, Double).
         Task { @MainActor in
             let displays = DisplayManagerAccessor.shared.displays
             guard let display = displays.first(where: { $0.displayID == displayID }) else { return }
-            // Step from the fade's target while one is running, not from the value
-            // it is passing through, or a held key never gets past the first stop.
-            let from = BrightnessService.shared.inFlightTarget(for: displayID) ?? display.brightness
-            let newBrightness = max(0.0, min(display.maxBrightness,
-                                             BrightnessKeySteps.next(from: from, up: up)))
-            // Use smooth animation, cancels any in-progress animation automatically.
-            BrightnessService.shared.setBrightnessSmooth(newBrightness, for: display)
-
-            // Show OSD on the external display where brightness was adjusted.
-            if let screen = NSScreen.screens.first(where: {
-                ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID) == displayID
-            }) {
-                BrightnessHUDService.shared.show(brightness: newBrightness / display.maxBrightness * 100.0, on: screen)
-            }
+            self.adjustDisplays([display], up: up, fine: fine)
         }
 
         // Return nil to consume (suppress) the event so macOS doesn't also adjust built-in brightness.
@@ -428,12 +411,12 @@ final class BrightnessKeyService: @unchecked Sendable {
     /// Steps brightness for a shortcut bound in Settings > Keyboard Shortcuts
     /// (issue #160), for keyboards whose brightness keys are missing or taken.
     /// Same stops, same fades, same banner and same targets as the keys.
-    /// One difference, and it cannot be otherwise: with the pointer on the built-in
-    /// the keys hand the event to macOS, while a shortcut has no event to hand over,
-    /// so Crisp moves the built-in itself, as it already does in all-displays mode.
+    /// Shortcuts always move the built-in through Crisp: unlike media keys they
+    /// have no native brightness event to pass through to macOS.
     func adjustFromShortcut(up: Bool) {
+        let fine = SettingsService.shared.fineBrightnessSteps
         if let targets = explicitTargets() {
-            adjustDisplays(targets, up: up)
+            adjustDisplays(targets, up: up, fine: fine)
             return
         }
         let mouse = NSEvent.mouseLocation
@@ -441,20 +424,21 @@ final class BrightnessKeyService: @unchecked Sendable {
               let displayID = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID,
               let display = DisplayManagerAccessor.shared.displays.first(where: { $0.displayID == displayID })
         else { return }
-        adjustDisplays([display], up: up)
+        adjustDisplays([display], up: up, fine: fine)
     }
 
     /// Moves each given display (built-in or external) to its next stop,
     /// through BrightnessService's smooth fade (reusing its DDC/gamma/IOKit paths +
     /// coalescing), and shows the brightness HUD on each display's own screen.
-    /// Backs the `.allDisplays` and `.selected` key modes and the shortcuts.
+    /// Backs all Crisp-owned key modes and the shortcuts.
     @MainActor
-    private func adjustDisplays(_ displays: [DisplayInfo], up: Bool) {
+    private func adjustDisplays(_ displays: [DisplayInfo], up: Bool, fine: Bool) {
         let screens = NSScreen.screens
         for display in displays {
+            // A repeat must advance from the pending target, not an intermediate fade value.
             let from = BrightnessService.shared.inFlightTarget(for: display.displayID) ?? display.brightness
             let newBrightness = max(0.0, min(display.maxBrightness,
-                                             BrightnessKeySteps.next(from: from, up: up)))
+                                             BrightnessKeySteps.next(from: from, up: up, fine: fine)))
             BrightnessService.shared.setBrightnessSmooth(newBrightness, for: display)
             if let screen = screens.first(where: {
                 ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID) == display.displayID

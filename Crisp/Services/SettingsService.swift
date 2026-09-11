@@ -58,6 +58,7 @@ final class SettingsService: ObservableObject, @unchecked Sendable {
         static let showCombinedBrightness = "crisp.showCombinedBrightness"
         static let combinedBuiltinFactor  = "crisp.combinedBuiltinBrightnessAdjustment"
         static let showVolumeSliders      = "crisp.showVolumeSliders"
+        static let fineBrightnessSteps   = "crisp.fineBrightnessSteps"
         static let ddcCacheTTL            = "crisp.ddcCacheTTL"
         static let colorPickerHistory     = "crisp.colorPickerHistory"
         static let brightnessKeyTarget    = "crisp.brightnessKeyTarget"
@@ -105,6 +106,11 @@ final class SettingsService: ObservableObject, @unchecked Sendable {
 
     @Published var ddcCacheTTL: Double = 5.0 {
         didSet { defaults.set(ddcCacheTTL, forKey: Keys.ddcCacheTTL) }
+    }
+
+    /// Use six smaller substeps per normal brightness-key stop.
+    @Published var fineBrightnessSteps: Bool = false {
+        didSet { defaults.set(fineBrightnessSteps, forKey: Keys.fineBrightnessSteps) }
     }
 
     /// Recently sampled colors (hex strings, newest first, max 20).
@@ -255,6 +261,7 @@ final class SettingsService: ObservableObject, @unchecked Sendable {
         }
         showVolumeSliders = defaults.object(forKey: Keys.showVolumeSliders) != nil
             ? defaults.bool(forKey: Keys.showVolumeSliders) : true
+        fineBrightnessSteps = defaults.bool(forKey: Keys.fineBrightnessSteps)
         ddcCacheTTL = defaults.object(forKey: Keys.ddcCacheTTL) != nil
             ? defaults.double(forKey: Keys.ddcCacheTTL) : 5.0
         colorPickerHistory = defaults.stringArray(forKey: Keys.colorPickerHistory) ?? []
