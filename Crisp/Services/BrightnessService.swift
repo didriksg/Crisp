@@ -32,9 +32,14 @@ private let _DSGetLinearBrightness: (@convention(c) (CGDirectDisplayID, UnsafeMu
           let sym = dlsym(h, "DisplayServicesGetLinearBrightness") else { return nil }
     return unsafeBitCast(sym, to: (@convention(c) (CGDirectDisplayID, UnsafeMutablePointer<Float>) -> Int32).self)
 }()
+private let _DSCanChangeBrightness: (@convention(c) (CGDirectDisplayID) -> Bool)? = {
+    guard let h = dlopen("/System/Library/PrivateFrameworks/DisplayServices.framework/DisplayServices", RTLD_LAZY),
+          let sym = dlsym(h, "DisplayServicesCanChangeBrightness") else { return nil }
+    return unsafeBitCast(sym, to: (@convention(c) (CGDirectDisplayID) -> Bool).self)
+}()
 
 // DisplayServices brightness-change notifications: push updates so the UI tracks the
-// built-in panel live (native keys, auto-brightness, Night Shift/TrueTone) instead of
+// built-in panel and Apple displays live (native keys, auto-brightness, Night Shift/TrueTone) instead of
 // only refreshing on panel-open/wake/reconfigure. Signatures verified against SketchyBar
 // (src/misc/extern.h + src/display.c): register(did, passthrough, callback) plus a 5-arg
 // callback (passthrough, did, name, sender, info); brightness is not passed, it's read
@@ -59,7 +64,7 @@ private let _DSUnregisterBrightnessChange: (@convention(c) (CGDirectDisplayID, U
 /// not a parameter (per the reverse-engineered API), so we read it back and push it onto
 /// the matching DisplayInfo on the main actor. Must be a capture-free top-level function
 /// to be usable as a @convention(c) pointer.
-private func _crispBuiltinBrightnessChanged(
+private func _crispNativeBrightnessChanged(
     _ passthrough: UnsafeMutableRawPointer?,
     _ did: CGDirectDisplayID,
     _ name: UnsafeMutableRawPointer?,
@@ -79,6 +84,8 @@ private func _crispBuiltinBrightnessChanged(
         display.brightness = value
         // Drive auto-brightness off this live change so external displays follow the
         // built-in immediately instead of trailing its 2s poll. (issue #12 follow-up)
+        // An Apple external moving is not that signal.
+        guard display.isBuiltin else { return }
         NotificationCenter.default.post(name: .crispBuiltinBrightnessDidChange, object: nil)
     }
 }
@@ -315,13 +322,12 @@ final class BrightnessService: @unchecked Sendable {
         // adopting that would snap the slider out of the boost region. Crisp
         // owns the value while Extra Brightness is engaged.
         if display.brightness > 100.0 { return }
-        let isBuiltin = display.isBuiltin
         let displayID = display.displayID
 
-        if isBuiltin {
+        if display.hasNativeBrightness {
             let brightness = await withCheckedContinuation { continuation in
                 queue.async { [weak self] in
-                    continuation.resume(returning: self?.getInternalBrightness())
+                    continuation.resume(returning: self?.nativeBrightness(for: displayID))
                 }
             }
             if let b = brightness {
@@ -402,25 +408,24 @@ final class BrightnessService: @unchecked Sendable {
         }
     }
 
-    /// The built-in display we currently observe for brightness changes.
-    private var observedBuiltinID: CGDirectDisplayID?
+    /// The displays we currently observe for brightness changes.
+    private var observedNativeIDs: Set<CGDirectDisplayID> = []
 
-    /// Subscribes to the built-in panel's brightness-change notifications so the slider
-    /// tracks live (native keys, auto-brightness, Night Shift/TrueTone) rather than only
-    /// refreshing on panel-open/wake/reconfigure. Idempotent: re-points at the current
-    /// built-in (or drops the observer if none) and no-ops when nothing changed, so it's
-    /// safe to call on every display reconfiguration.
+    /// Subscribes to brightness-change notifications for every display macOS dims itself
+    /// (the built-in, Apple externals) so the slider tracks live (native keys, ambient
+    /// auto-brightness, Control Center) rather than only refreshing on panel-open/wake/
+    /// reconfigure, and a key press steps from the real level. Idempotent: registers new
+    /// displays, drops departed ones and no-ops when nothing changed, so it's safe to
+    /// call on every display reconfiguration. SketchyBar registers the same way, per
+    /// display, wherever DisplayServicesCanChangeBrightness holds.
     @MainActor
-    func startObservingBuiltinBrightness() {
-        let builtin = builtinDisplayID()
-        guard observedBuiltinID != builtin else { return }
-        if let old = observedBuiltinID {
-            _ = _DSUnregisterBrightnessChange?(old, old)
-            observedBuiltinID = nil
-        }
-        guard let builtin, let register = _DSRegisterBrightnessChange else { return }
-        _ = register(builtin, builtin, _crispBuiltinBrightnessChanged)
-        observedBuiltinID = builtin
+    func startObservingNativeBrightness(for displays: [DisplayInfo]) {
+        guard let register = _DSRegisterBrightnessChange,
+              let unregister = _DSUnregisterBrightnessChange else { return }
+        let wanted = Set(displays.filter(\.hasNativeBrightness).map(\.displayID))
+        for id in observedNativeIDs.subtracting(wanted) { _ = unregister(id, id) }
+        for id in wanted.subtracting(observedNativeIDs) { _ = register(id, id, _crispNativeBrightnessChanged) }
+        observedNativeIDs = wanted
     }
 
     @MainActor
@@ -447,11 +452,11 @@ final class BrightnessService: @unchecked Sendable {
             noteManualBrightnessChange(displayID: displayID, isBuiltin: isBuiltin, value: clamped)
         }
 
-        if isBuiltin {
+        if display.hasNativeBrightness {
             let value = Float(hardware / 100.0)
             display.brightness = clamped
             queue.async { [weak self] in
-                self?.setInternalBrightness(value)
+                self?.setNativeBrightness(value, for: displayID)
             }
         } else {
             display.brightness = clamped
@@ -852,12 +857,12 @@ final class BrightnessService: @unchecked Sendable {
         // ~45ms-per-write I2C bus can't take.
         let smoothSteps = max(8, Int(duration / 0.008))
 
-        if display.isBuiltin {
+        if display.hasNativeBrightness {
             anim.animate(from: fromBrightness, to: clamped, steps: smoothSteps, duration: duration) { [weak self, weak display] value, _ in
                 guard let self, let display else { return }
                 display.brightness = value
                 let floatVal = Float(min(value, 100.0) / 100.0)
-                self.queue.async { self.setInternalBrightness(floatVal) }
+                self.queue.async { self.setNativeBrightness(floatVal, for: displayID) }
                 BrightnessBoostService.shared.syncOverlay(for: display)
             }
         } else {
@@ -964,7 +969,8 @@ final class BrightnessService: @unchecked Sendable {
             (hdrDimmedDisplays.contains(displayID), ddcAvailable[displayID])
         }
         return CrispControlModel.brightnessBackend(
-            isBuiltin: display.isBuiltin,
+            // `builtin` is the route through macOS, which Apple externals share.
+            isBuiltin: display.hasNativeBrightness,
             hdrSoftwareDimming: state.0,
             ddcAvailable: state.1
         )
@@ -1019,6 +1025,9 @@ final class BrightnessService: @unchecked Sendable {
     /// Checks in-memory factor first; falls back to UserDefaults so restart is handled too.
     /// No-op if no saved factor < 1.0 exists.
     func reapplySoftwareBrightnessIfNeeded(for display: DisplayInfo) {
+        // Before #169 an Apple external fell back to gamma and may have a dim factor
+        // saved; reapplying it would stack on the real backlight with nothing to clear it.
+        guard !display.hasNativeBrightness else { return }
         let displayID = display.displayID
         let inMemory = softwareBrightnessLock.withLock { softwareBrightnessFactors[displayID] }
         let factor = inMemory ?? loadSoftwareBrightness(for: displayID)
@@ -1182,6 +1191,45 @@ final class BrightnessService: @unchecked Sendable {
             ) == KERN_SUCCESS {
                 return
             }
+        }
+    }
+}
+
+// MARK: - Apple displays (#169)
+
+extension BrightnessService {
+    /// Apple's EDID vendor ID ("APP"), which the built-in panel reports too.
+    private static let appleVendorID: UInt32 = 0x0610
+
+    /// Whether macOS sets this display's backlight itself: the built-in panel, and
+    /// Apple externals such as Studio Display and Pro Display XDR, whose brightness
+    /// System Settings changes but Crisp's DDC route did not (#169). The vendor check
+    /// keeps every other monitor on DDC even if DisplayServices ever claims one
+    /// (MonitorControl keeps non-Apple HDR externals out of the same test on macOS 15+).
+    static func hasNativeBrightness(_ displayID: CGDirectDisplayID) -> Bool {
+        if CGDisplayIsBuiltin(displayID) != 0 { return true }
+        guard CGDisplayVendorNumber(displayID) == appleVendorID,
+              _DSCanChangeBrightness?(displayID) == true else { return false }
+        log.notice("display \(displayID, privacy: .public): Apple display, brightness over DisplayServices")
+        return true
+    }
+
+    /// The built-in keeps its own path (DisplayServices, then the IOKit fallbacks, which
+    /// find the built-in on their own); an Apple external goes to DisplayServices only.
+    fileprivate func nativeBrightness(for displayID: CGDirectDisplayID) -> Double? {
+        if CGDisplayIsBuiltin(displayID) != 0 { return getInternalBrightness() }
+        var value: Float = 0
+        guard _DSGetBrightness?(displayID, &value) == 0 else { return nil }
+        return Double(value) * 100.0
+    }
+
+    // ponytail: one DisplayServices write per call, as the built-in always had; if a
+    // Studio Display lags behind a slider drag, coalesce like the DDC pump does.
+    fileprivate func setNativeBrightness(_ value: Float, for displayID: CGDirectDisplayID) {
+        if CGDisplayIsBuiltin(displayID) != 0 {
+            setInternalBrightness(value)
+        } else {
+            _ = _DSSetBrightness?(displayID, value)
         }
     }
 }

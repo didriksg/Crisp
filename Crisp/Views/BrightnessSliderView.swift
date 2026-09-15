@@ -87,7 +87,7 @@ struct BrightnessSliderView: View {
             if !compact || Self.showControlMode {
             HStack(spacing: 4) {
                 Spacer()
-                if display.isBuiltin {
+                if display.hasNativeBrightness {
                     Circle()
                         .fill(Color.blue)
                         .frame(width: 5, height: 5)
@@ -108,7 +108,7 @@ struct BrightnessSliderView: View {
             .padding(.horizontal, 12)
             .padding(.top, 2)
             .accessibilityLabel(
-                display.isBuiltin
+                display.hasNativeBrightness
                     ? "Brightness control mode: System"
                     : (ddcStatus == true
                         ? "Brightness control mode: DDC hardware"

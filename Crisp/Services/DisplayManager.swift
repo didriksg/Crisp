@@ -294,9 +294,9 @@ class DisplayManager: ObservableObject {
         // Crisp + external cable pulled = zero active displays, all black. Bring one back.
         PhysicalDisplayToggleService.shared.restoreIfNoActiveDisplay()
 
-        // Keep the built-in brightness observer pointed at the current built-in so the
+        // Keep the brightness observers on the current built-in and Apple displays so the
         // slider tracks system brightness changes (keys, auto-brightness) live.
-        BrightnessService.shared.startObservingBuiltinBrightness()
+        BrightnessService.shared.startObservingNativeBrightness(for: displays)
     }
 
     /// Auto-enables HiDPI plist override for external 2K+ displays that don't have it yet.

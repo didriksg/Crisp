@@ -122,7 +122,7 @@ Other commands:
 
 `<display>` is a runtime id or a uuid from `display list`. Ids can change after an unplug or a wake; uuids do not, so scripts should prefer them.
 
-`display list` reports each display's uuid, current resolution, logical `brightness`, logical `maxBrightness`, and brightness backend. The backend is Crisp's current route (`builtin`, `ddc`, `software`, or `unknown` while external DDC availability is undetermined); HDR software dimming reports `software`. Output is one JSON object per call.
+`display list` reports each display's uuid, current resolution, logical `brightness`, logical `maxBrightness`, and brightness backend. The backend is Crisp's current route (`builtin`, `ddc`, `software`, or `unknown` while external DDC availability is undetermined); HDR software dimming reports `software`, and an Apple display such as Studio Display reports `builtin`, because Crisp sets its brightness through macOS the same way it does the built-in panel's. Output is one JSON object per call.
 
 Crisp must already be running; crispctl never launches it. `brightness set` accepts 0...100 normally. Values above 100 require Extra Brightness to be enabled and currently eligible for that display, and must not exceed its live `maxBrightness`; invalid boosted values are refused rather than clamped. A set is a manual change like using the slider and clears the active preset. The reply means Crisp accepted the request, not that the panel was read back; it is not retried automatically.
 

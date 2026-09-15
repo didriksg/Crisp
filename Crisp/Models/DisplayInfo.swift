@@ -36,6 +36,9 @@ class DisplayInfo: ObservableObject, Identifiable {
     let vendorNumber: UInt32
     let modelNumber: UInt32
     let serialNumber: UInt32
+    /// macOS sets this display's backlight itself (the built-in, Apple externals
+    /// such as Studio Display), so Crisp does too, through DisplayServices, not DDC.
+    let hasNativeBrightness: Bool
     /// Nominal SDR luminance ceiling in nits, used only to put the combined
     /// brightness control on one scale across unlike panels. Filled by
     /// loadDetails, since the external lookup walks the whole IORegistry.
@@ -108,6 +111,7 @@ class DisplayInfo: ObservableObject, Identifiable {
         self.vendorNumber = vendor
         self.modelNumber = model
         self.serialNumber = CGDisplaySerialNumber(displayID)
+        self.hasNativeBrightness = BrightnessService.hasNativeBrightness(displayID)
 
         if builtin {
             self.name = String(localized: "Built-in Display")
