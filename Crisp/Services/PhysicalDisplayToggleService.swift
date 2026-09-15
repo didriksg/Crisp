@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 import CoreGraphics
 import ColorSync
 import IOKit
@@ -16,7 +16,17 @@ final class PhysicalDisplayToggleService: ObservableObject {
     private init() {
         loadDesired()
         loadParked()
+        // didWake and screensDidWake both: the blackout restore waits longer near a wake (#168).
+        for name in [NSWorkspace.didWakeNotification, NSWorkspace.screensDidWakeNotification] {
+            wakeObservers.append(NSWorkspace.shared.notificationCenter.addObserver(
+                forName: name, object: nil, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.noteWake() }
+            })
+        }
     }
+
+    private var wakeObservers: [NSObjectProtocol] = []
 
     /// Set by DisplayManager at launch. The restore below needs a DisplayInfo to read and put
     /// back a display's HDR switch, and this service otherwise works from CGDirectDisplayIDs.
@@ -798,6 +808,30 @@ final class PhysicalDisplayToggleService: ObservableObject {
     private static let settleRepolls = 10
     private static let settleRepollInterval: UInt64 = 100_000_000
 
+    /// The bound near a wake, and how near counts. A monitor coming out of standby at a
+    /// wake can take seconds to enumerate: on #168 a DSC panel over USB-C came online
+    /// about 250 ms after the ten re-polls had given up. Forty re-polls give the rescue
+    /// about 6 s, the window softReconnect gives a link handshake (4 s and its 2 s last
+    /// look). Only near a wake, so an undock while awake keeps its ~4 s of dark; 15 s is
+    /// about as long as the wake chain's passes run.
+    private static let wakeSettleRepolls = 40
+    private static let wakeSettleSpan = 15.0
+
+    /// Stamped on every didWake and screensDidWake.
+    private var lastWake: DispatchTime?
+
+    private func noteWake() {
+        lastWake = .now()
+        Self.log.notice("wake noted: the blackout restore allows \(Self.wakeSettleRepolls, privacy: .public) re-polls for \(Int(Self.wakeSettleSpan), privacy: .public) s")
+    }
+
+    /// Read on every pass rather than once: the wake notification can land after the
+    /// first callback of that wake has already started the settle.
+    private func repollLimit(askedAt asked: DispatchTime) -> Int {
+        guard let lastWake, lastWake + Self.wakeSettleSpan > asked else { return Self.settleRepolls }
+        return Self.wakeSettleRepolls
+    }
+
     /// Guards against overlapping restore attempts from reconfiguration-callback bursts.
     private var restoreInFlight = false
 
@@ -816,6 +850,7 @@ final class PhysicalDisplayToggleService: ObservableObject {
             return
         }
         restoreInFlight = true
+        let asked = DispatchTime.now()
         Task { [weak self] in
             try? await Task.sleep(nanoseconds: 2_000_000_000)
             guard let self else { return }
@@ -823,9 +858,10 @@ final class PhysicalDisplayToggleService: ObservableObject {
             // One sample isn't enough: the count can trail reality by up to ~150ms (issue #117).
             // Re-polled (not watched) since the count during a display sleep isn't reliable
             // either. See docs/display-notes.md (restoreIfNoActiveDisplay).
+            // Near a wake the bound is wakeSettleRepolls (#168).
             var settled = self.phantomAwareActiveDisplayCount()
             var repolls = 0
-            while settled == 0, repolls < Self.settleRepolls {
+            while settled == 0, repolls < self.repollLimit(askedAt: asked) {
                 try? await Task.sleep(nanoseconds: Self.settleRepollInterval)
                 guard !Task.isCancelled else { return }
                 settled = self.phantomAwareActiveDisplayCount()
@@ -837,7 +873,7 @@ final class PhysicalDisplayToggleService: ObservableObject {
             }
             // Logged because every screen is black here: distinguishes a Crisp restore from
             // macOS re-probing on its own (#91).
-            Self.log.notice("no active display, restoring from \(self.disconnected.count, privacy: .public) record(s)")
+            Self.log.notice("no active display, restoring from \(self.disconnected.count, privacy: .public) record(s) after 2 s and \(repolls, privacy: .public) re-poll(s)")
             // Records that fail to re-resolve fall back to their last-known ID rather than
             // being dropped: SLSConfigureDisplayEnabled still honors a stale ID for attached
             // hardware in this state. Built-in tried first (flag from disconnect time; a live
