@@ -14,12 +14,24 @@ ships as a result. Read this before touching DDCService or chasing a
   runs on that display's own serial queue: one channel that blocks for
   seconds (#72) can no longer hold up the other monitors. Validates every
   reply's header AND checksum. Quarantines a display's reads after 6
-  consecutive raw failures (10 min expiry, fresh probe window after). The
+  consecutive raw failures (10 min expiry, fresh probe window after; a
+  panel open lets one read through for a display latched to gamma that
+  answered a read since it connected, and a failed probe logs the usual
+  "6 consecutive read failures" line after that single read). The
   whole display-to-channel map is flushed on any display reconfiguration
   (IDs get reshuffled with no removal event).
 - `Crisp/Services/BrightnessService.swift`: routing and pacing. DDC when
   it works, full-range software gamma when `ddcAvailable` latches false (3
-  consecutive failed writes), and full-range software gamma while a
+  consecutive failed writes; unlatched on reconnect, or when a panel-open
+  probe read is answered again AND the verification write that follows it is
+  acked, #167: the read alone proves nothing, the latch is about writes. That
+  write carries the slider's current value, so the level the user picked
+  survives the recovery and a failed one changes nothing on screen; the
+  picture does step at that moment, by however far the stale backlight sat
+  from the slider; a drag that lands while that write is out keeps the latch,
+  and the write it superseded still reached the hardware, so the picture can
+  sit under the slider until the next panel open re-probes), and full-range
+  software gamma while a
   display is in HDR mode (`hdrDimmedDisplays`, pushed by
   BrightnessBoostService): a DisplayHDR monitor owns its luminance and
   silently discards DDC brightness writes while still acking them. Writes
@@ -47,7 +59,8 @@ ships as a result. Read this before touching DDCService or chasing a
   above each brightness slider then reads DDC (green, a write or read
   succeeded), Software (orange, the three-failure latch flipped to gamma),
   or System for the built-in; nothing until the first write settles it.
-  `-bool false` or `defaults delete` puts it back. Not in 1.5.0.
+  `-bool false` or `defaults delete` puts it back. Not in 1.5.0. A display
+  latched to Software shows the gamma level on its slider, not the backlight.
 - `scripts/ddc-write-probe.swift [aoc|dell] <value ... | burst>`: sends
   real brightness writes (visible on the monitor). `burst` simulates a
   slider drag (61 writes, 50ms pacing).
@@ -80,17 +93,20 @@ write restarts the fade. Seen on other Dells too; accepted as a quirk.
 | Failure | Symptom | Defense |
 | --- | --- | --- |
 | Garbage reply passes weak validation | Bogus max poisons the write scale; slider saturates partway (100/255 = top 61% dead) | Checksum validation on every reply |
-| Read-hammering a fragile controller | Controller degrades into garbage/wedge | Read quarantine, 6 strikes, 10 min expiry |
+| Read-hammering a fragile controller | Controller degrades into garbage/wedge | Read quarantine, 6 strikes, 10 min expiry; a display latched to gamma gets one probe read per panel open |
 | Display IDs reshuffled, no removal event | Channel map crossed: each slider drives the OTHER monitor; both look dead | Full map flush on every reconfiguration, identity re-match, per-display generation token discards in-flight work for the IDs whose channel actually changed |
 | One display's I2C blocks for seconds | Every other display's slider stalls with it | Per-display serial queues; coalesced latest-wins writes; immediate software preview while the write is outstanding |
-| Channel goes deaf (no ack) | Writes fail cleanly | 3-failure latch to full-range software gamma; recovery on reconnect |
+| Channel goes deaf (no ack) | Writes fail cleanly; the latched slider shows gamma while the backlight sits at its last value (#167) | 3-failure latch to full-range software gamma; recovery on reconnect, or on the first panel open where a probe read is answered and the verification write after it is acked (only for a display that answered a read since it connected, is not HDR-dimmed, and had no brightness change land during that read) |
 | Monitor in HDR discards DDC writes (still acks) | 15-100% of slider dead, ack-based detection blind | HDR state routes the whole 0-100 range to software gamma |
 | Firmware fills the high byte of the volume max (Dell S2725DSM replies 0xFF64 for 0 to 100, #162) | Volume keys and slider give only mute or full volume | Volume max taken from the low byte (`DDCVolumeMax`), the byte ddcutil reads 0x62 from |
 
 ## Recovery, in order of escalation
 
 1. Open the monitor's OSD menu briefly (documented to wake a stale DDC
-   handler; no power cycle needed).
+   handler; no power cycle needed). Crisp picks the channel back up on the
+   next panel open, once a probe read is answered and the verification write
+   after it is acked, for a display that answered a read since it connected,
+   is not HDR-dimmed, and had no brightness change land during that read.
 2. Replug the video cable (forces re-enumeration; also clears every
    Crisp-side cache and latch via the reconfiguration path).
 3. Pull the monitor's POWER cord ~10s (standby is not enough; the DDC

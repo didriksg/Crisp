@@ -557,8 +557,9 @@ final class DDCService: ObservableObject, @unchecked Sendable {
     }
 
     /// Consecutive raw read failures per display. Past the threshold the
-    /// display's reads are quarantined (fail fast, no I2C traffic) until its
-    /// cache is cleared on reconnect. A wedged DDC controller (AOC Q27G3XMN)
+    /// display's reads are quarantined (fail fast, no I2C traffic) until the
+    /// quarantine expires, a reconfiguration flushes it, or a panel-open probe
+    /// lets one read through (`readAsync(probeQuarantined:)`). A wedged DDC controller (AOC Q27G3XMN)
     /// streams garbage and degrades further under retry hammering, so backing
     /// off protects both the monitor and the shared DCP I2C engine. Writes
     /// are unaffected; they keep working on wedged controllers.
@@ -833,9 +834,15 @@ final class DDCService: ObservableObject, @unchecked Sendable {
 
     /// Asynchronously read a VCP value.
     /// Returns a cached result if available and not expired (5-second TTL).
+    /// `probeQuarantined` lets one raw read through a quarantine: it is lifted with the streak
+    /// one short of the threshold, so a failure re-quarantines at once and the retries fail
+    /// fast. It is lifted on the display's queue, right before this read, so a read queued
+    /// ahead (the panel-open volume probe) cannot spend the attempt. A display that is not
+    /// quarantined is left alone and reads as usual.
     func readAsync(
         displayID: CGDirectDisplayID,
         command: UInt8,
+        probeQuarantined: Bool = false,
         completion: @escaping ((current: UInt16, max: UInt16)?) -> Void
     ) {
         // Fast path: return cached value if still fresh
@@ -848,6 +855,17 @@ final class DDCService: ObservableObject, @unchecked Sendable {
         cacheLock.unlock()
 
         operationQueues.queue(for: displayID).async {
+            if probeQuarantined {
+                self.readStateLock.withLock {
+                    // Only a live quarantine is lifted. Raising the streak on a channel that
+                    // was reading fine would send it into a 10 min quarantine (every VCP, this
+                    // display) on its first stray failure, and an expired entry belongs to
+                    // readSynchronous, which resets the streak and logs the fresh window.
+                    guard let until = self.readQuarantineUntil[displayID], Date() < until else { return }
+                    self.readQuarantineUntil.removeValue(forKey: displayID)
+                    self.readFailStreak[displayID] = self.readQuarantineThreshold - 1
+                }
+            }
             for attempt in 0..<3 {
                 if let r = self.readSynchronous(displayID: displayID, command: command) {
                     self.cacheLock.lock()

@@ -254,12 +254,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     /// One-shot re-sync of everything that can drift while the panel is closed
     /// (Night Shift/True Tone via Control Center, DDC brightness changed by the
-    /// monitor's own buttons or another app). All reads run off the main
+    /// monitor's own buttons or another app), and one DDC probe for an
+    /// external latched to software gamma (#167). All reads run off the main
     /// thread; called at the click in showPanel.
     private func refreshExternalState() {
         CoreBrightnessService.shared.refresh()
         for display in displayManager.displays {
-            Task { await BrightnessService.shared.refreshBrightness(for: display) }
+            Task { await BrightnessService.shared.refreshBrightness(for: display, probe: true) }
         }
     }
 
