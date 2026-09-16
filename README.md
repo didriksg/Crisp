@@ -23,7 +23,7 @@ Sharp HiDPI scaling, DDC brightness, presets and virtual displays.
 
 Crisp is a lightweight, native menu bar app for controlling external monitors on macOS, and a free, open-source alternative to BetterDisplay and Lunar. It adds what macOS leaves out: sharp HiDPI scaling on any monitor (no more blurry or tiny text), real brightness and volume control over DDC, presets, display arrangement, and virtual displays. Every feature is free, with no Pro tier and no license key.
 
-Fully localized in English and Simplified Chinese (简体中文).
+Available in English, 简体中文 and 繁體中文.
 
 https://github.com/user-attachments/assets/90a62808-84d2-40d6-8563-0b282b9b4b6d
 
@@ -83,6 +83,10 @@ Thank you to the people chipping in toward keeping Crisp signed and notarized:
 
 - **Administrator password** (one time, per monitor): needed only when you turn on smooth scaling, which installs a display override file into `/Library/Displays/Contents/Resources/Overrides` that macOS protects. Regular HiDPI scaling and everything else are password-free.
 - **Accessibility** (System Settings > Privacy & Security > Accessibility): needed only if you turn on Brightness Keys, which routes the keyboard brightness keys to other displays (follow the pointer, all connected, or a chosen subset). Without it, everything else still works; the keys just control the built-in display as usual.
+
+## Languages
+
+Crisp is available in English, Simplified Chinese (简体中文) and Traditional Chinese (繁體中文). It picks the first language in your Mac's preferred languages that it supports. To run Crisp in a different supported language than the rest of your Mac, choose it under System Settings > General > Language & Region > Applications.
 
 ## Managed Macs
 
