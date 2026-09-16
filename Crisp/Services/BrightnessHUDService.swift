@@ -74,7 +74,10 @@ final class BrightnessHUDService: @unchecked Sendable {
             return
         }
 
-        let totalChiclets: CUnsignedInt = 16
+        // The bezel fills in proportion to filled/total rather than in whole chiclets
+        // (measured on 14.8.7 and 15.7.7), so four units per chiclet put the fill edge
+        // on the quarter steps Option+Shift moves in. It still draws sixteen segments.
+        let totalChiclets: CUnsignedInt = 64
         let filledChiclets = CUnsignedInt((level / 100.0 * Double(totalChiclets)).rounded())
 
         let conn = NSXPCConnection(machServiceName: "com.apple.OSDUIHelper", options: [])
