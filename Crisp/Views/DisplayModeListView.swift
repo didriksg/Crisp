@@ -1009,8 +1009,8 @@ private struct ResolutionGroup: Identifiable {
     /// resolution)", the display's native mode "(Default)". Every unmarked row is
     /// therefore a HiDPI/retina mode; the "(low resolution)" tag flags the soft ones.
     var menuLabel: String {
-        if isDefault { return "\(resolutionString) (Default)" }
-        if isLowResolution { return "\(resolutionString) (low resolution)" }
+        if isDefault { return String(localized: "\(resolutionString) (Default)") }
+        if isLowResolution { return String(localized: "\(resolutionString) (low resolution)") }
         return resolutionString
     }
     var hasMultipleRates: Bool { modes.count > 1 }
