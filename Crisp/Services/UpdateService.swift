@@ -7,6 +7,7 @@ import Sparkle
 /// delegate instead of a focus-stealing alert, which matters for a
 /// menu-bar-only (LSUIElement) app. Clicking the row hands off to Sparkle's
 /// standard download/install/relaunch UI.
+@MainActor
 final class UpdateService: NSObject, ObservableObject {
     static let shared = UpdateService()
 
@@ -41,8 +42,9 @@ final class UpdateService: NSObject, ObservableObject {
     }
 }
 
-// Sparkle's standard user driver calls these on the main thread.
-extension UpdateService: SPUStandardUserDriverDelegate {
+// Sparkle's standard user driver calls these on the main thread, so the
+// conformance says so outright now that the class is main-actor isolated.
+extension UpdateService: @MainActor SPUStandardUserDriverDelegate {
 
     /// Opt in to handling scheduled-update presentation ourselves; without
     /// this a dockless app gets Sparkle's focus-stealing default UI plus a

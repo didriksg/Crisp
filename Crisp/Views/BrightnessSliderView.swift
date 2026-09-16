@@ -231,7 +231,9 @@ struct BrightnessSliderView: View {
     /// recomputed every frame of the transition.
     private struct BoostTintModifier: ViewModifier, Animatable {
         var progress: Double
-        var animatableData: Double {
+        // ViewModifier's body puts the modifier on the main actor, while
+        // Animatable's data is read off it, so this accessor says so itself.
+        nonisolated var animatableData: Double {
             get { progress }
             set { progress = newValue }
         }

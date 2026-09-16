@@ -142,11 +142,11 @@ final class BrightnessKeyService: @unchecked Sendable {
         if pollTimer == nil {
             Self.log.notice("key tap refused (Accessibility not granted for this build?), retrying every 2 s")
             pollTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] timer in
+                // The timer stays out of the main-actor block below. Handing it in reads as
+                // a race even though both halves run on the main run loop.
+                guard let self else { timer.invalidate(); return }
                 // Scheduled from the main actor, so it fires on the main run loop.
-                MainActor.assumeIsolated {
-                    guard let self else { timer.invalidate(); return }
-                    self.armIfSettled()
-                }
+                MainActor.assumeIsolated { self.armIfSettled() }
             }
         }
         if activationObserver == nil {
@@ -195,9 +195,10 @@ final class BrightnessKeyService: @unchecked Sendable {
         // ponytail: 0.5s poll, well inside the ~1s WindowServer tap-timeout; AXIsProcessTrusted()
         // is a cheap TCC lookup so 2x/sec while armed is negligible.
         trustWatchdog = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] timer in
+            // As with the poll timer, the timer stays out of the main-actor block.
+            guard let self else { timer.invalidate(); return }
             // Scheduled from the main actor, so it fires on the main run loop.
             MainActor.assumeIsolated {
-                guard let self else { timer.invalidate(); return }
                 guard self.eventTap != nil, !AXIsProcessTrusted() else { return }
                 Self.log.notice("Accessibility trust dropped, tearing the key tap down")
                 self.disabledAt = ProcessInfo.processInfo.systemUptime

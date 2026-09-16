@@ -26,7 +26,7 @@ BUILD=$(grep -E '^[[:space:]]*CURRENT_PROJECT_VERSION:' project.yml | head -1 | 
 ./scripts/fetch-sparkle.sh
 
 echo "==> Compiling Crisp $VERSION ($BUILD)..."
-swiftc -O -swift-version 5 -strict-concurrency=minimal -parse-as-library \
+swiftc -O -swift-version 6 -parse-as-library \
     -import-objc-header Crisp/Crisp-Bridging-Header.h \
     -framework AppKit -framework SwiftUI -framework IOKit -framework CoreAudio \
     -F vendor/Sparkle -framework Sparkle \

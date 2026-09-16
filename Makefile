@@ -30,7 +30,7 @@ endif
 # swiftc invocation kept in sync with dev.sh's compile step.
 SWIFT_SOURCES := Crisp/App/*.swift Crisp/Models/*.swift Crisp/Services/*.swift \
                  Crisp/Views/*.swift Crisp/Utilities/*.swift
-SWIFTC_FLAGS := -O -swift-version 5 -strict-concurrency=minimal -parse-as-library \
+SWIFTC_FLAGS := -O -swift-version 6 -parse-as-library \
                 -import-objc-header Crisp/Crisp-Bridging-Header.h \
                 -framework AppKit -framework SwiftUI -framework IOKit -framework CoreAudio \
                 -F vendor/Sparkle -framework Sparkle \
@@ -71,7 +71,6 @@ test: vendor
 	xcodegen generate
 	xcodebuild -quiet test -project Crisp.xcodeproj -scheme Crisp \
 		-destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO \
-		SWIFT_VERSION=5 SWIFT_STRICT_CONCURRENCY=minimal \
 		SWIFT_TREAT_WARNINGS_AS_ERRORS=YES
 
 lint:
@@ -84,7 +83,7 @@ loc-check: vendor
 	xcodegen generate
 	xcodebuild -quiet -exportLocalizations -project Crisp.xcodeproj \
 		-localizationPath build/loc CODE_SIGNING_ALLOWED=NO \
-		SWIFT_EMIT_LOC_STRINGS=YES SWIFT_VERSION=5 SWIFT_STRICT_CONCURRENCY=minimal
+		SWIFT_EMIT_LOC_STRINGS=YES
 	python3 scripts/check-localization-keys.py build/loc/en.xcloc \
 		Crisp/Resources/Localizable.xcstrings scripts/i18n-missing-allowlist.txt
 
@@ -93,7 +92,7 @@ loc-check: vendor
 # first failed the hook) breaks the x86_64 slice. Typechecking that slice takes
 # seconds where the universal build takes minutes, so it runs on every check.
 typecheck-x86: vendor
-	swiftc -typecheck -target x86_64-apple-macos14.0 -swift-version 5 -strict-concurrency=minimal \
+	swiftc -typecheck -target x86_64-apple-macos14.0 -swift-version 6 \
 		-parse-as-library -import-objc-header Crisp/Crisp-Bridging-Header.h \
 		-F vendor/Sparkle $(SWIFT_SOURCES)
 

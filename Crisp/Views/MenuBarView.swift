@@ -559,7 +559,10 @@ struct SettingsView: View {
 
         private func requestAccess() {
             // Fire the native trust prompt (shows the system dialog the first time)...
-            let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+            // kAXTrustedCheckOptionPrompt is a global var in the Command Line Tools
+            // SDK, which Swift 6 reads as shared mutable state. The key it carries
+            // is part of the framework's interface, so name it outright.
+            let opts = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
             _ = AXIsProcessTrustedWithOptions(opts)
             // ...and open the exact pane, so the toggle still lands somewhere useful after the
             // one-shot prompt has already been dismissed once.

@@ -38,7 +38,6 @@ targets:
         ENABLE_HARDENED_RUNTIME: YES
         CODE_SIGNING_REQUIRED: YES
         CODE_SIGN_IDENTITY: "Apple Development"
-        SWIFT_STRICT_CONCURRENCY: minimal
         SWIFT_OBJC_BRIDGING_HEADER: Crisp/Crisp-Bridging-Header.h
         # SLSConfigureDisplayEnabled / SLSGetDisplayList live in the private
         # SkyLight.framework (physical display disconnect). SkyLight is already
@@ -61,7 +60,6 @@ targets:
       base:
         PRODUCT_NAME: crispctl
         SWIFT_VERSION: "6.0"
-        SWIFT_STRICT_CONCURRENCY: minimal
   CrispTests:
     type: bundle.unit-test
     platform: macOS
@@ -88,7 +86,6 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.crisp.tests
         GENERATE_INFOPLIST_FILE: YES
         SWIFT_VERSION: "6.0"
-        SWIFT_STRICT_CONCURRENCY: minimal
         TEST_HOST: ""
         BUNDLE_LOADER: ""
 

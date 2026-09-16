@@ -40,7 +40,7 @@ rm -rf "$BUILD"; mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 echo "==> Compiling universal binary (arm64 + x86_64)…"
 SRC=$(find Crisp -name '*.swift')
 for a in arm64 x86_64; do
-  swiftc -O -parse-as-library -target "$a-apple-macos14.0" \
+  swiftc -O -swift-version 6 -parse-as-library -target "$a-apple-macos14.0" \
     -import-objc-header Crisp/Crisp-Bridging-Header.h \
     -F "$ROOT/vendor/Sparkle" -framework Sparkle \
     -Xlinker -rpath -Xlinker @executable_path/../Frameworks \
@@ -57,7 +57,7 @@ lipo -create "$BUILD/Crisp-arm64" "$BUILD/Crisp-x86_64" -output "$APP/Contents/M
 # main.swift is top-level code.
 echo "==> Compiling crispctl (arm64 + x86_64)…"
 for a in arm64 x86_64; do
-  swiftc -O -target "$a-apple-macos14.0" \
+  swiftc -O -swift-version 6 -target "$a-apple-macos14.0" \
     Sources/crispctl/main.swift Crisp/Models/CrispControlModel.swift Crisp/Models/BrightnessKeySteps.swift \
     -o "$BUILD/crispctl-$a"
 done

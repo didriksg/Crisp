@@ -3,6 +3,11 @@ import Foundation
 import ColorSync // CGDisplayCreateUUIDFromDisplayID
 import os
 
+// A mode is an immutable object that CoreGraphics never marked Sendable, so a mode
+// read on the main actor cannot reach the nonisolated apply path without this. Same
+// reason as the CGVirtualDisplay conformances in VirtualDisplayService.
+extension CGDisplayMode: @unchecked @retroactive Sendable {}
+
 /// Service responsible for reading and changing display resolution modes.
 @MainActor
 final class ResolutionService: @unchecked Sendable {

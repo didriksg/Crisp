@@ -10,7 +10,7 @@ dev loop, the binary alone compiles with just the Command Line Tools:
 
 ```sh
 ./scripts/fetch-sparkle.sh   # once: vendors the Sparkle updater framework
-swiftc -O -swift-version 5 -strict-concurrency=minimal -parse-as-library \
+swiftc -O -swift-version 6 -parse-as-library \
   -import-objc-header Crisp/Crisp-Bridging-Header.h \
   -framework AppKit -framework SwiftUI -framework IOKit \
   -F vendor/Sparkle -framework Sparkle \

@@ -162,9 +162,10 @@ final class HotkeyService {
         let timer = Timer(fire: Date().addingTimeInterval(NSEvent.keyRepeatDelay),
                           interval: NSEvent.keyRepeatInterval,
                           repeats: true) { timer in
+            // The timer stays out of the main-actor block below, as in the key service.
+            guard Date() < deadline else { timer.invalidate(); return }
             // Added to the main run loop below, so it fires on the main actor.
             MainActor.assumeIsolated {
-                guard Date() < deadline else { timer.invalidate(); return }
                 BrightnessKeyService.shared.adjustFromShortcut(up: up)
             }
         }

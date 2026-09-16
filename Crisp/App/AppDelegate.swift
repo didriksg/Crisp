@@ -216,7 +216,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         NotificationCenter.default.addObserver(
             forName: NSMenu.didBeginTrackingNotification, object: nil, queue: .main
         ) { [weak self] note in
-            let menu = note.object as? NSMenu
+            // Posted on the main queue, and a menu never leaves the main thread. The
+            // compiler cannot see that through the notification, so it reads the hop
+            // below as a race without this.
+            nonisolated(unsafe) let menu = note.object as? NSMenu
             Task { @MainActor in
                 PanelOpenGuard.isMenuTracking = true
                 self?.trackingMenu = menu

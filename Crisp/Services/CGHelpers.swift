@@ -24,25 +24,33 @@ enum CGHelpers {
         operation: @escaping @Sendable () -> T
     ) async -> T {
         await withCheckedContinuation { cont in
-            let lock = NSLock()
-            var didResume = false
+            let once = ResumeOnce()
 
             DispatchQueue.global(qos: .userInitiated).async {
                 let result = operation()
-                lock.lock()
-                guard !didResume else { lock.unlock(); return }
-                didResume = true
-                lock.unlock()
-                cont.resume(returning: result)
+                if once.claim() { cont.resume(returning: result) }
             }
 
             DispatchQueue.global().asyncAfter(deadline: .now() + seconds) {
-                lock.lock()
-                guard !didResume else { lock.unlock(); return }
-                didResume = true
-                lock.unlock()
-                cont.resume(returning: fallback)
+                if once.claim() { cont.resume(returning: fallback) }
             }
         }
+    }
+}
+
+/// Hands the continuation to whichever of the two closures gets there first.
+/// The lock did that before from a captured `var`, which reads as a race to the
+/// compiler even when a lock guards it, so the flag lives in here instead.
+private final class ResumeOnce: @unchecked Sendable {
+    private let lock = NSLock()
+    private var resumed = false
+
+    /// True for the first caller only. The loser leaves the continuation alone.
+    func claim() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !resumed else { return false }
+        resumed = true
+        return true
     }
 }

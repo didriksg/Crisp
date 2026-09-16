@@ -5,7 +5,9 @@ import CoreGraphics
 final class DDCOperationQueuePool: @unchecked Sendable {
     /// One outstanding `hold`. Kept as a reference so a release only ever signals
     /// the queues its own hold parked, even if another hold started meanwhile.
-    private final class Hold {
+    /// Unchecked for the same reason as the pool: the queues read only the two
+    /// immutable fields, and `parked` moves only under the pool's lock.
+    private final class Hold: @unchecked Sendable {
         let gate = DispatchSemaphore(value: 0)
         let timeout: TimeInterval
         var parked = 0
