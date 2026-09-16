@@ -1589,7 +1589,7 @@
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "伽馬"
+            "value" : "伽瑪"
           }
         }
       }
@@ -1605,7 +1605,7 @@
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "伽馬 B"
+            "value" : "伽瑪 B"
           }
         }
       }
@@ -1621,7 +1621,7 @@
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "伽馬 G"
+            "value" : "伽瑪 G"
           }
         }
       }
@@ -1637,7 +1637,7 @@
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "伽馬 R"
+            "value" : "伽瑪 R"
           }
         }
       }
@@ -3002,7 +3002,7 @@
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "支持 Crisp"
+            "value" : "贊助 Crisp"
           }
         }
       }
