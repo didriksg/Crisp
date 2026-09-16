@@ -38,4 +38,44 @@ final class BrightnessKeyStepsTests: XCTestCase {
     func testBelowZeroIsLeftToTheCaller() {
         XCTAssertEqual(BrightnessKeySteps.next(from: 0, up: false), -6.25, accuracy: 0.0001)
     }
+
+    /// Option+Shift moves a quarter of a stop, the grid macOS gives the built-in.
+    func testFinePressMovesAQuarterOfAStop() {
+        XCTAssertEqual(BrightnessKeySteps.next(from: 50, up: true, fine: true), 51.5625, accuracy: 0.0001)
+        XCTAssertEqual(BrightnessKeySteps.next(from: 50, up: false, fine: true), 48.4375, accuracy: 0.0001)
+    }
+
+    /// Four fine presses land on the next whole stop, so the two grids stay in step.
+    func testFourFinePressesReachTheNextStop() {
+        for up in [true, false] {
+            var target = 50.0
+            for _ in 0..<4 { target = BrightnessKeySteps.next(from: target, up: up, fine: true) }
+            XCTAssertEqual(target, up ? 56.25 : 43.75, accuracy: 0.0001)
+        }
+    }
+
+    /// DDC and gamma read back whole percent, so a fine press counts from the nearest
+    /// quarter: 51.5625 read back as 52 must go on to 53.125, not re-send 51.5625.
+    func testRoundedReadbackStillAdvancesAFineStep() {
+        XCTAssertEqual(BrightnessKeySteps.next(from: 52, up: true, fine: true), 53.125, accuracy: 0.0001)
+        XCTAssertEqual(BrightnessKeySteps.next(from: 52, up: false, fine: true), 50, accuracy: 0.0001)
+    }
+
+    /// Held down across the whole range against whole-percent readbacks, every press
+    /// still moves, and the quarters end exactly on 100 and 0.
+    func testFineStepsCrossTheRangeWithRoundedReadbacks() {
+        for up in [true, false] {
+            var readback = up ? 0.0 : 100.0
+            for _ in 0..<64 {
+                let next = BrightnessKeySteps.next(from: readback, up: up, fine: true).rounded()
+                if up {
+                    XCTAssertGreaterThan(next, readback)
+                } else {
+                    XCTAssertLessThan(next, readback)
+                }
+                readback = next
+            }
+            XCTAssertEqual(readback, up ? 100 : 0)
+        }
+    }
 }

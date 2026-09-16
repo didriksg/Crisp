@@ -10,11 +10,19 @@ import Foundation
 enum BrightnessKeySteps {
     static let stops = 16.0
     static let step = 100.0 / stops
+    /// A quarter of a stop: the finer grid macOS moves the built-in on when
+    /// Option and Shift are held.
+    static let fineStep = step / 4.0
 
     /// The next stop above or below `value`, on the 0...100 scale the keys and
     /// the banner both use. The grid carries on past 100 for displays with
     /// Extra Brightness; clamping to the display's maximum is the caller's.
-    static func next(from value: Double, up: Bool) -> Double {
+    /// `fine` moves a quarter of a stop instead, counted from the nearest
+    /// quarter, so a readback rounded to whole percent still moves on.
+    static func next(from value: Double, up: Bool, fine: Bool = false) -> Double {
+        if fine {
+            return ((value / fineStep).rounded() + (up ? 1 : -1)) * fineStep
+        }
         let index = value / step
         // A value already on a stop has to move a whole step, and one a hair
         // off it, which a rounded readback gives, must not move only the hair.
