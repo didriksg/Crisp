@@ -41,8 +41,11 @@ struct VolumeSliderView: View {
         }
     }
 
-    /// Volume change per tap of the speaker buttons, matching the volume keys' step.
-    private var volumeStep: Double { 100.0 / 16.0 }
+    /// Volume change per tap of the speaker buttons: the fine quarter step the keys
+    /// ask for with Option+Shift. A whole stop overshoots on a display that only
+    /// takes DDC writes (the keys would move 100/16 = 6.25 of its range per press),
+    /// and these buttons are what you nudge such a display with.
+    private var volumeStep: Double { BrightnessKeySteps.fineStep }
 
     private func step(_ delta: Double) {
         VolumeService.shared.setVolume(display.volume + delta, for: display)
