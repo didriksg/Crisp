@@ -376,15 +376,18 @@ final class BrightnessKeyService: @unchecked Sendable {
         }
         guard let target else { return Unmanaged.passRetained(event) }
 
+        // Option+Shift moves a quarter of a stop, the same finer grid the brightness
+        // keys use. Read off the event here, where the flags still are.
+        let fine = event.flags.contains([.maskAlternate, .maskShift])
         Task { @MainActor in
             let service = VolumeService.shared
             switch keyCode {
             case Self.nxKeytypeMute:
                 service.toggleMute(for: target)
             case Self.nxKeytypeSoundUp:
-                service.setVolume(BrightnessKeySteps.next(from: target.volume, up: true), for: target)
+                service.setVolume(BrightnessKeySteps.next(from: target.volume, up: true, fine: fine), for: target)
             default:
-                service.setVolume(BrightnessKeySteps.next(from: target.volume, up: false), for: target)
+                service.setVolume(BrightnessKeySteps.next(from: target.volume, up: false, fine: fine), for: target)
             }
             if let screen = NSScreen.screens.first(where: {
                 ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID) == target.displayID
