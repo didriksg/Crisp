@@ -1,12 +1,8 @@
 import XCTest
 
-/// Headless tests for the VRR duplicate-pair detector (issue #31).
-///
-/// `VariableRefreshModes` is compiled directly into this test target (see `project.yml`
-/// sources, same route as `DisplayModeGeometry`). The fixtures mirror the mode tables
-/// observed on real hardware: an AOC Q27G3XMN VRR panel (duplicate usable pairs per
-/// rate, variable twin first, fixed native twin flagged safe|default) and a DELL
-/// U2412M / built-in ProMotion panel (no usable duplicate pairs at all).
+/// Headless tests for the VRR duplicate-pair detector (#31). `VariableRefreshModes`
+/// compiles directly into this test target. Fixtures mirror real hardware: a VRR panel
+/// with duplicate usable pairs per rate, and a fixed-rate panel with none.
 final class VariableRefreshModesTests: XCTestCase {
 
     private func record(_ id: Int32, _ w: Int, _ h: Int, freq: Int, density: Float = 1.0,
@@ -14,8 +10,7 @@ final class VariableRefreshModesTests: XCTestCase {
         VRRModeRecord(id: id, width: w, height: h, freq: freq, density: density, flags: flags)
     }
 
-    /// The native 180Hz pair from the AOC: fixed twin carries safe|default (0x7),
-    /// so the flag rule picks the other member regardless of ordering.
+    /// The fixed twin carries safe|default (0x7); the flag rule picks the other member.
     func testDefaultFlaggedTwinIsFixed() {
         let ids = VariableRefreshModes.variableModeIDs(from: [
             record(680, 2560, 1440, freq: 180, flags: 0x0200_0001),
@@ -24,8 +19,7 @@ final class VariableRefreshModesTests: XCTestCase {
         XCTAssertEqual(ids, [680])
     }
 
-    /// Flags beat enumeration order: if the default-flagged (fixed) twin enumerates
-    /// FIRST, the variable one is still the unflagged member, not the lower id.
+    /// Flags beat enumeration order: the unflagged member is variable regardless of which enumerates first.
     func testFlagRuleBeatsOrderRule() {
         let ids = VariableRefreshModes.variableModeIDs(from: [
             record(680, 2560, 1440, freq: 180, flags: 0x0200_0007),
@@ -34,8 +28,7 @@ final class VariableRefreshModesTests: XCTestCase {
         XCTAssertEqual(ids, [681])
     }
 
-    /// Scaled pairs are flag-identical (0x1/0x1); the variable twin is the lower id
-    /// (verified live: 386 variable / 387 fixed, 727 variable / 728 fixed).
+    /// Flag-identical scaled pairs fall back to the lower id as the variable twin.
     func testFlagIdenticalPairFallsBackToLowerID() {
         let ids = VariableRefreshModes.variableModeIDs(from: [
             record(387, 1920, 1080, freq: 180),
@@ -44,8 +37,7 @@ final class VariableRefreshModesTests: XCTestCase {
         XCTAssertEqual(ids, [386])
     }
 
-    /// Same size and rate at different densities is NOT a pair: a 2560x1440@60 1x mode
-    /// and a 2560x1440@60 HiDPI mode are different resolutions to the user.
+    /// Same size and rate at different densities is not a pair: different resolutions to the user.
     func testDifferentDensityIsNotAPair() {
         let ids = VariableRefreshModes.variableModeIDs(from: [
             record(686, 2560, 1440, freq: 60, density: 1.0),
@@ -54,8 +46,7 @@ final class VariableRefreshModesTests: XCTestCase {
         XCTAssertEqual(ids, [])
     }
 
-    /// Unusable (0x40000000-flagged) modes never form pairs: the AOC lists many
-    /// byte-identical hidden encoding variants that must not trigger detection.
+    /// Unusable (0x40000000-flagged) modes never form pairs.
     func testUnusableModesAreIgnored() {
         let ids = VariableRefreshModes.variableModeIDs(from: [
             record(731, 400, 300, freq: 180, density: 2.0, flags: 0x4000_0000),
@@ -64,8 +55,7 @@ final class VariableRefreshModesTests: XCTestCase {
         XCTAssertEqual(ids, [])
     }
 
-    /// Singletons (every rate on a fixed-rate panel) produce nothing: the DELL U2412M
-    /// and built-in ProMotion tables have zero usable duplicates.
+    /// A fixed-rate panel's table has zero usable duplicates.
     func testFixedRatePanelProducesNothing() {
         let ids = VariableRefreshModes.variableModeIDs(from: [
             record(1, 1920, 1200, freq: 60),
@@ -75,8 +65,7 @@ final class VariableRefreshModesTests: XCTestCase {
         XCTAssertEqual(ids, [])
     }
 
-    /// Three-or-more identical usable modes were never observed on hardware; the
-    /// detector classifies nothing there rather than guessing.
+    /// Three or more identical usable modes: classify nothing rather than guess.
     func testTripleGroupIsSkipped() {
         let ids = VariableRefreshModes.variableModeIDs(from: [
             record(1, 800, 600, freq: 120),
@@ -86,8 +75,7 @@ final class VariableRefreshModesTests: XCTestCase {
         XCTAssertEqual(ids, [])
     }
 
-    /// Multiple pairs across rates each resolve independently (the AOC pairs every
-    /// rate inside its 48-180 adaptive range).
+    /// Multiple pairs across rates each resolve independently.
     func testEveryRatePairResolvesIndependently() {
         let ids = VariableRefreshModes.variableModeIDs(from: [
             record(680, 2560, 1440, freq: 180, flags: 0x0200_0001),

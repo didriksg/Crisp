@@ -31,7 +31,6 @@ struct ResolutionSliderView: View {
         return "\(res) @ \(hz)"
     }
 
-    /// Index of the recommended (native) mode, if any.
     private var recommendedIndex: Int? {
         modes.firstIndex(where: { $0.isNative })
     }
@@ -72,7 +71,6 @@ struct ResolutionSliderView: View {
                     .animation(.easeInOut(duration: 0.15), value: sliderIndex)
             }
 
-            // Milestone labels: Lowest / Recommended / Highest
             if modes.count > 1 {
                 HStack(spacing: 0) {
                     // Modes are sorted descending: index 0 = highest resolution (left), last = lowest (right)

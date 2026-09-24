@@ -1,12 +1,10 @@
 import XCTest
 
-/// Headless tests for the preset shortcut field. `DisplayPreset` and
-/// `KeyboardShortcut` are compiled directly into this test target (see
-/// `project.yml` sources), so no `@testable import Crisp` is needed.
+/// Headless tests for the preset shortcut field. `DisplayPreset` and `KeyboardShortcut`
+/// compile directly into this test target, so no `@testable import Crisp` is needed.
 final class DisplayPresetShortcutTests: XCTestCase {
 
-    /// Presets saved before the shortcut feature have no "shortcut" key in their
-    /// JSON; they must decode with shortcut nil, not fail.
+    /// Presets saved before the shortcut feature decode with shortcut nil, not fail.
     func testLegacyPresetJSONDecodesWithNilShortcut() throws {
         let legacy = Data("""
         {"id":"11111111-2222-3333-4444-555555555555","name":"Work","icon":"display",

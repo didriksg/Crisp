@@ -3,10 +3,9 @@ import CoreGraphics
 
 /// Keeps DDC operations serial per physical display without coupling displays.
 final class DDCOperationQueuePool: @unchecked Sendable {
-    /// One outstanding `hold`. Kept as a reference so a release only ever signals
-    /// the queues its own hold parked, even if another hold started meanwhile.
-    /// Unchecked for the same reason as the pool: the queues read only the two
-    /// immutable fields, and `parked` moves only under the pool's lock.
+    /// One outstanding `hold`; a reference type so release only signals the
+    /// queues its own hold parked. Unchecked: fields are immutable or move
+    /// only under the pool's lock.
     private final class Hold: @unchecked Sendable {
         let gate = DispatchSemaphore(value: 0)
         let timeout: TimeInterval
@@ -16,9 +15,8 @@ final class DDCOperationQueuePool: @unchecked Sendable {
     }
 
     private let lock = NSLock()
-    /// Kept for the process lifetime: a display ID that gets reused after a
-    /// reconnect must land on the same queue, so a new operation cannot overlap
-    /// an in-flight one on a second queue.
+    /// Kept for process lifetime: a reused displayID must land on the same
+    /// queue, or a new operation could overlap an in-flight one.
     private var queues: [CGDirectDisplayID: DispatchQueue] = [:]
     private var activeHolds: [Hold] = []
 
@@ -44,10 +42,8 @@ final class DDCOperationQueuePool: @unchecked Sendable {
     }
 
     /// Parks every per-display queue, present and future, until the returned closure
-    /// runs. `onIdle` fires once every operation that was already queued has finished,
-    /// so the caller can start its transaction knowing the I2C engine is free. Each
-    /// parked queue gives up after `timeout` so a lost release cannot wedge DDC for
-    /// the rest of the session.
+    /// runs; `onIdle` fires once queued work drains, so the caller knows I2C is free.
+    /// Each queue gives up after `timeout` so a lost release cannot wedge DDC.
     func hold(timeout: TimeInterval, onIdle: @escaping () -> Void) -> () -> Void {
         let hold = Hold(timeout: timeout)
         lock.lock()

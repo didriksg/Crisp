@@ -15,9 +15,9 @@
 // MARK: - CGVirtualDisplay Private API (macOS 14+)
 
 @interface CGVirtualDisplayDescriptor : NSObject
-@property (nonatomic) CGSize   sizeInMillimeters;   // physical size (width, height) in mm
-@property (nonatomic) uint32_t maxPixelsWide;       // max pixel width
-@property (nonatomic) uint32_t maxPixelsHigh;       // max pixel height
+@property (nonatomic) CGSize   sizeInMillimeters;
+@property (nonatomic) uint32_t maxPixelsWide;
+@property (nonatomic) uint32_t maxPixelsHigh;
 @property (nonatomic) NSPoint  whitePoint;
 @property (nonatomic) NSPoint  redPrimary;
 @property (nonatomic) NSPoint  greenPrimary;
@@ -61,22 +61,19 @@ typedef struct {
 } CGSDisplayMode;
 
 typedef int CGSConnectionID_t;
-// Applies a mode by its raw modeNumber. arg1 is a CONFIG TOKEN from CGBeginDisplayConfiguration,
-// NOT the connection id: the call reads it as a CGSConfigData*, so passing the connection id
-// segfaults in checkCapacity() on macOS 26. Sequence: CGBeginDisplayConfiguration -> this ->
-// CGCompleteDisplayConfiguration. Verified against BetterDisplay's behaviour on Tahoe.
+// arg1 is a CONFIG TOKEN from CGBeginDisplayConfiguration, NOT the connection id:
+// passing the connection id segfaults in checkCapacity() on macOS 26. Sequence:
+// CGBeginDisplayConfiguration -> this -> CGCompleteDisplayConfiguration.
 extern CGError CGSConfigureDisplayMode(CGDisplayConfigRef config, CGDirectDisplayID display, int32_t modeNumber);
 extern CGSConnectionID_t CGSMainConnectionID(void);
 
-// Full CGS mode description for enumeration. CGDisplayCopyAllDisplayModes hides the GPU-scaled
-// HiDPI variants of any resolution that collides with a real EDID timing (e.g. 1920x1080 HiDPI,
-// whose 3840x2160 backing the panel exposes as a real 4K@50 timing); the private CGS list still
-// carries them at full refresh. Layout reverse-engineered; offsets verified at runtime. `density`
-// is the backing scale (2.0 == HiDPI); `flags` bit 0x40000000 marks modes macOS deems unusable
-// (matches isUsableForDesktopGUI == false). modeNumber == ioDisplayModeID (pass to CGSConfigureDisplayMode).
+// CGDisplayCopyAllDisplayModes hides GPU-scaled HiDPI variants that collide
+// with a real EDID timing; this private list still carries them. Layout
+// reverse-engineered, offsets verified at runtime. modeNumber == ioDisplayModeID
+// (pass to CGSConfigureDisplayMode).
 typedef struct {
     uint32_t modeNumber;   // 0
-    uint32_t flags;        // 4
+    uint32_t flags;        // 4, bit 0x40000000 = unusable (isUsableForDesktopGUI == false)
     uint32_t width;        // 8   logical
     uint32_t height;       // 12  logical
     uint32_t depth;        // 16
@@ -84,7 +81,7 @@ typedef struct {
     uint16_t dc3;          // 188
     uint16_t freq;         // 190 refresh in Hz
     uint32_t dc4[4];       // 192
-    float    density;      // 208 backing scale
+    float    density;      // 208 backing scale, 2.0 = HiDPI
 } CGSDisplayModeDescription;   // 212 bytes
 
 extern CGError CGSGetNumberOfDisplayModes(CGDirectDisplayID display, int *nModes);
@@ -106,10 +103,9 @@ extern CGError SLSGetDisplayList(uint32_t maxDisplays,
                                  CGDirectDisplayID *displays,
                                  uint32_t *displayCount);
 
-// Sets a display's rotation, the switch System Settings > Displays > Rotation drives. Reading
-// it is public (CGDisplayRotation), setting it is not, and the old Intel route through
-// IOServiceRequestProbe does nothing on a DCP-driven display. Takes degrees (0, 90, 180, 270)
-// and messages WindowServer directly, outside any CGBeginDisplayConfiguration transaction.
+// Sets a display's rotation (public CGDisplayRotation only reads it); the old
+// IOServiceRequestProbe route does nothing on a DCP-driven display. Takes
+// degrees (0, 90, 180, 270), outside any CGBeginDisplayConfiguration transaction.
 extern CGError SLSSetDisplayRotation(CGDirectDisplayID display, int rotation);
 
 // MARK: - IOAVService Private API (Apple Silicon DDC)

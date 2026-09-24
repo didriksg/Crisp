@@ -22,10 +22,9 @@ final class VolumeService: ObservableObject {
     /// Volume to restore on unmute, captured when toggleMute drops to zero.
     private var preMuteVolume: [CGDirectDisplayID: Double] = [:]
 
-    /// UUIDs of displays that have EVER answered a 0x62 read. VCP support is a
-    /// hardware fact, so remember it: on flaky DDC (the wedged-read AOC) a
-    /// launch-time probe can miss, and without the memory the slider, the
-    /// settings toggle, and the key routing would all vanish for the session.
+    /// UUIDs of displays that have ever answered a 0x62 read. VCP support is a
+    /// hardware fact, so remember it: a flaky launch-time probe (the
+    /// wedged-read AOC) can miss, and without the memory the feature vanishes.
     private let capableKey = "crisp.volumeCapableDisplays"
     private lazy var rememberedCapable: Set<String> =
         Set(UserDefaults.standard.stringArray(forKey: capableKey) ?? [])
@@ -35,15 +34,12 @@ final class VolumeService: ObservableObject {
         UserDefaults.standard.set(Array(rememberedCapable), forKey: capableKey)
     }
 
-    /// UUIDs the user forced volume-capable (issue #57). Some monitors (LG
-    /// 27UP850N over USB-C) never answer a 0x62 read but do accept 0x62
-    /// writes, so the probe can never prove support. Forced displays run
-    /// write-only with the assumed max of 100 (the pump's default).
+    /// UUIDs the user forced volume-capable (issue #57): some monitors accept
+    /// 0x62 writes but never answer a 0x62 read, so the probe can't prove
+    /// support. Forced displays run write-only at the assumed max of 100.
     private let forcedKey = "crisp.volumeForcedDisplays"
-    /// Published so the Settings block re-checks whether any display reports
-    /// volume when the toggle flips: DisplayInfo.volumeSupported alone only
-    /// re-renders the display's own card, and the Show Volume Sliders row
-    /// stayed hidden until the display list next changed.
+    /// Published so the Settings block's Show Volume Sliders row re-checks on
+    /// toggle; DisplayInfo.volumeSupported alone only re-renders one card.
     @Published private var forcedCapable: Set<String> =
         Set(UserDefaults.standard.stringArray(forKey: "crisp.volumeForcedDisplays") ?? [])
 
@@ -72,11 +68,9 @@ final class VolumeService: ObservableObject {
 
     // MARK: - Probe
 
-    /// Reads VCP 0x62 once. Success marks the display volume-capable (the
-    /// slider appears, keys route) and adopts the monitor's current level;
-    /// failure leaves the feature hidden. Safe to re-run on every display
-    /// refresh: a monitor that answers late (link training) heals on the
-    /// next pass, and DDCService caches reads for 5s.
+    /// Reads VCP 0x62 once: success marks the display volume-capable and
+    /// adopts the monitor's level, failure leaves the feature hidden. Safe to
+    /// re-run on every refresh; a monitor answering late heals next pass.
     func refreshVolume(for display: DisplayInfo) {
         guard !display.isBuiltin else { return }
         // Seed from memory (or the user's force override) so a failed probe
@@ -155,11 +149,9 @@ final class VolumeService: ObservableObject {
 
     // MARK: - Volume-key routing
 
-    /// The external display whose speakers own the current default audio
-    /// output, or nil when audio goes elsewhere (the keys then pass through
-    /// to macOS untouched). Matches the audio device name against the display
-    /// name, with a single-candidate fallback for HDMI/DisplayPort transports
-    /// whose device name differs from the display name.
+    /// The external display whose speakers own the default audio output, or
+    /// nil to pass the keys through untouched. Matches by device name, with a
+    /// single-candidate HDMI/DisplayPort fallback when names differ.
     /// ponytail: name + transport matching; per-display audio binding UI if
     /// same-model multi-monitor setups misroute.
     func displayForDefaultAudioOutput(in displays: [DisplayInfo]) -> DisplayInfo? {

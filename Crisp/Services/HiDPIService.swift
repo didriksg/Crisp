@@ -2,6 +2,7 @@ import Foundation
 import CoreGraphics
 import IOKit
 
+/// HiDPI override plist management. See docs/display-notes.md (HiDPIService).
 @MainActor
 final class HiDPIService: @unchecked Sendable {
     static let shared = HiDPIService()
@@ -24,10 +25,8 @@ final class HiDPIService: @unchecked Sendable {
         return FileManager.default.fileExists(atPath: plistURL.path)
     }
 
-    /// Enables HiDPI for an external display via plist override.
-    /// Requires display reconnect (or reboot) to apply.
-    ///
-    /// Returns nil on success, or an error string on failure.
+    /// Enables HiDPI via plist override; requires a display reconnect (or reboot) to apply.
+    /// Returns nil on success, or an error string.
     func enableHiDPI(for displayID: CGDirectDisplayID,
                      vendor: UInt32,
                      product: UInt32,
@@ -75,9 +74,8 @@ final class HiDPIService: @unchecked Sendable {
 
     // MARK: - Smooth Scaling
 
-    /// False on Macs whose chip never renders a HiDPI backing larger than the panel (the
-    /// A18 Pro in the MacBook Neo, #174): a 4K panel gets looks-like 1920x1080 and nothing
-    /// in between, and macOS refuses every size the dense ladder would add.
+    /// False on chips that never render a HiDPI backing larger than the panel (#174).
+    /// See docs/display-notes.md (HiDPIService).
     static let smoothScalingSupported: Bool = {
         var size = 0
         guard sysctlbyname("machdep.cpu.brand_string", nil, &size, nil, 0) == 0, size > 0 else { return true }
@@ -86,12 +84,9 @@ final class HiDPIService: @unchecked Sendable {
         return !(String(bytes: buf.prefix { $0 != 0 }, encoding: .utf8)?.hasPrefix("Apple A") ?? false)
     }()
 
-    /// Enables (or re-injects) smooth scaling for a display by injecting the dense HiDPI
-    /// ladder into its override plist, then re-probing. The privileged write (admin prompt)
-    /// is skipped when the on-disk plist already carries exactly these modes, so re-enabling
-    /// after a toggle does not re-prompt; reading the plist for that check needs no admin.
-    /// Overwrites in place, so it also upgrades a display already on the coarse plist.
-    /// Returns nil on success (including the no-write case) or an error string.
+    /// Injects the dense HiDPI ladder into the override plist and re-probes; skips the
+    /// privileged write (and its admin prompt) when the plist already matches.
+    /// See docs/display-notes.md (HiDPIService).
     func enableSmoothScaling(vendor: UInt32, product: UInt32,
                              nativeWidth: Int, nativeHeight: Int) -> String? {
         let target = generateSmoothScaledModes(nativeWidth: nativeWidth, nativeHeight: nativeHeight)
@@ -136,7 +131,6 @@ final class HiDPIService: @unchecked Sendable {
             return "Failed to generate plist data"
         }
 
-        // Write to a temp file first, then use privileged helper to move it
         let tmpPath = NSTemporaryDirectory() + "crisp_hidpi_override.plist"
         do {
             try data.write(to: URL(fileURLWithPath: tmpPath), options: .atomic)
@@ -144,15 +138,12 @@ final class HiDPIService: @unchecked Sendable {
             return "Failed to write temp file: \(error.localizedDescription)"
         }
 
-        // Use AppleScript to get admin privileges for writing to /Library/Displays/
         if let err = executePrivilegedCommand("mkdir -p '\(dirPath)' && cp '\(tmpPath)' '\(plistPath)'") {
             return err
         }
 
-        // Clean up temp file
         try? FileManager.default.removeItem(atPath: tmpPath)
 
-        // Attempt to trigger display mode re-enumeration via IOServiceRequestProbe
         triggerDisplayReenumeration(vendor: vendor, product: product)
 
         return nil
@@ -180,18 +171,15 @@ final class HiDPIService: @unchecked Sendable {
         guard let appleScript = NSAppleScript(source: script) else {
             return "Failed to create AppleScript"
         }
-        // The auth dialog steals key and swallows the user's clicks, which would
-        // otherwise trip the panel's auto-dismiss. Suppress that here. The
-        // dismiss events queue while the main thread is blocked below and only
-        // fire once it unblocks, so keep suppression alive briefly afterward.
+        // The auth dialog steals key focus and would trip the panel's auto-dismiss;
+        // suppress it, and keep suppression alive briefly after the dialog closes.
         PanelOpenGuard.suppressAutoDismiss = true
         let generation = PanelOpenGuard.suppressGeneration
         defer {
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 500_000_000)
-                // Skip if a newer suppression window opened since (the caller wraps
-                // the whole soft-reconnect in one); resetting here would clear it
-                // mid-reconnect and let the panel auto-dismiss under the user.
+                // Skip if a newer suppression window opened since (caller wraps a whole
+                // soft-reconnect in one); resetting here would clear it mid-reconnect.
                 if PanelOpenGuard.suppressGeneration == generation {
                     PanelOpenGuard.suppressAutoDismiss = false
                 }
@@ -272,9 +260,8 @@ final class HiDPIService: @unchecked Sendable {
     }
 
     private func generateScaledModes(nativeWidth: Int, nativeHeight: Int) -> [Data] {
-        // Coarse HiDPI ladder matching macOS's usual scaled set: native as HiDPI plus
-        // a few standard steps. Used for normal HiDPI enablement. Each entry is the
-        // backing (pixel) resolution = logical × 2.
+        // Coarse HiDPI ladder matching macOS's usual scaled set: native plus a few standard
+        // steps. Each entry is the backing (pixel) resolution = logical × 2.
         var logical: [(Int, Int)] = [(nativeWidth, nativeHeight)]
         for scale in [0.75, 0.625, 0.5] {
             let w = Int((Double(nativeWidth) * scale).rounded()) & ~1
@@ -285,23 +272,17 @@ final class HiDPIService: @unchecked Sendable {
         return logical.map { encodeScaledMode(backingW: $0.0 * 2, backingH: $0.1 * 2) }
     }
 
-    /// Dense HiDPI "looks like" ladder for smooth scaling: native plus a sub-native ladder,
-    /// each injected as a 2×-backed HiDPI mode. This is what lets the smooth-scaling slider
-    /// feel continuous. Injecting this many modes also floods the System Settings resolution
-    /// list, so it's only used for displays the user opts into smooth scaling for.
+    /// Dense HiDPI "looks like" ladder for smooth scaling, opt-in per display since it
+    /// floods the System Settings resolution list. See docs/display-notes.md (HiDPIService).
     func generateSmoothScaledModes(nativeWidth: Int, nativeHeight: Int,
                                    minScale: Double = 0.5) -> [Data] {
         smoothScaledLogicalSizes(nativeWidth: nativeWidth, nativeHeight: nativeHeight, minScale: minScale)
             .map { encodeScaledMode(backingW: $0.width * 2, backingH: $0.height * 2) }
     }
 
-    /// The logical (point) sizes smooth scaling injects, on BetterDisplay's flexible-scaling
-    /// grid: native width stepped down by 16 points with height held to the panel's exact
-    /// aspect, down to `minScale`×native. 16px is fine enough that the slider drags
-    /// continuously (a 1440p panel yields ~80 stops). Standard sizes land on the grid for free
-    /// (1920 = 2560−16·40, 1600 = 2560−16·60, 2048 = 2560−16·32), so no anchoring is needed.
-    /// Exposed so the UI can tell whether these have enumerated yet: they only appear after the
-    /// display re-enumerates (soft-reconnect / physical reconnect).
+    /// Logical (point) sizes smooth scaling injects: native width stepped down by 16 points
+    /// (BetterDisplay's grid) with height held to the panel's aspect, down to `minScale`×native.
+    /// Exposed so the UI can tell whether these have enumerated yet (only after a reconnect).
     func smoothScaledLogicalSizes(nativeWidth: Int, nativeHeight: Int,
                                   minScale: Double = 0.5) -> [(width: Int, height: Int)] {
         let minW = Int((Double(nativeWidth) * minScale).rounded())

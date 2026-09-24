@@ -1,8 +1,7 @@
 import XCTest
 
-/// Headless tests for the recorded-shortcut model. `KeyboardShortcut` is compiled
-/// directly into this test target (see `project.yml` sources), so no
-/// `@testable import Crisp` is needed.
+/// Headless tests for the recorded-shortcut model. `KeyboardShortcut` compiles directly
+/// into this test target, so no `@testable import Crisp` is needed.
 final class KeyboardShortcutTests: XCTestCase {
 
     // NSEvent.ModifierFlags raw bits, mirrored from the model's private constants.
@@ -23,15 +22,14 @@ final class KeyboardShortcutTests: XCTestCase {
         XCTAssertNil(KeyboardShortcut(keyCode: 4, nsModifierFlags: shift, keyLabel: "H"))
     }
 
-    /// Each of ⌘, ⌥, ⌃ alone is enough.
     func testEachAnchorModifierIsAccepted() {
         XCTAssertNotNil(KeyboardShortcut(keyCode: 4, nsModifierFlags: command, keyLabel: "H"))
         XCTAssertNotNil(KeyboardShortcut(keyCode: 4, nsModifierFlags: option, keyLabel: "H"))
         XCTAssertNotNil(KeyboardShortcut(keyCode: 4, nsModifierFlags: control, keyLabel: "H"))
     }
 
-    /// Device-dependent bits in the raw flags (caps lock, function, left/right variants)
-    /// must not leak into the Carbon mask or break validation.
+    /// Device-dependent bits (caps lock, function, left/right variants) must not leak
+    /// into the Carbon mask.
     func testUnrelatedFlagBitsAreIgnored() {
         let noisy = command | (1 << 16) | (1 << 23) | 0xFF  // capsLock, function, device bits
         let shortcut = KeyboardShortcut(keyCode: 4, nsModifierFlags: noisy, keyLabel: "H")
@@ -95,8 +93,7 @@ final class KeyboardShortcutTests: XCTestCase {
         XCTAssertEqual(decoded, original)
     }
 
-    /// Steal-on-record compares by key code + modifiers only; the captured label
-    /// may differ across keyboard layouts for the same physical combo.
+    /// Steal-on-record compares by key code + modifiers only; the label may differ across layouts.
     func testSameKeysIgnoresLabel() throws {
         let a = try XCTUnwrap(KeyboardShortcut(keyCode: 4, nsModifierFlags: command, keyLabel: "H"))
         let b = try XCTUnwrap(KeyboardShortcut(keyCode: 4, nsModifierFlags: command, keyLabel: "И"))

@@ -34,27 +34,18 @@ struct OSDBannerView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
             Text(model.title)
-                // Fitted at 2x, where a point is two pixels: the same label
-                // drawn at 13, 12.5 and 12 next to the HUD's own, matched to it
-                // by sliding one profile over the other, puts the HUD at 12.33,
-                // 12.22 and 12.18, and its ascenders (18.5 px against 19.7,
-                // 18.9 and 18.1) agree. 13 pt reads slightly wide beside it.
-                // The glyphs below stay at 13.
+                // Fitted at 2x against the native label; glyphs below stay at 13.
+                // Measured: see docs/osd-notes.md (Label size and position).
                 .font(.system(size: 12.25))
-                // Explicit white, not .primary: the label colour is white at
-                // 85 percent, which reads thinner and duller than the HUD's
-                // label (peak 243 against its 251 over the same body).
+                // Explicit white at 85 percent, not .primary, which reads too
+                // thin and dull next to the HUD's own label.
                 .foregroundStyle(.white)
                 .lineLimit(1)
-                // The row the smaller label costs is given back here, so the
-                // track and the glyphs stay on the HUD's rows: the line box at
-                // 13 pt is 16 pt tall, and this block's height is what places
-                // everything under it.
+                // 16 pt (the line box at 13 pt), so the track and glyphs below
+                // land on the HUD's own rows.
                 .frame(height: 16)
-                // A quarter point down, which puts the baseline where the
-                // HUD's sits: 22.75 pt under the top of the capsule, measured
-                // at 2x on both. macOS 27 carries its label one row higher,
-                // measured settled on the same rows.
+                // Puts the baseline where the HUD's sits; macOS 27 carries its
+                // label one row higher.
                 .offset(y: OSDBannerService.drawsMacOS27Capsule ? -0.75 : 0.25)
             HStack(spacing: 4) {
                 Image(systemName: leadingSymbol)
@@ -75,21 +66,12 @@ struct OSDBannerView: View {
     }
 
     private var track: some View {
-        // Two states, as the HUD has. At rest the line is drawn here. While
-        // the pointer is on the capsule it is the control Crisp's own panel
-        // rows use, which brings the growing knob, the drag, and the glass the
-        // knob turns to while it is held.
-        //
-        // Why not that control at rest as well: AppKit draws a slider in an
-        // inactive window in its inactive state, where the line is a grey
-        // darker than its own groove (measured 71 against 82 over a backdrop
-        // of 91) and the knob has no glass. Only a key window draws the real
-        // one, and nothing else reaches it: the tint, trackFillColor, the
-        // controlActiveState environment value, an overridden isKeyWindow and
-        // a posted key notification all leave the inactive drawing in place.
-        // The panel takes key while the pointer is on it (see setHovering) and
-        // it cannot hold key the rest of the time, since that would take the
-        // keyboard away from whatever is in front on every key press.
+        // Two states, as the HUD has: a plain line at rest, or (while the
+        // pointer is on the capsule) the same control the panel's rows use,
+        // with its growing knob and glass. Not that control at rest too:
+        // AppKit only draws it live in a key window, and the panel can't hold
+        // key outside a hover or every key press would steal focus.
+        // Measured: see docs/osd-notes.md (Track (inactive vs. key window)).
         Group {
             if model.hovering {
                 Slider(value: Binding(get: { model.level },
@@ -123,18 +105,15 @@ struct OSDBannerView: View {
         }
     }
 
-    /// The fill ends on the tick for the level, not at a plain fraction of the
-    /// track: measured settled on the system HUD, three steps up its fill ends
-    /// on the third dot and eleven steps up on the eleventh, to a tenth of a
-    /// pixel at 2x. The top of the range is the one exception, where it runs
-    /// to the end of the track instead of stopping on the last dot.
+    /// The fill ends on the tick for the level, not a plain fraction of the
+    /// track, except at the top of the range, which runs to the track's end.
+    /// Measured: see docs/osd-notes.md (Track (inactive vs. key window)).
     private func fillWidth(_ width: CGFloat) -> CGFloat {
         model.level >= 1 ? width : Self.tickInset + (width - 2 * Self.tickInset) * model.level
     }
 
     /// How far the tick dots' centres sit in from each end of the track.
-    /// Measured on the system HUD at 2x: its track runs 450 px, its seventeen
-    /// dots 74.5 to 505.5 from the same origin, so 9 px in at both ends.
+    /// Measured: see docs/osd-notes.md (Track (inactive vs. key window)).
     private static let tickInset: CGFloat = 4.5
 
     /// The 16 steps the keys move between: 2 pt dots, 6 pt below the track's
@@ -143,9 +122,8 @@ struct OSDBannerView: View {
     private var ticks: some View {
         HStack(spacing: 0) {
             ForEach(0..<17) { tick in
-                // macOS 27 draws the dots brighter: 28 levels over the body
-                // against the 16 that 0.11 draws, measured settled over a mid
-                // grey backdrop.
+                // macOS 27 draws the dots brighter.
+                // Measured: see docs/osd-notes.md (Track (inactive vs. key window)).
                 Circle().fill(.white.opacity(OSDBannerService.drawsMacOS27Capsule ? 0.19 : 0.11))
                     .frame(width: 2, height: 2)
                 if tick < 16 { Spacer(minLength: 0) }

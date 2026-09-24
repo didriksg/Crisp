@@ -3,16 +3,13 @@ import AppKit
 import Combine
 
 // Resolution and refresh-rate selection as native checkmarked lists, each a
-// top-level expandable row like the System Settings display menu: resolution is
-// one click away (not nested under a "Display Mode" popup), and refresh rate is
-// its own section, shown only when the current resolution offers more than one.
+// top-level expandable row like the System Settings display menu: resolution
+// is one click away, and refresh rate is its own section, shown only when the
+// current resolution offers more than one.
 //
-// Split into canvas blocks (docs/panel-resize.md): the header rows, the
-// dropdown lists, and the trailing rows are separate PanelBlocks, so opening a
-// dropdown animates a clip over content that rendered once at natural height,
-// no SwiftUI geometry animates per frame. The shared mutable state (pending
-// switches, slider position, smooth-scaling flags) lives in
-// DisplayModeController so the sibling blocks stay in sync.
+// Split into canvas blocks (docs/panel-resize.md). DisplayModeController holds
+// the shared mutable state (pending switches, slider position, smooth-scaling
+// flags) so the sibling blocks stay in sync.
 
 /// Per-display mode-switching state and data, shared by the resolution /
 /// refresh-rate blocks of one display section. Created per display when the
@@ -24,12 +21,8 @@ final class DisplayModeController: ObservableObject {
     @Published var pendingResolutionID: String?
     @Published var pendingRefreshID: Int32?
     @Published var errorMessage: String?
-    /// Set when a smooth-scaling toggle's soft-reconnect couldn't happen (e.g. this is the
-    /// only active display and macOS refused to blink it, or the re-enable retries all
-    /// failed). The plist write itself still landed on disk; this tells the user how to make
-    /// it take effect instead of the switch just silently snapping back. Unlike errorMessage
-    /// this does NOT auto-clear after a few seconds: "go replug the cable" isn't something to
-    /// blink-and-miss, so it stays put while the section is open.
+    /// Set when a smooth-scaling toggle's soft-reconnect couldn't happen, so the write landed
+    /// but needs a real reconnect to be read. Unlike errorMessage this does not auto-clear.
     @Published var reconnectHint: String?
     @Published var sliderIndex: Double = 0
     @Published var smoothBusy: Bool = false
@@ -46,12 +39,10 @@ final class DisplayModeController: ObservableObject {
     init(display: DisplayInfo, displayManager: DisplayManager) {
         self.display = display
         self.displayManager = displayManager
-        // The mode blocks render only from currentDisplayMode/availableModes,
-        // so relay exactly those instead of having the views observe the whole
-        // DisplayInfo: its brightness publishes at 125Hz during a click-glide,
-        // and re-rendering six hosting views per step (each regrouping the
-        // AOC's ~100-mode list) was the glide jank. dropFirst(2) skips the
-        // initial replays both @Published publishers emit on subscribe.
+        // Relay only mode/availableModes changes rather than the whole DisplayInfo, or
+        // brightness click-glide re-renders every block. dropFirst(2) skips the initial
+        // replay both @Published publishers emit on subscribe.
+        // Measured: see docs/ui-notes.md (DisplayModeController: mode relay)
         displayRelay = display.$currentDisplayMode.map { _ in }
             .merge(with: display.$availableModes.map { _ in })
             .dropFirst(2)
@@ -65,8 +56,7 @@ final class DisplayModeController: ObservableObject {
     var currentMode: DisplayMode? { display.currentDisplayMode }
 
     /// Group modes by (resolution + HiDPI), sorted by resolution descending.
-    /// Cached: several block views read this per render, and it rebuilds the
-    /// full grouped/sorted mode list. The relay above invalidates it.
+    /// Cached; several block views read this per render. The relay above invalidates it.
     fileprivate var resolutionGroups: [ResolutionGroup] {
         if let cachedGroups { return cachedGroups }
         let computed = computeResolutionGroups()
@@ -90,16 +80,12 @@ final class DisplayModeController: ObservableObject {
             grouped[key, default: []].append(mode)
         }
 
-        // Native label convention (matches System Settings): a non-HiDPI mode is
-        // "low resolution" only when a HiDPI mode of the same logical size also
-        // exists (so the retina twin is strictly better). The display's native mode
-        // is the "(Default)"; only tagged for external displays, since the built-in's
-        // native mode is a 1x physical size that macOS does not treat as the default.
+        // "(low resolution)" tags a non-HiDPI mode only when a same-size HiDPI mode also
+        // exists. "(Default)" tags the native mode, external displays only: the built-in's
+        // native mode is a 1x physical size macOS does not treat as the default.
         let hiDPISizes = Set(base.filter { $0.isHiDPI }.map { "\($0.width)x\($0.height)" })
-        // Low-res twins: macOS pairs each of the panel's standard scaled sizes with a
-        // non-HiDPI ("low resolution") mode, but does NOT twin the dense smooth-scaling
-        // ladder it injects. So a HiDPI size with a LoDPI twin is a known/native one, and a
-        // twinless HiDPI size is exactly one of the injected in-between steps.
+        // Stock HiDPI sizes carry a non-HiDPI twin; the injected smooth-scaling ladder does
+        // not, so a twinless HiDPI size is one of the injected in-between steps.
         let lodpiSizes = Set(base.filter { !$0.isHiDPI }.map { "\($0.width)x\($0.height)" })
 
         let mapped = grouped.map { (_, modes) -> ResolutionGroup in
@@ -108,10 +94,8 @@ final class DisplayModeController: ObservableObject {
                 // Variable above its same-rate fixed twin, matching System Settings.
                 return $0.isVariableRefresh && !$1.isVariableRefresh
             }
-            // One Variable row per size, like System Settings: macOS mints a variable
-            // twin for every rate inside the panel's adaptive range, but only the top
-            // one is a meaningful choice; the lesser twins would just render as
-            // duplicate Hz rows. Keep whatever is current, as everywhere else.
+            // One Variable row per size, like System Settings: only the top VRR twin is
+            // a meaningful choice, the rest would render as duplicate Hz rows.
             let maxVariableRate = sorted.lazy.filter { $0.isVariableRefresh }.map { $0.refreshRate }.max()
             let visible = sorted.filter {
                 !$0.isVariableRefresh || $0.refreshRate == maxVariableRate
@@ -130,26 +114,21 @@ final class DisplayModeController: ObservableObject {
             )
         }
 
-        // Only collapse the list to the known sizes when the dense ladder is actually live
-        // (lots of twinless HiDPI entries). A normal display's list is left exactly as before.
         // ponytail: count > 8 is the "smooth scaling is on" signal (it injects ~80 twinless).
         let denseLadderActive = mapped.filter {
             $0.isHiDPI && !lodpiSizes.contains("\($0.width)x\($0.height)")
         }.count > 8
-        // At native size the crisp non-HiDPI Default beats a same-size HiDPI (which downscales a
-        // 2x backing onto the panel and looks soft with no size benefit). Hide the HiDPI twin of
-        // native when the Default is present.
+        // The crisp non-HiDPI Default beats its same-size HiDPI twin (softer, no size
+        // benefit), so hide that twin when the Default is present.
         let hasNativeDefault = mapped.contains { $0.isDefault }
-        // The widest HiDPI size on offer: native-aspect 1x sizes beyond it are kept below
-        // (they are the only route to those in-between sizes), sizes under it stay clutter.
+        // Native-aspect 1x sizes beyond the widest HiDPI size are the only route to the
+        // in-between sizes past the ladder's cap; sizes under it are clutter.
         let maxEligibleHiDPIWidth = base.lazy.filter { $0.isHiDPI }.map(\.width).max() ?? 0
 
         return mapped.filter { group in
-            // Built-in (notched) panel: macOS only offers scaled sizes at the panel's
-            // native aspect. CGDisplayCopyAllDisplayModes also returns 16:10 "non-notch"
-            // modes (e.g. 1512x945, 2560x1600) that letterbox the notch away and aren't
-            // selectable in System Settings, so drop them; always keep the active mode.
-            // Non-notched built-ins share the native aspect, so nothing is dropped there.
+            // Built-in: keep only the panel's native aspect (CGDisplayCopyAllDisplayModes
+            // also returns letterboxed 16:10 "non-notch" modes System Settings doesn't
+            // offer); always keep the active mode.
             // ponytail: 2% tolerance cleanly splits 1.60 (16:10) from ~1.54 (notched).
             if display.isBuiltin {
                 let nativeAR = Double(nativeW) / Double(nativeH)
@@ -157,31 +136,25 @@ final class DisplayModeController: ObservableObject {
                 return abs(ar - nativeAR) / nativeAR < 0.02
                     || group.modes.contains { $0.id == currentMode?.id }
             }
-            // External: the HiDPI twin of native is redundant with the crisp Default and looks
-            // softer, so drop it (unless the display is currently on it).
+            // External: the HiDPI twin of native is redundant with the crisp Default.
             if hasNativeDefault, group.isHiDPI, group.width == nativeW, group.height == nativeH,
                !group.modes.contains(where: { $0.id == currentMode?.id }) {
                 return false
             }
-            // External, dense ladder live: keep only the known sizes (those with a low-res
-            // twin) in the list. The injected in-between steps stay off the list but remain
-            // on the slider, so people who want the "known ones" aren't wading through 100.
+            // External, dense ladder live: keep only sizes with a low-res twin in the list;
+            // the injected in-between steps stay off the list but remain on the slider.
             if denseLadderActive, group.isHiDPI, !group.isDefault,
                !lodpiSizes.contains("\(group.width)x\(group.height)"),
                !group.modes.contains(where: { $0.id == currentMode?.id }) {
                 return false
             }
-            // External: drop standalone 1x oddballs (non-HiDPI, no HiDPI twin, not
-            // the native default) that clutter the list, e.g. 2048x1152, 1344x756,
-            // and the off-aspect 4:3/5:4/portrait sizes. Keep native, the HiDPI
-            // ladder, the "(low resolution)" twins, and whatever is current.
+            // External: drop standalone 1x oddballs and off-aspect compat sizes that
+            // clutter the list. Keep native, the HiDPI ladder, low-res twins, and current.
             if group.isHiDPI || group.isDefault || group.isLowResolution { return true }
-            // Non-retina scaled sizes past the HiDPI ladder's reach: WindowServer caps
-            // scaled backings per display, and on a 5K2K ultrawide the sizes between the
-            // ladder top (~3360 wide) and native exist only as 1x modes (4608x1296,
-            // 4096x1152, 3840x1080 on a U4924DW). They are what System Settings offers
-            // there, so keep native-aspect 1x sizes wider than every HiDPI mode; the
-            // off-aspect compat sizes and the sub-ladder clutter above stay dropped.
+            // Non-retina scaled sizes past the HiDPI ladder's cap (#65): WindowServer
+            // refuses scaled backings above a per-display limit, so these exist only as 1x
+            // modes and are what System Settings offers there.
+            // Measured: see docs/ui-notes.md (DisplayModeListView: beyond-cap resolutions)
             if group.width > maxEligibleHiDPIWidth,
                DisplayModeGeometry.matchesNativeAspect(
                    width: group.width, height: group.height,
@@ -255,12 +228,9 @@ final class DisplayModeController: ObservableObject {
                 success = await MirroredModeService.shared.apply(
                     display: display, width: mode.width, height: mode.height)
             } else {
-                // Leaving a mirrored stop for a real mode: unmirror and destroy
-                // first, otherwise the physical display is still a mirror target
-                // and the mode change would be redirected to the virtual source.
-                // A failed unmirror keeps the mirror up (restore leaves the
-                // bookkeeping alone then), so report failure instead of pushing
-                // a mode change at a panel that is still a target.
+                // Leaving a mirrored stop: unmirror first, or the mode change redirects to
+                // the virtual source. A failed unmirror leaves the mirror up, so report
+                // failure instead of pushing a mode change at a display still mirrored.
                 var unmirrored = true
                 if MirroredModeService.shared.isActive(for: displayID) {
                     unmirrored = await MirroredModeService.shared.restore(display: display)
@@ -276,10 +246,8 @@ final class DisplayModeController: ObservableObject {
                 }
             }
             if success {
-                // Optimistic: the reconfiguration callback's setModeFlag branch
-                // re-reads the authoritative mode into display.currentDisplayMode
-                // moments later (refreshExistingDisplayModes); this only moves the
-                // checkmark instantly instead of after a 300ms re-read.
+                // Optimistic: the reconfiguration callback re-reads the authoritative mode
+                // moments later; this only moves the checkmark instantly.
                 display.currentDisplayMode = mode
                 errorMessage = nil
             } else {
@@ -298,11 +266,8 @@ final class DisplayModeController: ObservableObject {
 
     // MARK: - Smooth scaling
 
-    /// The ladder the Resolution slider steps through. Built-in: the native-aspect HiDPI
-    /// "looks like" stops macOS's own slider shows (no 1x "native" stop, since macOS caps
-    /// More Space at the largest HiDPI mode). External: smoothModes (HiDPI ladder + native
-    /// pixel-for-pixel as the More Space end), which the smooth-scaling toggle densifies.
-    /// Cached like resolutionGroups; the relay invalidates it.
+    /// The ladder the Resolution slider steps through: builtinLooksLikeModes on the
+    /// built-in, smoothModes on externals. Cached; the relay invalidates it.
     var sliderModes: [DisplayMode] {
         if let cachedSliderModes { return cachedSliderModes }
         let computed = display.isBuiltin ? builtinLooksLikeModes : smoothModes
@@ -310,9 +275,8 @@ final class DisplayModeController: ObservableObject {
         return computed
     }
 
-    /// Built-in "looks like" stops: the native-aspect HiDPI modes (e.g. 1024×665 …
-    /// 1800×1169). The aspect test also excludes the 16:10 non-notch modes, matching
-    /// the resolution list. One representative per size, ascending (left = Larger Text).
+    /// Built-in "looks like" stops: native-aspect HiDPI modes, one per size, ascending
+    /// (left = Larger Text). Same 2% aspect test as resolutionGroups.
     private var builtinLooksLikeModes: [DisplayMode] {
         let (nativeW, nativeH) = display.nativeResolution
         let nativeAR = Double(nativeW) / Double(nativeH)
@@ -324,21 +288,16 @@ final class DisplayModeController: ObservableObject {
             .sorted { $0.width < $1.width }
     }
 
-    /// The "looks like" ladder for the slider: every HiDPI logical size plus the native
-    /// (max) resolution as the top "More Space" stop. On a standard panel the native mode
-    /// is non-HiDPI, and the HiDPI ladder can't reach it (native-as-HiDPI needs a backing
-    /// the panel/DCP won't enumerate), so without this the slider topped out below the
-    /// display's real maximum. One representative per logical size (prefer HiDPI, then
-    /// highest refresh), ascending: left = Larger Text, right = More Space.
+    /// The "looks like" ladder for the slider: every HiDPI logical size, plus native
+    /// (non-HiDPI) as the top "More Space" stop, since the HiDPI ladder can't reach it.
+    /// One representative per logical size, ascending: left = Larger Text, right = More Space.
     private var smoothModes: [DisplayMode] {
         let (nativeW, nativeH) = display.nativeResolution
-        // Floor the slider at 50% of native (the 2× Retina point), matching the injected
-        // ladder and BetterDisplay. Without this, small HiDPI modes macOS also enumerates
-        // (e.g. 800×600 accessibility sizes) would drag the left stop far below anything usable.
+        // Floor at 50% of native (the 2x Retina point), matching the injected ladder and
+        // BetterDisplay, so small accessibility HiDPI modes don't drag the left stop down.
         let minWidth = nativeW / 2
-        // Top stop = the crisp non-HiDPI native, not its same-size HiDPI twin (which downscales a
-        // 2x backing onto the panel and looks soft with no size benefit). Drop that twin when the
-        // native exists, so the dedup below keeps the crisp one for the "More Space" end.
+        // Prefer the crisp non-HiDPI native over its softer same-size HiDPI twin for the
+        // "More Space" end.
         let hasNativeDefault = display.availableModes.contains { !$0.isHiDPI && $0.width == nativeW && $0.height == nativeH }
         var seen = Set<String>()
         var ladder = display.availableModes
@@ -346,10 +305,7 @@ final class DisplayModeController: ObservableObject {
                 guard DisplayModeGeometry.hasSameOrientation(
                     width: $0.width, height: $0.height, as: nativeW, nativeH
                 ) else { return false }
-                // Native aspect only (same 2% tolerance as builtinLooksLikeModes):
-                // macOS also enumerates accessibility sizes off the panel's aspect
-                // (800×600; 600×800 when rotated), and on a 1200-wide portrait
-                // native the rotated one clears the 50% width floor exactly.
+                // Native aspect only (2% tolerance, as builtinLooksLikeModes).
                 let nativeAR = Double(nativeW) / Double(nativeH)
                 guard abs(Double($0.width) / Double($0.height) - nativeAR) / nativeAR < 0.02
                 else { return false }
@@ -361,17 +317,10 @@ final class DisplayModeController: ObservableObject {
                 return $0.refreshRate > $1.refreshRate
             }
             .filter { seen.insert("\($0.width)x\($0.height)").inserted }
-        // Beyond-cap synthetic stops (#65): WindowServer refuses scaled backings
-        // above a per-display cap, so on 5K2K ultrawides the sizes between the
-        // enumerable ladder top (~looks-like 3360) and native exist as no HiDPI
-        // mode at all. Mint slider stops for them on the same 16px grid, with
-        // NEGATIVE ids so they can never collide with a real ioDisplayModeID or
-        // reach the CG apply path: switchTo routes them to MirroredModeService
-        // (a hidden virtual display renders the 2x backing, the panel hardware-
-        // mirrors it and downscales on scanout). Gated on the dense ladder being
-        // live, like the rest of smooth scaling; which panels get stops at all is
-        // MirroredModeService.beyondCapStops's call (empty on uncapped panels, so
-        // the slider is exactly what it was).
+        // Beyond-cap synthetic stops (#65): mint slider stops with NEGATIVE ids for sizes
+        // WindowServer's per-display cap has no real HiDPI mode for; switchTo routes those
+        // to MirroredModeService instead of the CG apply path.
+        // Measured: see docs/ui-notes.md (DisplayModeListView: beyond-cap synthetic stops)
         if smoothModesPresent {
             ladder += MirroredModeService.beyondCapStops(for: display)
                 .map { DisplayMode(id: -Int32($0.width), width: $0.width, height: $0.height,
@@ -381,13 +330,11 @@ final class DisplayModeController: ObservableObject {
         return ladder.sorted { $0.width == $1.width ? $0.height < $1.height : $0.width < $1.width }
     }
 
-    /// Subtitle for the row while off: what smooth scaling does (the decision point), plus the
-    /// admin/flash heads-up when enabling would actually prompt (the dense override isn't on
-    /// disk yet). On shows nothing, the switch says it all.
+    /// Subtitle for the row while off: what smooth scaling does, plus the admin/flash
+    /// heads-up if enabling would prompt. On, the switch says it all.
     var smoothSubtitle: String? {
-        // Ground truth, not the optimistic switch value: the hint stays put through the whole
-        // operation (so the row height, and the icon centered against it, don't jump mid-prompt)
-        // and only clears once the dense modes actually enumerate.
+        // Ground truth, not the optimistic switch value, so the row height and icon
+        // don't jump mid-prompt.
         guard !smoothModesPresent else { return nil }
         guard HiDPIService.smoothScalingSupported else {
             return String(localized: "Not available on this Mac. Its chip can't draw scaled sizes larger than the display")
@@ -398,16 +345,9 @@ final class DisplayModeController: ObservableObject {
             : String(localized: "Adds finer in-between steps for how large everything looks")
     }
 
-    /// Whether the dense smooth-scaling ladder is actually enumerated for this display. The
-    /// real "is it on" signal, independent of any stored flag; it is exactly what the slider's
-    /// density reflects. When true the enable row is hidden, there is nothing left to do.
-    ///
-    /// Counted as twinless hits on the injected grid, not as a share of the injected sizes:
-    /// WindowServer silently refuses scaled backings above a per-display cap, so on a 5K2K
-    /// ultrawide only a third of the ladder ever materializes (up to looks-like ~3360 wide)
-    /// and a fixed fraction can never pass. Stock HiDPI sizes always carry a 1x twin while
-    /// the injected in-between steps never do (the denseLadderActive signal), so a handful
-    /// of twinless grid hits means the ladder, or what the hardware allows of it, is live.
+    /// Whether the dense smooth-scaling ladder is actually enumerated: the real "is it on"
+    /// signal, independent of any stored flag. When true the enable row is hidden.
+    /// Measured: see docs/ui-notes.md (DisplayModeListView: smoothModesPresent threshold)
     var smoothModesPresent: Bool {
         let (w, h) = display.panelNativeResolution
         let injected = HiDPIService.shared.smoothScaledLogicalSizes(nativeWidth: w, nativeHeight: h)
@@ -470,9 +410,8 @@ final class DisplayModeController: ObservableObject {
         // display's real (positive) mode id, never the synthetic negative one.
         if target.id < 0, let cur = currentMode,
            cur.width == target.width, cur.height == target.height { return }
-        // Keep the current refresh rate at that logical size and scaling kind when offered.
-        // Tolerant match: CG reports fractional rates (59.94) where the CGS-surfaced modes
-        // carry whole Hz.
+        // Keep the current refresh rate and scaling kind when offered (tolerant Hz match,
+        // see selectResolution above).
         let mode = currentMode.flatMap { cur in
             display.availableModes.first {
                 $0.isHiDPI == target.isHiDPI && $0.width == target.width && $0.height == target.height &&
@@ -483,13 +422,10 @@ final class DisplayModeController: ObservableObject {
         switchTo(mode) { }
     }
 
-    /// Flips the dense HiDPI ladder on or off. ON writes the override, OFF removes it; both then
-    /// soft-reconnect (screen blanks ~1s) so macOS re-enumerates in software rather than on a
-    /// physical reconnect, and both touch /Library/Displays so both show one admin prompt. When
-    /// the soft-reconnect itself can't complete (e.g. a re-enable that never lands), the write
-    /// already landed on disk; reconnectHint tells the user how to make it take effect instead
-    /// of the switch just silently snapping back (issue #58). Optimistic: the knob moves now,
-    /// a settle re-read adopts whatever actually enumerated.
+    /// Flips the dense HiDPI ladder on or off: writes or removes the override, then
+    /// soft-reconnects so macOS re-enumerates in software. Optimistic: the knob moves now,
+    /// a settle re-read adopts whatever actually enumerated. If the soft-reconnect can't
+    /// complete, the write still landed; reconnectHint says how to make it take effect (#58).
     func userToggleSmooth(_ on: Bool) {
         guard !smoothBusy, PanelOpenGuard.allowsActivation else { return }
         smoothOn = on   // optimistic; the re-enumeration below confirms it
@@ -497,9 +433,8 @@ final class DisplayModeController: ObservableObject {
         reconnectHint = nil   // fresh attempt: any hint from a previous one is now moot
         // Panel-space dims: the override plist is rotation-blind (see panelNativeResolution).
         let (nativeW, nativeH) = display.panelNativeResolution
-        // Capture now, while the display is still connected and its UUID resolves; the
-        // soft-reconnect below destroys this view, but the Task keeps running and uses
-        // this to ask the rebuilt menu to re-expand the same display afterward.
+        // Capture now, before the soft-reconnect below destroys this view; the Task uses
+        // it to ask the rebuilt menu to re-expand the same display afterward.
         let targetUUID = display.displayUUID
         Task { @MainActor in
             let err: String?
@@ -519,31 +454,21 @@ final class DisplayModeController: ObservableObject {
                     withAnimation { self.errorMessage = nil }
                 }
             } else {
-                // The soft-reconnect blanks the display ~1s, which makes the panel resign
-                // key. That normally auto-closes it (windowDidResignKey), and closePanel
-                // posts crispPanelDidClose, collapsing every expanded row, dumping the user
-                // back to the top. Suppress the resign/outside-click dismissal for the
-                // duration so the panel stays put on this display's Resolution section;
-                // nothing to restore because it never closes.
+                // The soft-reconnect blanks the display, which resigns the panel's key and
+                // would auto-close it, collapsing every expanded row. Suppress that so the
+                // panel stays on this display's Resolution section.
                 PanelOpenGuard.suppressAutoDismiss = true
                 defer { PanelOpenGuard.suppressAutoDismiss = false }
-                // Re-read the override change in software (screen blanks ~1s) instead of
-                // asking for a physical reconnect.
                 let reconnected = await PhysicalDisplayToggleService.shared.softReconnect(display)
                 HiDPIService.shared.refreshModes(for: display)
                 try? await Task.sleep(nanoseconds: 800_000_000)  // let refreshModes land
                 smoothOn = smoothModesPresent
                 refreshSmoothWouldPrompt()
                 if !reconnected && smoothOn != on {
-                    // The blink was refused (Intel, or a portable's sleep guard failed to
-                    // create) or never landed, and the re-read never happened:
-                    // the switch above snapped back to ground truth, which would otherwise look
-                    // like the toggle silently did nothing. It didn't: the plist write landed,
-                    // it just needs a real reconnect (or reboot) to be read. The ground-truth
-                    // check matters: when softReconnect returns false but its retry-exhausted
-                    // sweep completed the blink anyway, the modes DID re-enumerate, a hint
-                    // would be wrong, and that path also rebuilt this controller so a hint set
-                    // here could never render (the rebuilt row reads the fresh controller).
+                    // The blink was refused or never landed; the write is on disk but needs
+                    // a real reconnect to be read. Checking ground truth (not just the
+                    // `reconnected` flag) matters: a retry-exhausted sweep can still complete
+                    // the blink and re-enumerate, which must not show this hint.
                     withAnimation {
                         reconnectHint = String(
                             localized: "Saved. Unplug and replug the monitor cable, or restart your Mac, to apply.")
@@ -553,14 +478,11 @@ final class DisplayModeController: ObservableObject {
                 if let panel = NSApp.windows.first(where: { $0 is MenuPanel }), panel.isVisible {
                     panel.makeKey()
                 }
-                // The reconnect rebuilt this display's row (fresh, collapsed). Ask the menu to
-                // re-expand it and reopen Resolution, so the user lands back where they were.
+                // The reconnect rebuilt this display's row; ask the menu to re-expand it and
+                // reopen Resolution so the user lands back where they were.
                 displayManager.pendingResolutionExpandUUID = targetUUID
-                // The settle storm keeps stealing key for a few seconds after the
-                // suppression window (the defer above) releases; the makeKey above
-                // re-armed resign-key, so a late steal would close the panel right
-                // after a successful toggle. Ignore bare resigns for a grace period;
-                // real outside clicks still dismiss via the global click monitor.
+                // Key theft can continue briefly after the suppression window above releases;
+                // ignore bare resigns for a grace period. Real outside clicks still dismiss.
                 PanelOpenGuard.resignKeyGraceUntil = Date().addingTimeInterval(5)
             }
             smoothBusy = false
@@ -617,10 +539,8 @@ struct ResolutionSliderBlock: View {
         if modes.count >= 2 {
             let defaultIdx = controller.defaultSliderIndex(modes)
             VStack(alignment: .leading, spacing: 2) {
-                // Continuous slider (no native step, which would swap in a bar-style thumb)
-                // so its knob matches the brightness slider above. Snapped to whole stops
-                // live via onChange, so it still clicks tick-to-tick with the round knob.
-                // The mode only switches on release; dragging just moves the knob/label.
+                // Continuous, not stepped (a step swaps in a bar-style thumb); snapped to
+                // whole stops via onChange instead, keeping the round knob. Applies on release.
                 Slider(
                     value: $controller.sliderIndex,
                     in: 0...Double(modes.count - 1),
@@ -659,15 +579,9 @@ struct ResolutionSliderBlock: View {
         }
     }
 
-    /// A tick per stop, with the default stop drawn as a filled dot on top of its tick
-    /// (the way BetterDisplay marks it). A dot rather than a "Default" label stays clean
-    /// even when the default sits at the very edge. Positioned to track the slider thumb,
-    /// which is inset from the track edges by ~half its width (see markX's thumbInset).
-    ///
-    /// The per-step ticks are dropped once the ladder is dense (smooth scaling on, ~80
-    /// stops): at that count they read as an illegible picket fence and fight the
-    /// continuous "smooth" feel, so the slider shows only the default dot and leans on
-    /// the live "· NNN%" label. Ticks stay for the sparse default ladder.
+    /// A tick per stop, default stop marked with a filled dot (as BetterDisplay does).
+    /// Ticks drop once the ladder is dense (smooth scaling on) since they'd read as an
+    /// illegible picket fence; the dot and the live "· NNN%" label carry it instead.
     private func stepMarks(count: Int, defaultIdx: Int?) -> some View {
         GeometryReader { geo in
             ZStack(alignment: .topLeading) {
@@ -726,9 +640,8 @@ private struct ResolutionListView: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
         } else {
-            // HiDPI is surfaced once as a section header instead of per-row. The
-            // native "(Default)" mode is neither HiDPI nor low-resolution, so it sits
-            // alone at the top; everything else splits into HiDPI / Non-HiDPI.
+            // HiDPI is a section header, not a per-row tag. Native "(Default)" sits alone
+            // at the top; everything else splits into HiDPI / Non-HiDPI.
             let defaults = groups.filter { $0.isDefault }
             let hiDPI = groups.filter { $0.isHiDPI }
             let lowRes = groups.filter { !$0.isHiDPI && !$0.isDefault }
@@ -739,9 +652,8 @@ private struct ResolutionListView: View {
                     ForEach(hiDPI) { resolutionRow($0, label: $0.resolutionString) }
                 }
                 if !lowRes.isEmpty {
-                    // "Non-HiDPI" (not "Low Resolution"): accurate for both the
-                    // external's soft 1x twins and the built-in's big 1x modes
-                    // (e.g. 3024x1964, high pixel count but non-Retina).
+                    // "Non-HiDPI", not "Low Resolution": also covers the built-in's big
+                    // non-Retina 1x modes, not just an external's soft twins.
                     resolutionSectionHeader("Non-HiDPI")
                     ForEach(lowRes) { resolutionRow($0, label: $0.resolutionString) }
                 }
@@ -825,8 +737,7 @@ struct ModeTailBlock: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Smooth scaling: on/off switch for the dense HiDPI ladder the Resolution slider
-            // steps through. External displays only (built-ins already scale via System Settings).
+            // External displays only: built-ins already scale via System Settings.
             if !display.isBuiltin {
                 smoothScalingSection
             }
@@ -867,16 +778,13 @@ struct ModeTailBlock: View {
         }
     }
 
-    /// Smooth scaling as an on/off switch. ON injects the dense HiDPI ladder (admin write +
-    /// soft-reconnect, screen blanks ~1s); OFF removes the override + soft-reconnects, falling
-    /// back to the panel's standard CGS scaled modes (HiDPI intact, just coarser steps). The
-    /// switch tracks ground truth (are the dense modes enumerated), not a stored flag.
+    /// Smooth scaling as an on/off switch, tracking ground truth (are the dense modes
+    /// enumerated) rather than a stored flag.
     private var smoothScalingSection: some View {
         Toggle(isOn: Binding(get: { controller.smoothOn }, set: { controller.userToggleSmooth($0) })) {
             HStack(spacing: 8) {
-                // Track ground truth (are the dense modes live), not the optimistic switch value,
-                // so the icon doesn't recolor or shift while the admin prompt blocks. The switch
-                // still flips instantly for responsiveness; the icon settles when modes re-enumerate.
+                // Icon tracks ground truth so it doesn't recolor while the admin prompt
+                // blocks; the switch itself flips instantly.
                 MenuItemIcon(systemName: "slider.horizontal.below.rectangle", color: .blue, active: controller.smoothModesPresent)
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 1) {
@@ -1010,8 +918,7 @@ private struct ResolutionGroup: Identifiable {
     var id: String { "\(width)x\(height)_\(isHiDPI)" }
     var resolutionString: String { "\(width) × \(height)" }
     /// Native System Settings wording: retina modes clean, the 1x twin "(low
-    /// resolution)", the display's native mode "(Default)". Every unmarked row is
-    /// therefore a HiDPI/retina mode; the "(low resolution)" tag flags the soft ones.
+    /// resolution)", the native mode "(Default)".
     var menuLabel: String {
         if isDefault { return String(localized: "\(resolutionString) (Default)") }
         if isLowResolution { return String(localized: "\(resolutionString) (low resolution)") }

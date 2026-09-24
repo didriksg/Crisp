@@ -1,16 +1,11 @@
 import AppKit
 
-/// A clear window over Crisp's menu bar item that takes presses on it first.
-///
-/// macOS 27 lights a status item by itself for as long as a press is held on
-/// it, 2 pt wider on each side than the item's window, which is as far as
-/// Crisp's own pill can reach (see StatusItemHighlight). Crisp's pill would
-/// snap narrower on release. With this window on top the press never reaches
-/// the item, the system draws nothing, and Crisp's pill is the only one.
-///
-/// It draws nothing, so it does not matter that a window over the menu bar is
-/// not shown on the display: hit testing still finds it. A press with Command
-/// held passes through, so the item can still be dragged in the bar.
+/// A clear window over Crisp's menu bar item that intercepts presses before
+/// macOS 27's own status item highlight can react to them (otherwise the
+/// system lights its own, wider pill, which then snaps narrower on release).
+/// Draws nothing, so it need not be visible on the real display for hit
+/// testing to find it; Command-held presses pass through so the item can
+/// still be dragged.
 @MainActor
 final class StatusItemCatcher {
     private let panel: NSPanel
@@ -18,8 +13,7 @@ final class StatusItemCatcher {
     private var observers: [NSObjectProtocol] = []
     private var commandWatch: Timer?
 
-    /// A catcher over the button's item, on macOS 27 only. Older releases
-    /// light the item through the button, and there is nothing to catch.
+    /// macOS 27 only: older releases light the item through the button itself.
     static func over(_ button: NSStatusBarButton?, onPress: @escaping () -> Void) -> StatusItemCatcher? {
         guard SystemLook.isMacOS27OrLater, let window = button?.window else { return nil }
         return StatusItemCatcher(over: window, onPress: onPress)
@@ -57,10 +51,9 @@ final class StatusItemCatcher {
         panel.setFrame(item.frame, display: false)
     }
 
-    /// While the pointer is over the item, lets presses through for as long as
-    /// Command is held. A key monitor would need the app to be active or an
-    /// Accessibility grant; the pointer is only here for a moment, so a short
-    /// poll does it.
+    /// Lets Command-held presses through while the pointer is over the item: a
+    /// key monitor would need the app active or an Accessibility grant, so a
+    /// short poll substitutes instead.
     private func watchCommand() {
         guard commandWatch == nil else { return }
         commandWatch = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in

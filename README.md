@@ -39,12 +39,12 @@ Installed from `didriksg/tap` earlier? `brew upgrade` moves you to the main cask
 
 ## Features
 
-- **Sharp, Retina-quality scaling on any display**: HiDPI scaled resolutions that make external monitors crisp instead of blurry or undersized, set up automatically for 1440p and larger displays, and always at the panel's full refresh rate (no more 1080p stuck at 50Hz on a 144Hz monitor)
-- **Smooth scaling**: fine-tune how large everything looks in small steps, well beyond the handful of scaled sizes macOS offers; the flexible scaling people install BetterDisplay for
-- **Brightness everywhere**: controls the real backlight of external monitors (DDC), dims via software on monitors that don't support that, and can keep dimming below the hardware minimum. Smooth fades, and brightness keys that follow the pointer, target all displays, or a chosen subset
-- **Extra Brightness**: push XDR MacBook panels and HDR monitors past 100% by unlocking their HDR brightness reserve, up to the panel's full headroom (the feature BetterDisplay sells as brightness upscaling). One toggle per display, then the normal slider and brightness keys simply reach further. Sustained maximum brightness increases power draw, and real HDR video can look overblown while boosted
-- **Volume**: control the built-in speaker volume of external monitors over DDC, with a slider per display and the keyboard volume/mute keys mapped to the monitor when it's your audio output. Shows only for monitors that support it, and can be hidden entirely from Settings
-- **Presets**: save named display configurations (resolution, brightness, arrangement) with custom icons and colors, apply with one click, update in place. Image adjustment (gamma, color temperature, contrast) is per-display and not stored in presets
+- **Sharp, Retina-quality scaling on any display**: HiDPI resolutions that make external monitors crisp instead of blurry or tiny, set up automatically for 1440p and larger, always at the panel's full refresh rate (no more 1080p stuck at 50Hz on a 144Hz monitor)
+- **Smooth scaling**: set how large everything looks in small steps, far beyond the few sizes macOS offers
+- **Brightness everywhere**: the real backlight of external monitors over DDC, software dimming where that isn't supported and below the hardware minimum, and brightness keys that follow the pointer, all displays, or a chosen few
+- **Extra Brightness**: push XDR MacBook panels and HDR monitors past 100% into their HDR headroom; one toggle per display, then the slider and keys reach further. It draws more power, and HDR video can look overblown while it's on
+- **Volume**: monitor speaker volume over DDC, with a slider per display and the volume keys mapped to the monitor when it's your audio output
+- **Presets**: save resolution, brightness and arrangement under a name and icon, and apply them with one click
 - **Display arrangement**: drag-to-arrange canvas, main display switching
 - **Disconnect displays**: turn physical displays off and back on from the menu, remembered across sleep/wake (Apple Silicon)
 - **System toggles**: Dark Mode, Night Shift, and True Tone, one click from the menu bar
@@ -86,7 +86,7 @@ Thank you to the people chipping in toward keeping Crisp signed and notarized:
 
 ## Languages
 
-Crisp is available in English, Simplified Chinese (简体中文) and Traditional Chinese (繁體中文). It picks the first language in your Mac's preferred languages that it supports. To run Crisp in a different supported language than the rest of your Mac, choose it under System Settings > General > Language & Region > Applications.
+Crisp picks the first language in your Mac's preferred languages that it supports. To run Crisp in a different supported language than the rest of your Mac, choose it under System Settings > General > Language & Region > Applications.
 
 ## Managed Macs
 
@@ -94,47 +94,15 @@ To keep Keep Awake off on company Macs, push a configuration profile for the `co
 
 ## Automation
 
-Crisp ships with `crispctl`, a command line tool for the same controls. It lives inside the app at `Crisp.app/Contents/MacOS/crispctl`; the Command Line Tool switch in Settings links it into `/usr/local/bin` after one admin prompt (off removes the link), and the Homebrew cask makes the same link on install. Source builds get it with:
+Crisp ships with `crispctl`, a command line tool for the same controls: list displays, read and set brightness, switch Extra Brightness and HDR, and disconnect or reconnect a display. The Command Line Tool switch in Settings links it into `/usr/local/bin` (the Homebrew cask does this on install); it also lives inside the app at `Crisp.app/Contents/MacOS/crispctl`. Crisp must be running.
 
 ```sh
-xcodegen generate && xcodebuild -scheme crispctl -configuration Release
+crispctl display list                  # JSON, with each display's id and uuid
+crispctl brightness set <display> 40
+crispctl display toggle <display>      # for a KVM desk or a button
 ```
 
-`crispctl help` prints the commands, and `crispctl display`, `crispctl brightness` or `crispctl hdr` one group with `--help` on any command for its details; point an agent at them before it does anything else.
-
-```
-Display commands:
-  display list                              List displays as JSON
-  display connect      <display>            Put a disconnected display back
-  display disconnect   <display>            Take a display out of the layout
-  display toggle       <display>            Disconnect if connected, connect if not
-
-Brightness commands:
-  brightness get       <display>            Read brightness and its live maximum
-  brightness set       <display> <percent>  Set brightness
-  brightness boost get <display>            Read Extra Brightness state
-  brightness boost set <display> on|off     Switch Extra Brightness
-
-HDR commands:
-  hdr get              <display>            Read HDR state
-  hdr set              <display> on|off     Switch HDR on an eligible external
-
-Other commands:
-  help                                      Show this help (also -h, --help)
-  version                                   Show the Crisp version this tool ships with (also --version)
-```
-
-`<display>` is a runtime id or a uuid from `display list`. Ids can change after an unplug or a wake; uuids do not, so scripts should prefer them.
-
-`display list` reports each display's uuid, current resolution, logical `brightness`, logical `maxBrightness`, and brightness backend. The backend is Crisp's current route (`builtin`, `ddc`, `software`, or `unknown` while external DDC availability is undetermined); HDR software dimming reports `software`, and an Apple display such as Studio Display reports `builtin`, because Crisp sets its brightness through macOS the same way it does the built-in panel's. Output is one JSON object per call.
-
-Crisp must already be running; crispctl never launches it. `brightness set` accepts 0...100 normally. Values above 100 require Extra Brightness to be enabled and currently eligible for that display, and must not exceed its live `maxBrightness`; invalid boosted values are refused rather than clamped. A set is a manual change like using the slider and clears the active preset. The reply means Crisp accepted the request, not that the panel was read back; it is not retried automatically.
-
-For example, `brightness boost get` returns `{"ok":true,"brightnessBoost":{"displayID":7,"eligible":true,"enabled":false}}`. `eligible` is the running Extra Brightness service's current eligibility result; `enabled` is its persisted per-display toggle state, so the two can differ while capability has collapsed and cleanup or auto-disable is pending. `brightness boost set` uses that existing service: `on` is refused when currently ineligible or when enabling fails, while `off` remains available for a connected display regardless of current eligibility. Enabling an external display may wait while the service settles HDR mode. Success means the service returned `true`, not that hardware, EDR headroom, or luminance was independently verified. A transport timeout does not prove the change was not applied; do not retry automatically—run `brightness boost get` first.
-
-`display disconnect`, `connect` and `toggle` are the menu's Disconnect Display and Reconnect from a script, for a KVM desk or a button: Apple Silicon only, and a disconnect is refused when it would leave no active display. A display Crisp is holding disconnected is absent from every macOS display list, so `display list` still shows it with `connected:false` and its last-known id; use the uuid for it. Asking for the state a display is already in succeeds and changes nothing, and the reply comes after the window server has answered, which can take a few seconds.
-
-`hdr get` and `hdr set` work on the external displays Crisp shows its HDR toggle for; the built-in panel and externals without HDR modes are refused. `get` reads the live state. `set` writes once through the same path as the toggle and reports success only when the read-back agrees; when it cannot tell (a timeout, or the display going away mid-way) it says so and does not retry, so run `hdr get` before retrying. Exit codes are unchanged.
+`crispctl help` lists every command, and `--help` on any command gives its details. To let an AI agent drive it, `crispctl skill install claude` or `crispctl skill install codex` adds a skill for Claude Code or Codex; for another agent, `crispctl skill show` prints it. Run the install again after updating Crisp.
 
 ## Building
 

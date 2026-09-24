@@ -48,18 +48,15 @@ final class VirtualDisplayService: ObservableObject, @unchecked Sendable {
 
     @Published var configs: [VirtualDisplayConfig] = []
 
-    /// Active config IDs, populated when a CGVirtualDisplay is alive.
     @Published private(set) var activeConfigIDs: Set<UUID> = []
 
-    /// Strong references to live CGVirtualDisplay objects.
-    /// Releasing an entry causes the virtual display to disappear immediately.
+    /// Strong references to live CGVirtualDisplay objects; releasing an entry destroys it.
     private var activeDisplayObjects: [UUID: CGVirtualDisplay] = [:]
 
     private let configsKey = "crisp.VirtualDisplayConfigs"
 
-    /// Vendor ID stamped on every Crisp virtual display's descriptor. Also the
-    /// race-free signature we filter on: CGDisplayVendorNumber reports it the
-    /// instant WindowServer brings the display online.
+    /// Vendor ID stamped on every Crisp virtual display's descriptor, and the race-free
+    /// signature filtered on: CGDisplayVendorNumber reports it the instant the display is online.
     static let crispVirtualVendorID: UInt32 = 0xEEEE
 
     // MARK: - Queries
@@ -68,29 +65,22 @@ final class VirtualDisplayService: ObservableObject, @unchecked Sendable {
         activeConfigIDs.contains(configID)
     }
 
-    /// Returns true if `displayID` is a virtual display managed by this service.
     func isVirtualDisplay(_ displayID: CGDirectDisplayID) -> Bool {
-        // Match by our stamped vendor ID first: it's live from CG the moment the
-        // display is online, so a freshly created one is filtered on the very
-        // first refresh instead of flashing as a top-level display in the gap
-        // before activeDisplayObjects records it. The object set is a backstop.
+        // Vendor ID first: it's live the instant the display is online, so a freshly created
+        // one is filtered on the first refresh. The object set below is a backstop.
         if CGDisplayVendorNumber(displayID) == Self.crispVirtualVendorID { return true }
         return activeDisplayObjects.values.contains { $0.displayID == displayID }
     }
 
     // MARK: - Create / Destroy
 
-    /// Creates a virtual display from the given config using CGVirtualDisplay private API.
-    /// Returns true on success. The CGVirtualDisplay object is retained in `activeDisplayObjects`.
-    /// The ENTIRE creation (descriptor build + CGVirtualDisplay init + apply) runs off the
-    /// main actor via `runWithTimeout` because any of these calls can block on WindowServer IPC.
+    /// Creates a virtual display from the config. Descriptor build and CGVirtualDisplay init
+    /// run on the main actor (the API requires it); only `apply` runs off-main, since it can
+    /// block on WindowServer IPC. See docs/display-notes.md (VirtualDisplayService.create).
     @discardableResult
     func create(config: VirtualDisplayConfig) async -> Bool {
-        // When a new display registers, macOS pops its own "What do you want to
-        // show on [display]?" picker, which takes key focus and would trip our
-        // panel's outside-click / resign-key auto-dismiss (the app appears to
-        // vanish). Suppress that here, same as the HiDPI auth path. Harmless at
-        // launch (autoCreate) since the panel isn't open then.
+        // Registration pops macOS's own "what to show" picker, which steals key focus and
+        // would trip the panel's auto-dismiss; harmless at launch since the panel isn't open then.
         PanelOpenGuard.suppressAutoDismiss = true
         defer {
             Task { @MainActor in
@@ -103,18 +93,10 @@ final class VirtualDisplayService: ObservableObject, @unchecked Sendable {
         let h = config.height
         let hiDPI = config.hiDPI
 
-        // Step 1-2: Build descriptor + create CGVirtualDisplay ON MAIN ACTOR.
-        // CGVirtualDisplay(descriptor:) requires the main thread (returns nil from background).
+        // CGVirtualDisplay(descriptor:) requires the main thread (returns nil off it).
         let descriptor = CGVirtualDisplayDescriptor()
-        // Size from a fixed PPI so each resolution reports a physical size like a
-        // real panel of that resolution. This makes macOS default to the NATIVE
-        // resolution (4K stays 4K) instead of a scaled Retina mode, matching how
-        // dummy-display tools (BetterDisplay) present virtual displays.
-        // Note: the "what to show" / mirror-or-extend prompt is gated on the
-        // display's reported type (macOS treats these as HDMI/TV), not on physical
-        // size, so shrinking the reported size does NOT avoid it, it only changes
-        // the default scaling. Suppressing the prompt would need an EDID override
-        // (mark as DisplayPort), which this CGVirtualDisplay API doesn't expose.
+        // Size from a fixed PPI so macOS defaults to the native resolution instead of a
+        // scaled Retina mode. See docs/display-notes.md (VirtualDisplayService.create).
         let ppi: Double = 110.0
         descriptor.sizeInMillimeters = CGSize(
             width: Double(w) / ppi * 25.4,
@@ -123,24 +105,18 @@ final class VirtualDisplayService: ObservableObject, @unchecked Sendable {
         descriptor.maxPixelsWide = UInt32(w)
         descriptor.maxPixelsHigh = UInt32(h)
         descriptor.name = config.name.isEmpty ? String(localized: "Crisp Virtual") : config.name
-        descriptor.vendorID = Self.crispVirtualVendorID  // non-zero required, 0 causes CGVirtualDisplay(descriptor:) to return nil
-        // Identity must be both UNIQUE per config (else a second virtual display
-        // collides with the first, which WindowServer mirrors/rejects) and STABLE
-        // across recreations (macOS keys per-display settings, including the
-        // "extend vs mirror / what to show" choice, on this identity; a value that
-        // changes each time makes it treat every creation as a brand-new display
-        // and re-prompt every time). Both halves come from the config UUID:
-        // product from bytes 0-3, serial from bytes 4-7.
+        descriptor.vendorID = Self.crispVirtualVendorID  // must be non-zero or init returns nil
+        // Must be unique per config AND stable across recreations (macOS keys per-display
+        // settings, including "what to show", on this identity). Both halves from the config UUID.
         let ident = config.id.uuid
         descriptor.productID = UInt32(ident.0) << 24 | UInt32(ident.1) << 16 | UInt32(ident.2) << 8 | UInt32(ident.3)
         descriptor.serialNum = UInt32(ident.4) << 24 | UInt32(ident.5) << 16 | UInt32(ident.6) << 8 | UInt32(ident.7)
-        // DO NOT set queue or color primaries, they are not needed and may interfere with creation
+        // DO NOT set queue or color primaries: not needed, and may interfere with creation.
 
         guard let virtualDisplay = CGVirtualDisplay(descriptor: descriptor) else {
             return false
         }
 
-        // Step 3: Build settings with modes
         let settings = CGVirtualDisplaySettings()
         settings.hiDPI = hiDPI
 
@@ -165,7 +141,7 @@ final class VirtualDisplayService: ObservableObject, @unchecked Sendable {
         }
         settings.modes = modes
 
-        // Step 4: Apply settings on BACKGROUND thread (blocks on WindowServer IPC).
+        // Blocks on WindowServer IPC.
         let vd = virtualDisplay
         let s = settings
         let applyResult: Bool = await CGHelpers.runWithTimeout(seconds: 10, fallback: false) {
@@ -174,30 +150,23 @@ final class VirtualDisplayService: ObservableObject, @unchecked Sendable {
         guard applyResult else { return false }
         guard virtualDisplay.displayID != kCGNullDirectDisplay else { return false }
 
-        // Back on main actor, store the strong reference
         activeDisplayObjects[config.id] = virtualDisplay
         activeConfigIDs.insert(config.id)
 
-        // macOS auto-adds a scaled (looks-like-1080p) mode for high-resolution
-        // displays and picks it as the default no matter which modes we supply,
-        // so a 4K display comes up at 1080p. Force the native 1x mode so it reads
-        // as its real resolution (4K stays 4K).
+        // macOS auto-adds a scaled looks-like-1080p default for high-resolution displays
+        // regardless of the modes supplied; force native 1x so it reads as its real resolution.
         await applyNativeResolution(virtualDisplay.displayID, width: w, height: h)
         return true
     }
 
-    /// Drives a freshly-created virtual display to its native 1x resolution.
-    /// macOS assigns its auto-scaled default asynchronously, so this checks the
-    /// active mode and retries briefly until the native mode sticks (or gives up).
+    /// macOS assigns its auto-scaled default asynchronously, so this retries briefly until
+    /// the native 1x mode sticks, or gives up.
     private func applyNativeResolution(_ displayID: CGDirectDisplayID, width: Int, height: Int) async {
         let options = [kCGDisplayShowDuplicateLowResolutionModes as String: true] as CFDictionary
         for attempt in 0..<5 {
-            // Between attempts, wake on the mode-change event instead of a blind
-            // 300ms sleep; same per-attempt ceiling when no event comes.
             if attempt > 0 {
                 await ReconfigEvents.shared.next(for: displayID, matching: .setModeFlag, timeout: 0.3)
             }
-            // Native 1x means point size == pixel size == the target resolution.
             if let cur = CGDisplayCopyDisplayMode(displayID),
                cur.width == width, cur.pixelWidth == width { return }
             guard let modes = CGDisplayCopyAllDisplayModes(displayID, options) as? [CGDisplayMode],
@@ -209,8 +178,6 @@ final class VirtualDisplayService: ObservableObject, @unchecked Sendable {
         }
     }
 
-    /// Destroys all active virtual displays. Called on app termination to avoid
-    /// leaving stale displays registered with WindowServer.
     func destroyAll() {
         for uuid in activeConfigIDs {
             activeDisplayObjects.removeValue(forKey: uuid)
@@ -218,14 +185,12 @@ final class VirtualDisplayService: ObservableObject, @unchecked Sendable {
         activeConfigIDs.removeAll()
     }
 
-    /// Destroys the virtual display associated with `configID`.
     @discardableResult
     func destroy(configID: UUID) -> Bool {
         guard activeDisplayObjects[configID] != nil else {
             return false
         }
 
-        // ARC releases the CGVirtualDisplay → virtual display disappears
         activeDisplayObjects.removeValue(forKey: configID)
         activeConfigIDs.remove(configID)
 
@@ -254,10 +219,8 @@ final class VirtualDisplayService: ObservableObject, @unchecked Sendable {
         saveConfigs()
     }
 
-    /// Applies edits to an existing config. Name and autoCreate are metadata and
-    /// update in place; changing resolution or HiDPI is baked into the live
-    /// CGVirtualDisplay, so an active display is destroyed and recreated with the
-    /// new settings. Returns false only if a required recreate failed.
+    /// Name/autoCreate update in place; resolution/HiDPI changes are baked into the live
+    /// CGVirtualDisplay, so those destroy and recreate it.
     @discardableResult
     func updateConfig(_ updated: VirtualDisplayConfig) async -> Bool {
         guard let idx = configs.firstIndex(where: { $0.id == updated.id }) else { return false }
@@ -269,10 +232,8 @@ final class VirtualDisplayService: ObservableObject, @unchecked Sendable {
             || old.height != updated.height
             || old.hiDPI != updated.hiDPI
         if geometryChanged && isActive(updated.id) {
-            // Identity is stable, so the recreated display reuses the old one's
-            // identity. Wait for the old display to actually leave the online
-            // list before recreating, or the new one races WindowServer's async
-            // teardown of the old one (collision / mirror).
+            // Identity is stable, so must wait for the old display to actually leave the
+            // online list, or the recreate races WindowServer's async teardown of it.
             let oldDisplayID = activeDisplayObjects[updated.id]?.displayID
             destroy(configID: updated.id)
             if let oldDisplayID { await waitForDisplayOffline(oldDisplayID) }
@@ -281,10 +242,8 @@ final class VirtualDisplayService: ObservableObject, @unchecked Sendable {
         return true
     }
 
-    /// Waits (bounded, 1.5s ceiling) for a torn-down virtual display to leave the
-    /// online display list. CGVirtualDisplay teardown is async: dropping the strong
-    /// reference starts it, but WindowServer finishes on its own time. Event-driven:
-    /// the check-then-await is race-free on the main actor (see ReconfigEvents).
+    /// Bounded wait for a torn-down virtual display to leave the online list: dropping the
+    /// strong reference starts async teardown, but WindowServer finishes on its own time.
     private func waitForDisplayOffline(_ displayID: CGDirectDisplayID) async {
         var count: UInt32 = 0
         CGGetOnlineDisplayList(0, nil, &count)
@@ -302,15 +261,13 @@ final class VirtualDisplayService: ObservableObject, @unchecked Sendable {
         else { return }
         configs = decoded
 
-        // Re-create virtual displays marked autoCreate after WindowServer stabilises.
+        // Delay lets WindowServer stabilise before re-creating autoCreate virtual displays.
         let autoCreateConfigs = configs.filter { $0.autoCreate }
         if !autoCreateConfigs.isEmpty {
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 800_000_000)
                 for config in autoCreateConfigs {
-                    // After a crash, a virtual display from the previous session may
-                    // still be registered with WindowServer. Skip creation if an online
-                    // virtual display with matching dimensions already exists.
+                    // A virtual display from a crashed previous session may still be registered.
                     guard !virtualDisplayAlreadyExists(width: config.width, height: config.height) else {
                         continue
                     }
@@ -320,9 +277,8 @@ final class VirtualDisplayService: ObservableObject, @unchecked Sendable {
         }
     }
 
-    /// Returns true if any currently-online display matches the given pixel dimensions and
-    /// has no associated IOKit service port (indicating it is a virtual/software display).
-    /// Used by autoCreate to avoid duplicating a display that survived an app crash.
+    /// True if an online display already matches these dimensions with no IOKit service port
+    /// (virtual displays have none); used by autoCreate to avoid duplicating a crash survivor.
     private func virtualDisplayAlreadyExists(width: Int, height: Int) -> Bool {
         var displayCount: UInt32 = 0
         CGGetOnlineDisplayList(0, nil, &displayCount)
@@ -330,8 +286,7 @@ final class VirtualDisplayService: ObservableObject, @unchecked Sendable {
         var displayIDs = [CGDirectDisplayID](repeating: 0, count: Int(displayCount))
         CGGetOnlineDisplayList(displayCount, &displayIDs, &displayCount)
         for id in displayIDs {
-            // A software/virtual display has no IOService entry (servicePort == 0 / MACH_PORT_NULL).
-            // Physical displays always have a non-null service port.
+            // No service port means virtual; physical displays always have one.
             let servicePort = CGDisplayIOServicePort(id)
             guard servicePort == 0 || servicePort == MACH_PORT_NULL else { continue }
             let w = Int(CGDisplayPixelsWide(id))

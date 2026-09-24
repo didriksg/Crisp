@@ -133,6 +133,98 @@ Every rule, with the observation that forced it:
     as shaking. Window geometry changes happen only at rest; flight frames
     are pure Core Animation.
 
+## Tuned values
+
+Constants and colors calibrated against a native menu, pixel- or video-measured.
+Redo the measurement before changing one; this is the reasoning to redo it against.
+
+### Shadow twin
+
+The panel wears a CALayer clone of the WindowServer's own menu shadow at all
+times, in flight and at rest (`AppDelegate.warmPanel`, `PanelCanvas.useFlightShadow`).
+The real `hasShadow` shadow cannot follow the shell in flight without a measured
+5-9ms per-frame recompute, and switching between native (at rest) and clone (in
+flight) flashes at every settle: `hasShadow` renders on the WindowServer's own
+schedule (about 200ms after `invalidateShadow`, video measured) while the clone
+renders on Core Animation's, so no swap lands atomically. `panel.hasShadow`
+stays off permanently instead.
+
+Geometry: the twin sits outset one device pixel from the shell
+(1/backingScaleFactor points, since the native rim is a 1px hairline at any
+scale). The knockout mask removes the shadow's interior so the glass backdrop
+never samples it. In macOS 27 dark mode the system's own rim drops its bottom
+stroke, so the twin stops at the shell's bottom edge there instead of one pixel
+below it; light mode and older releases keep the stroke. The native shadow's
+blur barely reaches above the top edge (a faint ~6% shade in the menu-bar gap),
+so the twin's blur is cut 3px above its top border row.
+
+Border (rim): width 2, not 1. The knockout mask trims the visible band back to
+a 1px ring on straight edges, but at corners a 1px border is
+antialiasing-diluted; the wider stroke keeps the arc at full darkness. Alpha,
+fitted against a native item's own rim: light mode 0.29; dark mode 0.85
+pre-macOS 27, 0.58 on macOS 27 (whose dark hairline reads lighter: a wallpaper
+of 28.5 reads 9.8 there and one of 135.5 reads 55.7, which one alpha of 0.57
+fits to both). The white inner line (`shellView.layer.borderWidth`, pre-macOS
+27 only) is a full point (2px at 2x, video measured): it only reads in dark
+mode, since light mode's glass bevel already saturates white on the straight
+edges and the extra stroke would wash out the corners' cyan refraction
+(measured 231,241,244 vs the native 214,244,248). macOS 27 flattens the menu
+rim to the bottom edge only (see bottomEdge below), so this border stays off
+there.
+
+Shadow (blur): a full `NSShadow`, not a mutated color. AppKit only syncs a
+view's `shadow` property onto its layer on a display pass; mutating the
+existing object in place does not request one. Blur radius 8.5, offset (0,
+-4), pixel-matched to the panel's shadow at rest (bottom edge ~16% darkening
+over ~17px, sides ~11%). Alpha: light mode 0.21 pre-macOS 27, 0.08 on macOS 27
+(which lightened the light-mode shadow: the system darkens the background by 7
+levels of 147 at the edge, where 0.21 draws 19 of 136 over the same wallpaper);
+dark mode keeps 0.37 (already matching the system's 10 levels). Appearance is
+read from `NSApp.effectiveAppearance`, not the panel's: the panel applies its
+shadow while still positioned off screen, before `panel.effectiveAppearance`
+has resolved, and the app's own appearance already matches the system menu bar
+that native menus follow.
+
+### bottomEdge
+
+macOS 27 flattens the native menu rim: only the bottom edge carries a line, not
+the sides or top. `PanelCanvas.bottomEdge` draws it (`bottomEdgeColor`, white
+at alpha 0.175, width 1pt), fitted against a native item's own pill on the same
+wallpaper: the system lifts its bottom row 32 levels over a dark wallpaper and
+24 over a light one, and its sides by 5 (which the glass alone already draws as
+8 with no border needed on top); composited over the body this reads 0.161 on
+the light wallpaper and 0.193 on the dark one, and 0.175 sits between them.
+`hidesBottomRim` (true only on macOS 27 dark mode) is cached rather than read
+per tick, since `layoutNow` runs every flight frame and `useFlightShadow`
+already resolves appearance on every open.
+
+### hostSlack
+
+Each block's `NSHostingView` canvas is 1200pt taller than its content height.
+`BlockHost`'s top-glue (`.frame(maxHeight: .infinity, alignment: .top)`) only
+engages, and pins content to the top, when the content model is shorter than
+the canvas; without slack, `NSHostingView` positions by the shorter mid-reveal
+presentation instead, which centers the reveal and drops its top on open. A
+single fixed canvas for the whole panel (the pre-split-canvas design) got this
+for free; the split canvas needs it sized per block.
+
+### StatusItemHighlight
+
+The lit pill behind the menu bar icon on macOS 27, where
+`NSStatusBarButton.highlight(_:)` paints nothing. Shape fitted against a native
+item carrying the same symbol with its menu open: a capsule, corner radius half
+its height, inset 3pt from the top and bottom of the menu bar, 2pt wider than
+the item on each side. The item's own window clips at its edge, so
+`StatusItemHighlight.makeRoom` widens it by that overhang once, before the item
+is ever lit (widening later would visibly shift the icon 2pt on the first
+click). The pill draws directly in the button's own layer (a separate window
+over the menu bar shows in a screen capture but not on the real display, so it
+cannot be a window of its own), added on (`compositingFilter = "plusL"`) rather
+than blended: the system's own pill lifts the bar by a flat amount in all three
+channels (measured 10, 11, 11 off a native item with its menu open), where a
+white drawn at alpha would lift the three channels unevenly, and adding
+commutes.
+
 ## Validation
 
 Spike app (`Spike2`, scratchpad, not in repo) validated the block machinery:

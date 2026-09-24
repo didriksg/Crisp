@@ -19,10 +19,8 @@ final class BrightnessBoostService {
         return cls.init()
     }()
 
-    /// Animates DisplayInfo.maxBrightness so the slider range grows and
-    /// shrinks with the same ~125Hz ease-out glide brightness itself uses,
-    /// instead of snapping the thumb to a new position. Also holds the
-    /// disable-collapse animator (see collapseAndDisable), keyed the same way
+    /// Animates DisplayInfo.maxBrightness for the slider range glide, and
+    /// doubles as the disable-collapse animator's home (collapseAndDisable),
     /// so a rapid re-enable cancels whichever of the two is running.
     private var maxAnimators: [CGDirectDisplayID: BrightnessAnimator] = [:]
 
@@ -42,11 +40,10 @@ final class BrightnessBoostService {
     /// headroom poll and other callers cannot fight the collapse mid-flight.
     private var collapsingDisplays: Set<CGDirectDisplayID> = []
 
-    /// While any boost is engaged, the display's deliverable headroom moves
-    /// with panel brightness and thermals, and macOS does not reliably post a
-    /// notification when it drops. A factor above the deliverable range clips
-    /// bright content to white, so poll and re-clamp; the loop ends itself
-    /// once nothing is boosted.
+    /// Re-clamps the overlay factor while boost is engaged: deliverable
+    /// headroom drifts with panel brightness and thermals with no reliable
+    /// notification. Ends itself once nothing is boosted. See
+    /// docs/brightness-notes.md (Extra Brightness (EDR boost)).
     private var headroomPollTask: Task<Void, Never>?
 
     /// Pending post-reconfiguration reconcile. One at a time: a connect or
@@ -54,19 +51,15 @@ final class BrightnessBoostService {
     /// times, and each reapplyAll is a full DDC/gamma/overlay pass.
     private var reapplyAfterReconfigTask: Task<Void, Never>?
 
-    /// When an enabled external first reported potentialHeadroom at or below
-    /// hdrReadyThreshold: HDR capability disappeared out from under it (user
-    /// turned HDR off, or a HiDPI mode switch dropped HDR advertisement).
-    /// Auto-disable fires only after the loss has persisted 1.5s (wall clock,
-    /// so the fast-poll window cannot rush it) to ride out transient dips
-    /// during mode-change storms.
+    /// Debounces auto-disable when an enabled external's headroom drops to
+    /// nothing: fires only after the loss persists 1.5s (wall clock) to ride
+    /// out transient dips during mode-change storms. See
+    /// docs/brightness-notes.md (Extra Brightness (EDR boost)).
     private var headroomLossSince: [CGDirectDisplayID: Date] = [:]
 
-    /// While set and in the future, the poll runs at 16ms instead of 500ms.
-    /// Armed when a display first enters the boost region: macOS ramps EDR
-    /// headroom over the next second or two, and catching that ramp in 500ms
-    /// chunks reads as laggy, steppy brightness right when the user starts
-    /// pushing the slider past 100.
+    /// While set and in the future, the poll runs at 16ms instead of 500ms,
+    /// to track the EDR ramp right after a display enters the boost region.
+    /// See docs/brightness-notes.md (Extra Brightness (EDR boost)).
     private var fastPollUntil: Date?
     /// Displays whose overlay factor is currently above identity; used to
     /// detect the first entry into the boost region (arms fastPollUntil).
@@ -80,10 +73,9 @@ final class BrightnessBoostService {
                 try? await Task.sleep(nanoseconds: fast ? 16_000_000 : 500_000_000)
                 guard let self else { return }
                 var anyBoosted = false
-                // Visit inert-but-enabled displays too (flag set, capability
-                // currently missing, maxBrightness back at 100): the debounced
-                // auto-disable below is what resolves them; syncOverlay
-                // no-ops for them.
+                // Also visits inert-but-enabled displays (flag set, capability
+                // currently missing) so the debounced auto-disable below can
+                // resolve them; syncOverlay no-ops for them.
                 for display in DisplayManagerAccessor.shared.displays
                 where display.maxBrightness > 100 || self.isEnabled(for: display) {
                     anyBoosted = true
@@ -120,10 +112,8 @@ final class BrightnessBoostService {
     // MARK: - Persistence (displayUUID keyed, survives displayID reassignment)
 
     private func enabledKey(_ uuid: String) -> String { "crisp.BoostEnabled.\(uuid)" }
-    /// Set while the boost has an external in HDR mode that it switched on for itself,
-    /// so switching the boost off can put the monitor back in SDR. Absent when the user
-    /// had HDR on already, which the boost leaves alone. Persisted so a relaunch with
-    /// the boost still enabled keeps the distinction.
+    /// Set when boost itself switched an external into HDR mode, so disabling
+    /// can revert it; untouched when the user already had HDR on.
     private func switchedHDRKey(_ uuid: String) -> String { "crisp.BoostSwitchedHDR.\(uuid)" }
 
     func isEnabled(for display: DisplayInfo) -> Bool {
@@ -177,20 +167,17 @@ final class BrightnessBoostService {
 
     // MARK: - Toggle
 
-    /// Enable or disable boost. Async because switching an external monitor to
-    /// HDR mode takes a moment to settle. Returns false when enabling failed
-    /// (caller reverts the toggle UI). Disabling switches HDR back off when it
-    /// was the boost that switched it on; `revertOwnHDR` false skips that, for
-    /// the explicit HDR-off path, which does the mode switch itself.
+    /// Enables or disables boost. Async: switching an external into HDR mode
+    /// needs time to settle. Returns false when enabling failed (caller
+    /// reverts the toggle UI); `revertOwnHDR` false skips the HDR revert on
+    /// disable, for the explicit HDR-off path, which switches modes itself.
     @discardableResult
     func setEnabled(_ enabled: Bool, for display: DisplayInfo, revertOwnHDR: Bool = true) async -> Bool {
         let uuid = display.displayUUID
         if enabled {
-            // A disable-collapse may still be running from a rapid off/on
-            // flip; cancel it where it is (through the same maxAnimators slot
-            // the collapse itself uses) so it cannot keep walking brightness
-            // down after we re-enable, and clear isCollapsing so syncOverlay
-            // stops skipping this display.
+            // Cancel any disable-collapse still running from a rapid off/on
+            // flip, and clear the collapsing marker so syncOverlay stops
+            // skipping this display.
             BrightnessService.shared.cancelAnimation(for: display.displayID)
             maxAnimators[display.displayID]?.cancel()
             collapsingDisplays.remove(display.displayID)
@@ -212,11 +199,10 @@ final class BrightnessBoostService {
             let potential = potentialHeadroom(for: display.displayID)
             let newMax = BrightnessBoostMath.sliderMax(potentialHeadroom: potential)
             guard newMax > 100 else {
-                // No usable headroom: fail quietly. A user-set HDR mode is
-                // left alone (explicit toggle), but an HDR switch made by
-                // THIS failed attempt is rolled back: a half-engaged switch
-                // (preference recorded, mode never applied) leaves the OS
-                // rendering HDR into an SDR link, washing the screen out.
+                // No usable headroom: fail quietly, and roll back an HDR
+                // switch made by THIS attempt (a half-engaged switch leaves
+                // HDR rendering into an SDR link). A user-set HDR mode is
+                // left alone.
                 if let request = switchedHDRForThisAttempt {
                     _ = setHDRMode(
                         false, for: display, expectedUUID: request.uuid,
@@ -237,10 +223,8 @@ final class BrightnessBoostService {
             UserDefaults.standard.removeObject(forKey: switchedHDRKey(uuid))
             UserDefaults.standard.set(false, forKey: enabledKey(uuid))
             collapseAndDisable(for: display)
-            // The boost put this monitor in HDR mode for its own sake; take it back
-            // out once the collapse has landed, the same way the explicit off does.
-            // HDR already off (turned off outside Crisp, which is what disabled the
-            // boost) means there is nothing to undo.
+            // Revert HDR only if boost switched it on for itself; already-off
+            // HDR means nothing to undo.
             if revertOwnHDR, switchedHDR, !display.isBuiltin, isHDREnabled(for: display) {
                 _ = await setHDRPreference(false, for: display)
             }
@@ -248,14 +232,11 @@ final class BrightnessBoostService {
         }
     }
 
-    /// Single combined collapse: brightness and maxBrightness glide back to
-    /// 100 together, driven by one progress animator, instead of fading
-    /// brightness to 100 first and only then collapsing maxBrightness. That
-    /// two-phase sequence made the slider thumb (value/max) visibly drop
-    /// then rise; driving both from the same progress keeps it monotonic.
-    /// sliderMax for the overlay factor is the frozen starting maxBrightness
-    /// (max0), not the live (shrinking) one, so the multiplier tracks the
-    /// thumb instead of jumping.
+    /// Combined collapse: brightness and maxBrightness glide back to 100
+    /// together from one progress animator (a two-phase version made the
+    /// slider thumb visibly drop then rise; see docs/brightness-notes.md).
+    /// The overlay factor uses the frozen starting maxBrightness (max0), not
+    /// the live shrinking one, so the multiplier tracks the thumb.
     private func collapseAndDisable(for display: DisplayInfo) {
         let displayID = display.displayID
         let v0 = display.brightness
@@ -273,9 +254,8 @@ final class BrightnessBoostService {
         ) { [weak self, weak display] p, isLast in
             guard let self else { return }
             guard let display else {
-                // The display deallocated mid-collapse (disconnect). Drop the
-                // collapse marker so a reconnect reusing this CGDirectDisplayID
-                // is not stuck with syncOverlay muted forever.
+                // Deallocated mid-collapse (disconnect): drop the marker so a
+                // reused CGDirectDisplayID isn't stuck with syncOverlay muted.
                 self.collapsingDisplays.remove(displayID)
                 self.maxAnimators[displayID]?.cancel()
                 return
@@ -317,22 +297,14 @@ final class BrightnessBoostService {
 
     // MARK: - Overlay sync (called on every brightness change)
 
-    /// Recompute and apply the overlay factor for the display's current
-    /// brightness. Live currentEDR gates the target: below
-    /// BrightnessBoostMath.hdrReadyThreshold the panel has not ramped EDR yet,
-    /// so a small pending factor is applied instead of the full target (see
-    /// BrightnessBoostMath.overlayFactor); potentialHeadroom gates that pending
-    /// factor itself, so a display genuinely back in SDR gets 1.0 instead of a
-    /// nudge that can never ramp. Headroom changes post didChangeScreenParameters
-    /// (observed above) and are also polled (see startHeadroomPollIfNeeded), so
-    /// the factor converges to what the panel can actually deliver within a
-    /// beat of engaging, and the poll auto-disables boost once potentialHeadroom
-    /// stays lost for a display that needs it (see headroomLossPolls).
+    /// Recomputes and applies the overlay factor for the display's current
+    /// brightness, clamped against live headroom (see
+    /// BrightnessBoostMath.overlayFactor and docs/brightness-notes.md for the
+    /// ramp-in and auto-disable behavior this feeds).
     func syncOverlay(for display: DisplayInfo) {
         guard display.maxBrightness > 100 else { return }
         // The disable-collapse animation drives the overlay factor itself;
-        // letting this run concurrently (e.g. from the headroom poll) would
-        // fight it.
+        // running concurrently (e.g. from the headroom poll) would fight it.
         guard !collapsingDisplays.contains(display.displayID) else { return }
         if display.isBuiltin {
             let factor = BrightnessBoostMath.overlayFactor(
@@ -352,10 +324,10 @@ final class BrightnessBoostService {
                 activeBoostDisplays.remove(display.displayID)
             }
         } else {
-            // Externals boost through the display transfer table, not the EDR
-            // overlay (see BrightnessBoostMath.externalBoostCeiling for why).
-            // Written unconditionally: the 500ms poll landing here re-heals
-            // the table after an ICC-restore clobber without extra plumbing.
+            // Externals boost via the display transfer table, not an EDR
+            // overlay (see BrightnessBoostMath.externalBoostCeiling). Written
+            // unconditionally so the poll re-heals the table after an
+            // ICC-restore clobber.
             let factor = BrightnessBoostMath.externalBoostFactor(
                 brightness: display.brightness, sliderMax: display.maxBrightness)
             BrightnessService.shared.setBoostFactor(factor, for: display.displayID)
@@ -375,16 +347,14 @@ final class BrightnessBoostService {
             guard isEligible(display) else { continue }
             let potential = potentialHeadroom(for: display.displayID)
             let newMax = BrightnessBoostMath.sliderMax(potentialHeadroom: potential)
-            // No usable headroom right now: do NOT decide anything here. Wake
-            // and reconfig headroom reads are unreliable single samples; the
-            // headroom poll below owns auto-disable with a debounce, and
-            // re-engagement happens on the next reapply once reads are sane.
+            // No usable headroom right now: leave the decision to the
+            // headroom poll's debounced auto-disable; wake/reconfig reads
+            // are unreliable single samples.
             guard newMax > 100 else { continue }
             display.maxBrightness = newMax
             syncOverlay(for: display)
         }
-        // Ensure the poll is watching every enabled display, including inert
-        // ones (flag set but capability currently missing), so the debounced
+        // Watch every enabled display, including inert ones, so the debounced
         // auto-disable can resolve them into a coherent off state.
         if anyEnabled { startHeadroomPollIfNeeded() }
         EDROverlayManager.shared.rerenderAll()
@@ -467,18 +437,14 @@ final class BrightnessBoostService {
         return uuidString as String
     }
 
-    /// Current HDR-preference request token per display. An off request waits out
-    /// the boost collapse before switching modes; if a newer request lands
-    /// during that wait, the older one must not fire its stale mode switch
-    /// afterward (a fast off-then-on flip would otherwise end on SDR half a
-    /// second after the user chose HDR).
+    /// Current HDR-preference request token per display: guards a stale mode
+    /// switch from firing after a newer request supersedes it mid-wait
+    /// (setHDRPreference).
     private var hdrRequestTokens: [CGDirectDisplayID: UUID] = [:]
 
-    /// Explicit HDR on/off for a display. Turning off while boost is enabled
-    /// for it first runs boost's own disable-collapse to completion (waiting
-    /// out collapsingDisplays, then a short settle) so brightness is back at
-    /// 100 before the mode switch, instead of the collapse animation fighting
-    /// an SDR display underneath it.
+    /// Explicit HDR on/off. Turning off while boost is enabled first runs
+    /// boost's own disable-collapse to completion, so brightness is back at
+    /// 100 before the mode switch instead of fighting it underneath.
     @discardableResult
     func setHDRPreference(
         _ on: Bool, for display: DisplayInfo, expectedUUID: String? = nil
@@ -498,10 +464,8 @@ final class BrightnessBoostService {
             _ = await setEnabled(false, for: display, revertOwnHDR: false)
         }
         // Wait on the live collapse set, not the isEnabled flag: a collapse
-        // started moments earlier from the Extra Brightness row has already
-        // cleared the flag but is still animating this display. Capped at 2s
-        // (the collapse runs 0.35s): an animator cancelled without its final
-        // tick would otherwise leave the marker set and spin this forever.
+        // may already be animating this display with the flag cleared.
+        // Capped at 2s so a cancelled animator can't spin this forever.
         var waited = 0
         while collapsingDisplays.contains(displayID), waited < 40 {
             try? await Task.sleep(nanoseconds: 50_000_000)
@@ -523,11 +487,10 @@ final class BrightnessBoostService {
         return displays.first { ($0.value(forKey: "displayID") as? UInt32) == displayID }
     }
 
-    /// Hardware capability, cached per displayID: the MPDisplay read is a
-    /// synchronous WindowServer round-trip (SLSDisplaySupportsHDRMode), and
-    /// HDRToggleView's body hits this on every render, 125x/s during a
-    /// brightness glide. The cache clears on screen reconfiguration, the only
-    /// time capability (or displayID assignment) can change.
+    /// Hardware capability, cached per displayID: MPDisplay's read is a
+    /// synchronous WindowServer round-trip hit on every HDR-toggle render.
+    /// Cache clears on screen reconfiguration. See docs/brightness-notes.md
+    /// (Extra Brightness (EDR boost)).
     private var hdrSupportCache: [CGDirectDisplayID: Bool] = [:]
 
     private func supportsHDRMode(_ displayID: CGDirectDisplayID) -> Bool {
@@ -560,17 +523,13 @@ final class BrightnessBoostService {
         return true
     }
 
-    /// Keeps BrightnessService's DDC-vs-software routing in step with each
-    /// external's live HDR mode. A DisplayHDR monitor owns its luminance and
-    /// silently discards DDC brightness writes (they still ack), so the whole
-    /// 0-100 range must dim in software while HDR is on. Covers HDR changes
-    /// made outside Crisp (System Settings): every HDR flip fires a screen
-    /// reconfiguration, which lands here via reapplyAll.
+    /// Keeps BrightnessService.hdrDimmedDisplays in step with each external's
+    /// live HDR mode, including flips made outside Crisp (every HDR change
+    /// fires a reconfiguration, which lands here via reapplyAll).
     private func syncHDRRouting() {
         // Every external gets an explicit answer, not just HDR-eligible ones:
-        // a display inheriting a reused ID from a disconnected HDR display
-        // must be actively cleared out of the software-dimming set, or its
-        // DDC control stays silently routed to gamma.
+        // a reused ID inheriting state from a disconnected HDR display must
+        // be actively cleared out of software dimming.
         for display in DisplayManagerAccessor.shared.displays where !display.isBuiltin {
             let dimmed = isEligibleForHDRToggle(display) && isHDREnabled(for: display)
             BrightnessService.shared.setHDRSoftwareDimming(dimmed, for: display.displayID)

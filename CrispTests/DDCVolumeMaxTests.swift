@@ -1,9 +1,7 @@
 import XCTest
 
-/// Headless tests for the speaker volume maximum taken from a VCP 0x62 reply.
-///
-/// `DDCVolumeMax` is compiled directly into this test target (see `project.yml`
-/// sources), so no `@testable import Crisp` is needed.
+/// Headless tests for the speaker volume maximum from a VCP 0x62 reply. `DDCVolumeMax`
+/// compiles directly into this test target, so no `@testable import Crisp` is needed.
 final class DDCVolumeMaxTests: XCTestCase {
 
     /// The Dell S2725DSM replies 0xFF64 for a range of 0 to 100 (#162).

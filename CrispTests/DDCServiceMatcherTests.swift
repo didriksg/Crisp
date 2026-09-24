@@ -2,18 +2,13 @@ import XCTest
 import CoreGraphics
 
 /// Headless tests for the DDC AVService identity-matching decision core.
-///
-/// `DDCServiceMatcher` is compiled directly into this test target (see `project.yml`
-/// sources, same route as `DisplayModeGeometry`), so no `@testable import Crisp` is
-/// needed (that would pull IOKit + the private bridging header and defeat headless
-/// purity). Each test names the mutation it is designed to kill in a trailing comment.
+/// `DDCServiceMatcher` compiles directly into this test target, so no
+/// `@testable import Crisp` is needed.
 final class DDCServiceMatcherTests: XCTestCase {
 
     // MARK: - Strategy 1: exact (vendor + product + serial) matching
 
-    /// *Exact match, single.* Happy path: one service, one display, identical identity.
-    /// Kills: a matcher that drops the exact-match branch (pair with the serial-0 and
-    /// exact-beats-byModel tests below to actually kill that mutation).
+    /// One service, one display, identical identity: the happy path.
     func testExactSerialMatchSingleDisplay() {
         let idA = DDCServiceMatcher.Identity(vendor: 0x10ac, product: 0x41c0, serial: 0x1234)
         let result = DDCServiceMatcher.match(
@@ -25,10 +20,7 @@ final class DDCServiceMatcherTests: XCTestCase {
         XCTAssertFalse(result.ambiguous)
     }
 
-    /// Two same-vendor/product displays differ only by serial. The service's serial
-    /// pins display 1 (which is NOT first in `displays` order). A matcher that skipped
-    /// exact match and only did vendor+product would grab display 2 instead.
-    /// Kills mutation: "drop the exact-match branch, only do vendor+product".
+    /// Same vendor/product, different serial: the serial picks the matching display, not the first.
     func testExactSerialMatchPrefersCorrectSerialOverByModel() {
         let svc = DDCServiceMatcher.Identity(vendor: 0x10ac, product: 0x41c0, serial: 0x0005)
         let result = DDCServiceMatcher.match(
@@ -45,8 +37,7 @@ final class DDCServiceMatcherTests: XCTestCase {
 
     // MARK: - Strategy 1 fallback: vendor + product (serial omitted/zero)
 
-    /// *Serial-0 vendor+product fallback.* IORegistry omitted the serial; CG has the real
-    /// one. Exact fails, vendor+product matches. (Documents the byModel branch.)
+    /// IORegistry omitted the serial; vendor+product still matches against CG's real serial.
     func testVendorProductFallbackWhenServiceSerialIsZero() {
         let svc = DDCServiceMatcher.Identity(vendor: 0x10ac, product: 0x41c0, serial: 0)
         let result = DDCServiceMatcher.match(
@@ -58,10 +49,7 @@ final class DDCServiceMatcherTests: XCTestCase {
         XCTAssertFalse(result.ambiguous)
     }
 
-    /// Serial-0 service; display 5 shares vendor+product, display 2 does not. Correct
-    /// byModel matching claims display 5. If byModel were dropped (M1), the service
-    /// falls through to Strategy 2 and claims leftovers[0] = display 2, a mis-pair.
-    /// Kills mutation M1: "remove the byModel fallback, keep only exact match".
+    /// Serial-0 service: byModel matching picks the display sharing vendor+product, not the first leftover.
     func testByModelFallbackPicksCorrectDisplayNotFallbackOrder() {
         let svc = DDCServiceMatcher.Identity(vendor: 0x10ac, product: 0x41c0, serial: 0)
         let result = DDCServiceMatcher.match(
@@ -78,8 +66,7 @@ final class DDCServiceMatcherTests: XCTestCase {
 
     // MARK: - Multi-display Strategy 1
 
-    /// *Two distinct monitors, both exact-match.* Both services resolve on the first pass.
-    /// Kills mutation: a matcher that returns after the first assignment.
+    /// Two distinct monitors both resolve by exact match in the same pass.
     func testTwoDistinctMonitorsBothExactMatch() {
         let idA = DDCServiceMatcher.Identity(vendor: 0x10ac, product: 0x41c0, serial: 0x1)
         let idB = DDCServiceMatcher.Identity(vendor: 0x4c2d, product: 0x2a1f, serial: 0x2)
@@ -92,10 +79,7 @@ final class DDCServiceMatcherTests: XCTestCase {
         XCTAssertFalse(result.ambiguous)
     }
 
-    /// *Identity match is order-sensitive (used-set guard).* services=[A, A],
-    /// displays=[(1, A), (2, A)]: service0 claims display 1, service1 must NOT re-claim
-    /// display 1 and instead claims display 2.
-    /// Kills mutation M2: "drop `!usedDisplays.contains($0)`" → would give [(1, 0), (1, 1)].
+    /// Two services with identical identity must not both claim the same display.
     func testIdenticalMonitorsShareUsedDisplayGuard() {
         let idA = DDCServiceMatcher.Identity(vendor: 0x10ac, product: 0x41c0, serial: 0x1)
         let result = DDCServiceMatcher.match(
@@ -107,12 +91,7 @@ final class DDCServiceMatcherTests: XCTestCase {
         XCTAssertFalse(result.ambiguous)
     }
 
-    /// *Two identical monitors (same real serial).* Documents the known limitation: this
-    /// is NOT flagged ambiguous (a deliberate product decision, pinned here, not changed).
-    /// Also pins that Strategy 1's `.first` scan honors the given `displays` order:
-    /// service0 claims display 7 (first), service1 claims display 3.
-    /// Kills mutation M4: "sort `displays` before the Strategy 1 scan" → would flip to
-    /// [(3, 0), (7, 1)].
+    /// Two monitors sharing a real serial are not flagged ambiguous (a pinned limitation).
     func testIdenticalRealSerialMonitorsPreserveDisplayIterationOrder() {
         let idX = DDCServiceMatcher.Identity(vendor: 0x10ac, product: 0x41c0, serial: 0xABCD)
         let result = DDCServiceMatcher.match(
@@ -159,10 +138,7 @@ final class DDCServiceMatcherTests: XCTestCase {
 
     // MARK: - Strategy 2: traversal-order fallback
 
-    /// *Traversal-order fallback, two no-identity services.* leftovers are sorted
-    /// ascending, so service0 gets the smaller displayID (2), service1 the larger (5).
-    /// Kills mutation: sorting leftovers descending, skipping the sort, or zipping in
-    /// service order without sorting.
+    /// No-identity services fall back to the lowest displayIDs first.
     func testTraversalOrderFallbackIsSortedByDisplayID() {
         let any = DDCServiceMatcher.Identity(vendor: 1, product: 1, serial: 1)
         let result = DDCServiceMatcher.match(
@@ -174,11 +150,7 @@ final class DDCServiceMatcherTests: XCTestCase {
         XCTAssertTrue(result.ambiguous)
     }
 
-    /// *More services than displays (truncation).* service0 exact-matches display 1;
-    /// services 1 and 2 have nil identity and no leftover to claim.
-    /// Kills mutation: a fallback loop that assigns past `leftovers.count` (index-out-of-
-    /// bounds crash), or one that surfaces a service as unmatched even after the fallback
-    /// claimed it.
+    /// More services than displays: the extras are left unmatched, not crashed on.
     func testMoreServicesThanDisplaysTruncatesGracefully() {
         let idA = DDCServiceMatcher.Identity(vendor: 0x10ac, product: 0x41c0, serial: 0x1)
         let result = DDCServiceMatcher.match(
@@ -190,12 +162,7 @@ final class DDCServiceMatcherTests: XCTestCase {
         XCTAssertFalse(result.ambiguous)
     }
 
-    /// A single nil-identity service: Strategy 1 skips it, but Strategy 2 assigns it the
-    /// sole leftover (display 1). It is therefore NOT unmatched post-fallback, and with
-    /// one leftover it is not ambiguous.
-    /// Kills mutation: crashing on `nil`; leaving a nil-identity service unassigned after
-    /// the fallback should have claimed it; or forgetting to run Strategy 2 for services
-    /// that skipped Strategy 1.
+    /// A nil-identity service skips exact matching but is still claimed by the fallback.
     func testNilIdentityServiceSkipsStrategy1() {
         let idA = DDCServiceMatcher.Identity(vendor: 0x10ac, product: 0x41c0, serial: 0x1)
         let result = DDCServiceMatcher.match(
@@ -209,32 +176,27 @@ final class DDCServiceMatcherTests: XCTestCase {
 
     // MARK: - Ambiguity flag
 
-    /// *Ambiguity flag requires >1 leftover.* Three sub-cases pin the exact contract.
-    /// Kills mutation M3: flipping `leftovers.count > 1` to `> 0` (sub-case (b) flips to
-    /// true); also kills flipping `!unmatched.isEmpty` to `unmatched.isEmpty` (sub-case
-    /// (a) flips to false) and computing ambiguity from `services.count` instead of
-    /// `leftovers.count` (sub-cases (b) and (c) break).
+    /// Ambiguous requires more than one leftover display; one leftover, or zero, is not.
     func testAmbiguousFlagRequiresMoreThanOneLeftover() {
         let idA = DDCServiceMatcher.Identity(vendor: 0x10ac, product: 0x41c0, serial: 0x1)
         let idB = DDCServiceMatcher.Identity(vendor: 0x9999, product: 0x8888, serial: 0x2)
         let any = DDCServiceMatcher.Identity(vendor: 1, product: 1, serial: 1)
 
-        // (a) two no-identity services, two leftover displays → ambiguous (guess among >1).
+        // (a) two no-identity services, two leftovers.
         let ambiguousCase = DDCServiceMatcher.match(
             services: [nil, nil],
             displays: [(id: 1, identity: any), (id: 2, identity: any)]
         )
         XCTAssertTrue(ambiguousCase.ambiguous, "two leftovers should be ambiguous")
 
-        // (b) one service, no matching display → exactly one leftover → NOT ambiguous
-        //     even though one service is unmatched.
+        // (b) one service, no matching display: one leftover, despite the unmatched service.
         let singleLeftoverCase = DDCServiceMatcher.match(
             services: [idA],
             displays: [(id: 1, identity: idB)]
         )
         XCTAssertFalse(singleLeftoverCase.ambiguous, "one leftover must not be ambiguous")
 
-        // (c) more services than displays → zero leftovers after identity claim → NOT ambiguous.
+        // (c) more services than displays: zero leftovers after the identity claim.
         let zeroLeftoverCase = DDCServiceMatcher.match(
             services: [idA, nil, nil],
             displays: [(id: 1, identity: idA)]
@@ -244,11 +206,7 @@ final class DDCServiceMatcherTests: XCTestCase {
 
     // MARK: - Empty-input edges
 
-    /// No services and/or no displays must not crash and must yield an empty result
-    /// (never ambiguous: there are never >1 leftover to guess among). The no-services
-    /// case is production-reachable: an external display is present but the IOKit walk
-    /// found zero working DDC channels, so `ordered`/`identities` (and thus `services`)
-    /// are empty while `displays` is not.
+    /// No services, or no displays, must not crash and is never ambiguous.
     func testEmptyInputsProduceEmptyResult() {
         let any = DDCServiceMatcher.Identity(vendor: 1, product: 1, serial: 1)
 
@@ -273,10 +231,7 @@ final class DDCServiceMatcherTests: XCTestCase {
 
     // MARK: - Derived helpers
 
-    /// Post-fallback service indices that no display claimed, derived from the mapping.
-    /// The production `Result` carries only the displayID-keyed mapping and the ambiguity
-    /// flag, so tests recompute this same fact: a service is unmatched iff its index
-    /// never appears as a value in `byDisplayID`.
+    /// Service indices no display claimed, recomputed from `Result`'s mapping.
     private func unmatchedIndices(
         services: [DDCServiceMatcher.Identity?],
         result: DDCServiceMatcher.Result

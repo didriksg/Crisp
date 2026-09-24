@@ -33,11 +33,8 @@ final class SettingsService: ObservableObject, @unchecked Sendable {
 
     private init() {
         loadAll()
-        // Re-sync launch-at-login from the authoritative SMAppService state on every panel
-        // open, so toggling Crisp in System Settings > Login Items reflects without a
-        // relaunch. No OS notification exists for login-item changes, so panel-open is the
-        // cheapest reliable hook. Only the didSet (a UserDefaults write) runs on assignment,
-        // never a re-register, so this can't fight the user's own toggle. Singleton -> no teardown.
+        // Re-sync launch-at-login from SMAppService on every panel open (no OS notification
+        // exists for login-item changes), so an external toggle reflects without a relaunch.
         NotificationCenter.default.addObserver(
             forName: .crispPanelDidOpen, object: nil, queue: .main
         ) { [weak self] _ in
@@ -164,10 +161,8 @@ final class SettingsService: ObservableObject, @unchecked Sendable {
         }
     }
 
-    /// One combo, one action: clears `shortcut` off every other Keyboard Shortcuts
-    /// row and off any preset holding it, then `assign` gives it to this one.
-    /// Carbon refuses a second registration of the same combo, so without this the
-    /// row the user just set would be the dead one.
+    /// One combo, one action: clears `shortcut` off every other row and preset holding it
+    /// (Carbon refuses a second registration of the same combo), then `assign` gives it here.
     func assignStaticShortcut(_ shortcut: KeyboardShortcut?, assign: (KeyboardShortcut?) -> Void) {
         if let shortcut {
             if hidpiShortcut?.sameKeys(as: shortcut) == true { hidpiShortcut = nil }
@@ -236,8 +231,8 @@ final class SettingsService: ObservableObject, @unchecked Sendable {
     // MARK: - Load All
 
     private func loadAll() {
-        // Sync launch-at-login from the authoritative SMAppService state, not just UserDefaults.
-        // This handles the case where the user toggled it externally or after a fresh install.
+        // Authoritative SMAppService state, not just UserDefaults, in case the user toggled
+        // it externally or after a fresh install.
         launchAtLogin = LaunchService.shared.isEnabled
         launchAtLoginPrompted = defaults.bool(forKey: Keys.launchAtLoginPrompted)
         menuWidth = defaults.object(forKey: Keys.menuWidth) != nil

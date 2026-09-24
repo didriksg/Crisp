@@ -48,20 +48,19 @@ struct ScreenEffectsView: View {
     }
 }
 
-/// No press feedback at all: the only visible change on click is the state
-/// itself (fill + On/Off text). Anything else gets frozen mid-flight by the
-/// dark mode crossfade snapshot and reads as a stuck button. No transaction
-/// tampering here: that would also strip the panel's layout spring and make
-/// the row jump instead of riding section expansions.
+/// No press feedback: the dark mode crossfade snapshot freezes anything else
+/// mid-flight (reads as a stuck button), and transaction tampering would also
+/// strip the panel's layout spring, making the row jump instead of riding
+/// section expansions.
 private struct InstantPressStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
     }
 }
 
-/// Same circular toggle style as the system panel: off = translucent dark
-/// circle; on = the effect's own tint (white for Dark Mode, orange for Night
-/// Shift, blue for True Tone), matching the native panel.
+/// Same circular toggle style as the system panel: off is a translucent dark
+/// circle, on is the effect's own tint (white/orange/blue for Dark Mode/Night
+/// Shift/True Tone).
 private struct EffectCircleButton: View {
     let glyph: EffectGlyph
     let label: String
@@ -78,7 +77,6 @@ private struct EffectCircleButton: View {
 
     var body: some View {
         Button {
-            // Instant state flip, like the native Control Center circles.
             action()
         } label: {
             VStack(spacing: 5) {
@@ -107,11 +105,9 @@ private struct EffectCircleButton: View {
 
 // MARK: - Effect glyphs
 //
-// Dark Mode maps to the public SF Symbol `circle.lefthalf.filled`. The Night Shift and
-// True Tone glyphs use private system symbols that aren't in the public SF Symbols set,
-// so no `Image(systemName:)` matches them; those two are hand-drawn to evoke the same
-// glyphs (a sun-with-moon, a sun-with-stripes) without reproducing Apple's artwork:
-// original monochrome vector shapes, tinted by the caller like a symbol.
+// Dark Mode uses the public SF Symbol `circle.lefthalf.filled`. Night Shift and True
+// Tone have no public symbol, so they are hand-drawn (sun-with-moon, sun-with-stripes)
+// as original vector shapes rather than reproductions of Apple's private glyphs.
 
 enum EffectGlyph { case darkMode, nightShift, trueTone }
 
@@ -122,8 +118,6 @@ private struct EffectGlyphView: View {
     var body: some View {
         switch glyph {
         case .darkMode:
-            // Public SF Symbol: the closest match to the native Dark Mode glyph, and
-            // fully covered by the SF Symbols license (unlike the private originals).
             Image(systemName: "circle.lefthalf.filled")
                 .font(.system(size: 16, weight: .medium))
                 .foregroundColor(color)

@@ -11,7 +11,7 @@ final class OSDBannerPanel: NSPanel {
 
     let model = OSDBannerModel()
     /// The capsule's backdrop layer, or nil when the private class was
-    /// missing and the banner fell back to the flat grey. See keepAlive.
+    /// missing and the banner fell back to the flat grey. See startKeepAlive.
     var backdrop: CALayer?
     /// macOS 27's glass, or nil where the whole window fades instead.
     var glass: OSDGlass?
@@ -28,11 +28,9 @@ final class OSDBannerPanel: NSPanel {
     private var growTimer: Timer?
     private var growBegin = 0.0
 
-    /// Grows the capsule inside a window that is already at its final frame.
-    /// The window itself cannot carry the grow: a window frame animation is
-    /// pixel-snapped, so the capsule jumps two points at a time, and the
-    /// system's own capsule grows smoothly. The views inside take it instead,
-    /// stepped at 120 Hz.
+    /// Grows the capsule inside a window already at its final frame: a window
+    /// frame animation is pixel-snapped and jumps, so the views inside carry
+    /// the grow instead, stepped at 120 Hz.
     private func growCapsule() {
         growTimer?.invalidate()
         growBegin = CACurrentMediaTime()
@@ -47,19 +45,11 @@ final class OSDBannerPanel: NSPanel {
         let t = CACurrentMediaTime() - growBegin
         let p = OSDBannerService.glassGrowInCurve.solve(min(t / OSDBannerService.glassGrowInDuration, 1))
         let final = root.bounds.insetBy(dx: OSDBannerService.windowMargin, dy: OSDBannerService.windowMargin)
-        // The capsule opens narrower and shorter and grows into place, pinned
-        // at the middle of its top edge: the system's left edge runs 321 to 308
-        // while its right runs 587 to 600, so the middle stays put and it grows
-        // out to both sides and downward.
-        //
-        // The glass and the rim are resized, not scaled, while the content is
-        // drawn at its final size and scaled down into the smaller capsule.
-        // Both halves are needed. The system's label at 140 ms matches its
-        // settled label at 0.970, so the text does ride a scale; but scaling
-        // the glass as well draws its refraction band thinner than it settles
-        // at, and a thin band is a hard dark line that lifts as the grow ends,
-        // which reads as the capsule's inner shadow going away. The system
-        // holds 10.5 levels under its body throughout.
+        // The capsule grows into place pinned at the middle of its top edge.
+        // The glass and rim are resized, not scaled; the content is drawn at
+        // final size and scaled down instead, or its refraction band draws
+        // thinner than it settles at, a hard line that lifts as the grow ends.
+        // Measured: see docs/osd-notes.md (Capsule grow (macOS 27)).
         let inset = CGSize(width: OSDBannerService.entryInset.width * (1 - p),
                            height: OSDBannerService.entryInset.height * (1 - p))
         let size = CGSize(width: final.width - inset.width, height: final.height - inset.height)
@@ -103,24 +93,20 @@ final class OSDBannerPanel: NSPanel {
         // only while the pointer is on the capsule, see setHovering.
         ignoresMouseEvents = !model.hovering
         if exiting {
-            // A second animation on a property does not replace the one in
-            // flight: both drive the window, and the exit wins, so the banner
-            // blinks out and comes back. Stop it where it is and go up from
-            // there. Its own alphaValue is still 1 for the first frames, which
-            // is why the flag says this and not the value.
+            // A second animation does not replace one in flight; the exit
+            // would win and the banner would blink out and back. Stop it
+            // where it is (alphaValue still reads 1 for the first frames,
+            // hence the flag) and go up from there.
             stopAnimations()
             exiting = false
-            // The exit left the window part way down and part way in. The
-            // entry window from the press before it is meaningless now, and
-            // leaving it set skips the branch below and strands the banner
-            // dim at the shrunk frame for the whole hold.
+            // Clear the stale entry window from before the exit, or the
+            // branch below is skipped and the banner strands dim.
             entryEnds = .distantPast
         }
         if Date() < entryEnds {
-            // The grow in flight lands on the frame it started for. That is
-            // the same frame on a key repeat, but not if the menu bar item
-            // moved or the screen changed between two presses, and nothing
-            // later corrects a settled banner, so re-aim it here.
+            // Re-aim a grow in flight: it targets the frame it started for,
+            // which is stale if the menu bar item moved or the screen
+            // changed between two presses.
             if frame != self.frame { setFrame(frame, display: false, animate: true) }
         } else if alphaValue < 1 {
             entryEnds = Date().addingTimeInterval(OSDBannerService.fadeInDuration)
@@ -179,41 +165,27 @@ final class OSDBannerPanel: NSPanel {
         DispatchQueue.main.asyncAfter(deadline: .now() + OSDBannerService.visibleDuration, execute: work)
     }
 
-    /// The pointer arriving on the capsule or leaving it. While it is on, the
-    /// banner holds: the system's own stays up as long as the pointer is there
-    /// and starts its hold again when it leaves, measured at 0.2, 0.6, 1.0 and
-    /// 1.45 seconds after the leave. A pointer landing on a banner that is
-    /// already leaving brings it back.
+    /// The pointer arriving on the capsule or leaving it holds the banner up,
+    /// matching the system HUD, and can bring back one already leaving.
+    /// Measured: see docs/osd-notes.md (Hover hold).
     func setHovering(_ hovering: Bool) {
-        // A banner that has gone stays gone. Hidden means alpha 0 and the
-        // window is still there, so the pointer crossing the corner it used to
-        // be in still reaches this, and it must not bring it back. Nor does a
-        // banner still fading out under Crisp's own panel take the pointer,
-        // which would take key away from the panel and close it.
+        // Hidden means alpha 0, not gone: the window is still there, so it
+        // must not un-hide on a stray hover, and a banner fading under
+        // Crisp's own panel must not steal key from the panel.
         if hovering && (alphaValue == 0 || BrightnessHUDService.shared.suppressed) { return }
         guard model.hovering != hovering else { return }
         model.hovering = hovering
-        // The window is wider than the capsule (see windowMargin), and a
-        // window takes every click inside it whatever its views say: a view
-        // that hands the point back stops the view below it from seeing the
-        // click, not the window below the window. So the banner is only
-        // clickable while the pointer is on the capsule, and the margin, which
-        // covers the menu bar over the banner, never swallows anything. The
-        // tracking area that calls this fires whether the window takes clicks
-        // or not, so the pointer arriving is always seen.
+        // The window is wider than the capsule (see windowMargin) and takes
+        // every click inside it regardless of view hitTest, so clickability
+        // is gated here instead, on the tracking area's hover state.
         ignoresMouseEvents = !hovering
-        // AppKit draws a slider in a window that is not key in its inactive
-        // state: a grey line and a knob with no glass. The panel is key for
-        // exactly as long as the pointer is on the capsule, which is the only
-        // way to the real control (see OSDBannerView.track), and it hands the
-        // keyboard straight back on the way out. It cannot hold key while the
-        // banner is merely up, or every brightness press would take the
-        // keyboard away from whatever is in front.
+        // AppKit only draws the real slider (glass knob, bright line) in a key
+        // window; see OSDBannerView.track. Key only while the pointer is on
+        // the capsule, handed back on the way out, or every brightness press
+        // would steal the keyboard from whatever is in front.
         if hovering {
-            // Only give the keyboard back to the app it came from. Crisp is
-            // its own app in front while an update window or the About box is
-            // up, and deactivating on the way out would put that behind
-            // whatever is next.
+            // Give the keyboard back only to the app it came from: Crisp is
+            // its own app in front while an update window or About is up.
             crispWasActive = NSApp.isActive
             makeKey()
         } else if isKeyWindow && !crispWasActive {
@@ -229,10 +201,8 @@ final class OSDBannerPanel: NSPanel {
         }
     }
 
-    /// The badge fades and only fades, measured on the system HUD over a flat
-    /// backdrop at 75 frames a second: 0.29 seconds in on an ease-out that is
-    /// only a little faster than a straight line, and 0.35 out, which runs
-    /// straight. The knob and the fill are not animated at all.
+    /// The badge fades and only fades; the knob and the fill are not animated.
+    /// Measured: see docs/osd-notes.md (Badge fade).
     private func fadeBadge(to shown: Bool) {
         guard let badge else { return }
         NSAnimationContext.runAnimationGroup { ctx in
@@ -252,18 +222,11 @@ final class OSDBannerPanel: NSPanel {
         fadeOut()
     }
 
-    /// Keeps the backdrop sampling while the banner is up. A layer that
-    /// samples what is behind it needs the screen composited, and WindowServer
-    /// stops compositing a screen with nothing changing on it: the sample then
-    /// has nothing in it and the capsule goes dark, and stays dark until
-    /// something on screen moves. EDROverlayManager keeps its own overlay
-    /// alive against the same promotion, by re-presenting at 5 fps.
-    ///
-    /// Holding brightness up at 100 percent is exactly the case that hits it:
-    /// the level never moves, so the banner redraws nothing of its own and the
-    /// screen behind it is still. An animation the eye cannot see (a
-    /// thousandth of the layer's opacity) keeps the layer rendering for as
-    /// long as the banner is visible, and is taken off as it goes.
+    /// Keeps the backdrop sampling while the banner is up. WindowServer stops
+    /// compositing a screen with nothing changing on it, so a still backdrop
+    /// (holding brightness at 100 percent, say) goes dark and stays dark; an
+    /// animation too small to see keeps the layer rendering instead
+    /// (EDROverlayManager fights the same promotion by re-presenting at 5 fps).
     private static let keepAliveKey = "crispBannerKeepAlive"
 
     private func startKeepAlive() {
@@ -285,21 +248,18 @@ final class OSDBannerPanel: NSPanel {
     private func showGlass(_ shown: Bool) {
         guard let glass else { return }
         let service = OSDBannerService.self
-        // The label sits where it settles from the first frame. The system
-        // holds its own about 0.6 px off and brings it home late, but a
-        // sub-pixel hold on a 1x screen is a whole pixel of text moving and
-        // reads as a pop however it is taken back.
+        // The label sits where it settles from the first frame: a sub-pixel
+        // hold on a 1x screen is a whole pixel of text moving, which reads
+        // as a pop.
         for layer in glass.faded {
             Self.ramp(layer, "opacity", to: shown ? 1.0 : 0.0,
                       duration: shown ? service.glassContentInDuration : service.glassOutDuration,
                       curve: shown ? service.glassContentInCurve : service.glassOutCurve)
         }
         if shown {
-            // The rim runs its own ramp on top of the window's fade, see
-            // glassRimInDuration. reveal() puts it back to its start value
-            // when the capsule comes from hidden, so this is a rise from
-            // there on a cold entry and a catch-up from wherever it is when a
-            // press lands mid-exit.
+            // The rim runs its own ramp on top of the window's fade: a rise
+            // from reveal()'s reset value on a cold entry, or a catch-up from
+            // wherever it is when a press lands mid-exit.
             Self.ramp(glass.rim, "opacity", to: 1.0,
                       duration: service.glassRimInDuration, curve: service.glassRimInCurve)
         } else {
@@ -309,10 +269,9 @@ final class OSDBannerPanel: NSPanel {
         openGlass(shown)
     }
 
-    /// The glass view builds its layers only once its window is on screen,
-    /// so on the first entry there is nothing to tune yet. It stays unseen
-    /// until there is, rather than showing its own untuned look, and this
-    /// tries again on the next turns of the run loop.
+    /// The glass view builds its layers only once its window is on screen, so
+    /// on the first entry it stays unseen (rather than showing untuned) and
+    /// this retries on later run loop turns.
     private func openGlass(_ shown: Bool, attempt: Int = 0) {
         guard let glass else { return }
         let service = OSDBannerService.self
@@ -363,10 +322,9 @@ final class OSDBannerPanel: NSPanel {
         let service = OSDBannerService.self
         guard service.drawsMacOS27Capsule else { return [] }
         guard shown else {
-            // Nothing on the way out. The backdrop is left where the shimmer
-            // put it: sharpening it again under a capsule that is on its way
-            // off reads as something popping in. The entry below sets it back
-            // in its first leg, while the window is still at alpha 0.
+            // Nothing on the way out: sharpening the backdrop again under a
+            // leaving capsule reads as something popping in. The entry's
+            // first leg resets it while the window is still alpha 0.
             return []
         }
         return [
@@ -439,21 +397,18 @@ final class OSDBannerPanel: NSPanel {
         DispatchQueue.main.asyncAfter(deadline: .now() + duration, execute: work)
     }
 
-    /// The hidden frame: `frame` inset and lifted. A lift of the inset height
-    /// anchors the top edge, which is what the system capsule does at both
-    /// ends: its top row sits on the same pixel through the grow and through
-    /// the close, and only the bottom moves. macOS 26 and older keep the lift
-    /// they were measured with.
+    /// The hidden frame: `frame` inset and lifted by the inset height, which
+    /// anchors the top edge (only the bottom moves), matching the system.
     private static func hidden(_ frame: NSRect, inset: CGSize,
                                lift: CGFloat = OSDBannerService.hiddenLift) -> NSRect {
         frame.insetBy(dx: inset.width, dy: inset.height).offsetBy(dx: 0, dy: lift)
     }
 }
 
-/// Reads the pointer arriving on the banner and leaving it. SwiftUI's own
-/// onHover tracks in the key window, and this panel never becomes key, so the
-/// tracking area is set to be always active. It takes no clicks: hitTest
-/// returns nil, so the track's drag and the close badge see them instead.
+/// Reads the pointer arriving on the banner and leaving it. SwiftUI's onHover
+/// tracks in the key window, which this panel is not always, so the tracking
+/// area runs always-active instead. hitTest returns nil so clicks fall
+/// through to the track and the close badge.
 @available(macOS 26.0, *)
 final class BannerHoverView: NSView {
     var onHover: ((Bool) -> Void)?
@@ -472,34 +427,14 @@ final class BannerHoverView: NSView {
 }
 
 /// The capsule rim on macOS 27, where the system stopped drawing one flat
-/// white line around the edge.
-///
-/// Measured at rest, once the capsule has settled: over backdrops of 0, 64,
-/// 128, 192 and 255 the body reads 32, 75, 118, 162 and 204, and the top and
-/// the bottom edge both read 102, 158, 215, 255 and 255. The two rounded ends
-/// run dark instead, about 65 levels under the body, and nothing is drawn for
-/// them here: the glass view's own edge already draws that (see
-/// OSDBannerService.rimEdgeColor).
-/// Catch the capsule before it has settled and none of that is true: at 0.9 s
-/// after a single press it is still 6 pt narrow with half the rim, so the
-/// measurement holds the key down (ten presses) and shoots half a second
-/// after the last one.
-///
-/// The lift along the top and the bottom is near enough the same 85 levels on
-/// every backdrop, so it goes on as an additive layer, which is also the only
-/// blend that reaches the capsule at all: the body is composited by the window
-/// server, so a CoreImage blend mode here has nothing under it to blend with
-/// (measured: soft light drew a third of the lift it should, overlay a sixth).
-///
-/// It runs as one horizontal gradient over a ring mask, because the change
-/// happens along the width: 40 pt in from a corner the top edge is at its full
-/// value and at 20 pt it is half way.
+/// white line around the edge: bright along the top and bottom, dark at the
+/// rounded ends (drawn by the glass view's own edge, not here), added on as
+/// the only blend that reaches a window-server-composited backdrop.
+/// Measured: see docs/osd-notes.md (Rim (macOS 27, OSDBevelView)).
 @available(macOS 26.0, *)
 final class OSDBevelView: NSView {
-    /// The ring only. The glow below is not in here on purpose: the rim's
-    /// entry ramp runs on this layer, and a glow that ramps with it lifts the
-    /// band under the bottom edge late, which reads as the capsule's inner
-    /// shadow going away at the end of the entry (see glassRefractionHeight).
+    /// The ring only, not the glow: the rim's entry ramp runs on this layer,
+    /// and a glow ramping with it would lift the bottom edge band late.
     let rings = CALayer()
     private let edgeRing = CALayer()
     private let edges = CAGradientLayer()
@@ -511,9 +446,8 @@ final class OSDBevelView: NSView {
         wantsLayer = true
         guard let layer else { return }
         let clear = NSColor.clear.cgColor
-        // Bright along the top and the bottom, nothing at the ends, and added
-        // on rather than blended over: see OSDBannerService.rimEdgeColor for
-        // the pair of backdrops that tells the two apart.
+        // Bright along the top and bottom only, nothing at the ends, added on
+        // rather than blended over (see OSDBannerService.rimEdgeColor).
         let edgeStop = OSDBannerService.rimEdgeShare
         let colour = OSDBannerService.rimEdgeColor.cgColor
         edges.colors = [clear, colour, colour, clear]
@@ -521,10 +455,8 @@ final class OSDBevelView: NSView {
         edges.startPoint = CGPoint(x: 0, y: 0.5)
         edges.endPoint = CGPoint(x: 1, y: 0.5)
         edges.compositingFilter = "plusL"
-        // Inside the top and the bottom edge the system keeps a short glow:
-        // over a 128 backdrop the rows under the rim read 139, 130, 126 and
-        // 123 against a body of 118, gone by the sixth. It is added on like
-        // the edges, over the capsule rather than over the ring.
+        // A short inner glow, added on like the edges, over the capsule
+        // rather than over the ring (see docs/osd-notes.md, Rim (macOS 27)).
         inner.colors = [OSDBannerService.rimGlowColor.cgColor, clear,
                         clear, OSDBannerService.rimGlowColor.cgColor]
         let glow = OSDBannerService.rimGlowShare

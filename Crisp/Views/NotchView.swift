@@ -1,12 +1,11 @@
 import SwiftUI
 
 /// Toggle that hides the notch by switching the built-in panel to the 16:10
-/// letterboxed twin of the current mode, the way the hidden 16:10 sizes in the
-/// stock resolution chooser do it: the menu bar drops below the notch at full
-/// width and the notch strip goes dark (issue #63). Shown whenever the panel
-/// itself is notched (native aspect taller than 16:10), independent of the
-/// current mode and of NSScreen: a builtin mirroring a virtual display has no
-/// NSScreen at all, which is why the old safeAreaInsets gate never fired there.
+/// letterboxed twin of the current mode, same as the hidden 16:10 sizes in the
+/// stock resolution chooser: the menu bar drops below the notch at full width
+/// and the notch strip goes dark (issue #63). Shown whenever the panel is
+/// notched (native aspect taller than 16:10), independent of NSScreen: a
+/// builtin mirroring a virtual display has no NSScreen at all.
 struct NotchView: View {
     @ObservedObject var display: DisplayInfo
     @State private var isSwitching = false
@@ -49,9 +48,8 @@ struct NotchView: View {
     }
 
     /// Switches to the current mode's twin in the other aspect family: same
-    /// HiDPI, same width (every notched size has a same-width 16:10 twin),
-    /// nearest width as fallback for the 16:10-only sizes (1280×800,
-    /// 1920×1200), keeping refresh rate and the ProMotion/fixed choice.
+    /// HiDPI and width (nearest width as fallback for the 16:10-only sizes),
+    /// same refresh rate and ProMotion/fixed choice.
     private func setNotchHidden(_ hide: Bool) {
         guard !isSwitching, hide != isNotchHidden,
               let current = display.currentDisplayMode else { return }

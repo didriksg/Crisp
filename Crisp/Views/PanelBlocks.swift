@@ -1,12 +1,9 @@
 import SwiftUI
 import AppKit
 
-// The panel's content, decomposed into split-canvas blocks (docs/panel-resize.md).
-// Each block renders at its natural size and never animates its own geometry;
-// the AppKit canvas animates the clips and the window. Nested reveals INSIDE a
-// block (Support, Brightness Keys targets, resolution lists) still use the
-// SwiftUI curtain at the same duration; the block reports its height per frame
-// and the window spring tracks it.
+// The panel's content, decomposed into split-canvas blocks: each block renders
+// once at its natural size, and AppKit animates the clips and window instead
+// of SwiftUI. See docs/panel-resize.md for the full architecture.
 
 /// Section open/close state, lifted out of the view tree so both the SwiftUI
 /// headers (chevrons, bindings) and the AppKit canvas (clip targets) share it.
@@ -17,16 +14,15 @@ final class PanelSectionState: ObservableObject {
     @Published var showArrangement = false
     @Published var showSettings = false
     @Published var expandedDisplayIDs: Set<CGDirectDisplayID> = []
-    // Per-display dropdown sections inside the expanded detail, lifted here
-    // (out of view @State) so each reveal is its own canvas block: the clip
-    // animates, the content renders once, nothing re-renders per frame.
+    // Per-display dropdown sections, lifted out of view @State so each reveal
+    // is its own canvas block (docs/panel-resize.md).
     @Published var resolutionOpenIDs: Set<CGDirectDisplayID> = []
     @Published var allResolutionsOpenIDs: Set<CGDirectDisplayID> = []
     @Published var refreshOpenIDs: Set<CGDirectDisplayID> = []
     @Published var profileOpenIDs: Set<CGDirectDisplayID> = []
     @Published var imageOpenIDs: Set<CGDirectDisplayID> = []
 
-    /// Reopen collapsed, like a native menu (called once the panel finished hiding).
+    /// Collapse every section so the panel reopens fresh; called once hidden.
     func collapseAll() {
         showTools = false
         showVirtualDisplays = false
@@ -71,27 +67,20 @@ struct BlockHost<Content: View>: View {
     @ViewBuilder var content: Content
 
     var body: some View {
-        // Report the content's natural height (its final, fully-laid-out size);
-        // the canvas springs the clip to it.
+        // Report natural height; the canvas springs the clip to it.
         content
             .frame(width: 308)
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { onHeight($0) }
-            // Top-glue, exactly like 1.3.2's PanelRootView (which has no
-            // .fixedSize here): the AppKit host is a canvas at the FINAL block
-            // height, but a nested curtain renders the content shorter
-            // mid-reveal. Without this, NSHostingView CENTERS the shorter content
-            // in the taller canvas, so the whole block (its top row included)
-            // drops and floats back up: the "inner menu top drifts" on open.
-            // Pinning to .top spills the excess off the bottom (clipped by the
-            // block's clip) so the top never moves. A .fixedSize on the measured
-            // content defeats this fill, so it is deliberately absent.
+            // Top-glue: pin to .top so NSHostingView doesn't center a nested
+            // curtain's shorter mid-reveal content (that drifts the top row).
+            // Do not add .fixedSize: it defeats this fill.
+            // Measured: see docs/ui-notes.md (PanelBlocks: BlockHost top-glue)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 }
 
-/// An ExpandableRow bound to a PanelSectionState flag. Observes the state so
-/// the chevron re-renders when the flag flips (a plain ad-hoc Binding inside
-/// a static block closure would never re-render).
+/// An ExpandableRow bound to a PanelSectionState flag; observes the state so
+/// the chevron re-renders when the flag flips.
 struct ExpandableRowStateful: View {
     let icon: String
     var iconColor: Color = .blue
@@ -115,8 +104,7 @@ struct ExpandableRowStateful: View {
 }
 
 /// Display name row + inline brightness slider (the always-visible part of a
-/// display section). The 8pt top padding separates stacked display sections;
-/// the first sits flush.
+/// display section).
 struct DisplayHeaderBlock: View {
     @ObservedObject var display: DisplayInfo
     let isFirst: Bool
@@ -141,10 +129,8 @@ struct DisplayHeaderBlock: View {
             BrightnessSliderView(display: display, compact: true)
                 .padding(.bottom, 4)
 
-            // Speaker volume, only for monitors that answered the DDC volume
-            // probe (issue #23), and only while the setting is on (keys keep
-            // working either way). Toggling the setting re-renders this block;
-            // the height change flows through BlockHost to the panel spring.
+            // Speaker volume: shown only when DDC volume answered (#23) and
+            // the setting is on; height changes flow through BlockHost.
             if settings.showVolumeSliders && display.volumeSupported {
                 VolumeSliderView(display: display)
                     .padding(.bottom, 4)
@@ -154,8 +140,8 @@ struct DisplayHeaderBlock: View {
     }
 }
 
-/// Keep Awake: hold a power assertion so the display and system don't
-/// idle-sleep. Session-only (KeepAwakeService), off each launch.
+/// Keep Awake: hold a power assertion against idle-sleep. Session-only, off
+/// each launch.
 struct KeepAwakeRow: View {
     @ObservedObject private var keepAwake = KeepAwakeService.shared
 
@@ -179,8 +165,7 @@ struct KeepAwakeRow: View {
     }
 }
 
-/// Update notice; renders nothing (height 0) until an update is known, so the
-/// block glides in via the normal height-change path.
+/// Update notice; renders nothing until an update is known, so it glides in.
 struct UpdateBlockView: View {
     @ObservedObject private var updateService = UpdateService.shared
 
@@ -191,8 +176,7 @@ struct UpdateBlockView: View {
     }
 }
 
-/// Fixed footer under the scroll region: divider + Quit, like the Wi-Fi
-/// menu's settings footer.
+/// Fixed footer: divider + Quit, like the Wi-Fi menu's settings footer.
 struct PanelFooterBlock: View {
     @State private var quitHovered = false
 

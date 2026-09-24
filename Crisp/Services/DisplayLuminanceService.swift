@@ -39,10 +39,9 @@ enum DisplayLuminanceService {
         return nil
     }
 
-    /// The framebuffer node for an external display is found the way DDC pairing
-    /// finds its channel: the same identity parser and the same matcher, over the
-    /// same DisplayAttributes nodes in traversal order, so a monitor that pairs for
-    /// brightness reads its luminance from the same node.
+    /// Finds the external display's node the same way DDC pairing finds its channel
+    /// (same identity parser, same matcher, same DisplayAttributes traversal order),
+    /// so a monitor that pairs for brightness reads its luminance from the same node.
     private static func externalMaximumNits(displayID: CGDirectDisplayID) -> Double? {
         let nodes = registryNodes()
         guard !nodes.isEmpty else { return nil }

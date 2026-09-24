@@ -2,21 +2,21 @@ import AppKit
 import CoreGraphics
 @preconcurrency import ColorSync
 
-/// Per-display software image adjustment parameters.
-/// All slider values are in the range -100...+100 with 0 = neutral,
-/// except quantizationLevels (2...256, 256 = no quantization).
+/// Per-display software image adjustment parameters. Slider values run -100...+100
+/// with 0 = neutral, except quantizationLevels (2...256, 256 = no quantization).
+/// See docs/brightness-notes.md (gamma and software brightness) for the slider math.
 struct GammaAdjustment {
-    var contrast: Double = 0.0          // -100 to +100, 0 = neutral
-    var gammaVal: Double = 0.0          // -100 to +100, 0 = neutral (gamma exponent 1.0)
-    var gain: Double = 0.0              // -100 to +100, 0 = neutral (multiplier 1.0)
-    var colorTemperature: Double = 0.0  // -100 to +100, 0 = neutral (6500 K)
+    var contrast: Double = 0.0
+    var gammaVal: Double = 0.0          // gamma exponent 1.0 at 0
+    var gain: Double = 0.0              // multiplier 1.0 at 0
+    var colorTemperature: Double = 0.0  // 6500 K at 0
     var rGamma: Double = 0.0            // per-channel gamma offset
     var gGamma: Double = 0.0
     var bGamma: Double = 0.0
     var rGain: Double = 0.0             // per-channel gain offset
     var gGain: Double = 0.0
     var bGain: Double = 0.0
-    var quantizationLevels: Int = 256   // 256 = no quantization
+    var quantizationLevels: Int = 256
     var isInverted: Bool = false
     var isPaused: Bool = false
 }
@@ -58,14 +58,9 @@ final class GammaService: @unchecked Sendable {
         }
     }
 
-    /// Display profile changes (including the post-wake ICC restore, the prime
-    /// suspect for the table clobber in issue #25) announce themselves through
-    /// ColorSync's distributed notifications. Reapplying in direct response is
-    /// the event-driven complement to the timed wake passes; if sleep-testing
-    /// shows this catches every clobber, the timed passes can be deleted.
-    /// No feedback loop: reapply only writes transfer tables, never profiles,
-    /// and resetSingleDisplay drops its display from activeAdjustments before
-    /// its ColorSync write, so the resulting notification no-ops for it.
+    /// Reapplies on ColorSync profile-change notifications (issue #25). See
+    /// docs/brightness-notes.md (gamma and software brightness) for why.
+    /// No feedback loop: reapply only writes transfer tables, never profiles.
     private func observeProfileChanges() {
         let names = [
             kColorSyncDeviceProfilesNotification,
@@ -88,10 +83,8 @@ final class GammaService: @unchecked Sendable {
 
     // MARK: - Active Adjustment Tracking
 
-    /// Stores the most recently applied non-paused adjustment per display.
     private var activeAdjustments: [CGDirectDisplayID: GammaAdjustment] = [:]
 
-    /// Returns true if there is a currently active (non-paused) gamma adjustment for this display.
     func hasActiveAdjustment(for displayID: CGDirectDisplayID) -> Bool {
         adjustmentsLock.withLock {
             guard let adj = activeAdjustments[displayID] else { return false }
@@ -99,7 +92,7 @@ final class GammaService: @unchecked Sendable {
         }
     }
 
-    /// Re-applies the stored adjustment (incorporating the current software brightness factor).
+    /// Incorporates the current software brightness factor; see BrightnessService.setSoftwareBrightness.
     func reapply(for displayID: CGDirectDisplayID) {
         let adj = adjustmentsLock.withLock { activeAdjustments[displayID] }
         guard let adj, !adj.isPaused else { return }
@@ -108,7 +101,6 @@ final class GammaService: @unchecked Sendable {
 
     // MARK: - Public API
 
-    /// Apply a complete GammaAdjustment snapshot to the given display.
     func apply(_ adj: GammaAdjustment, for displayID: CGDirectDisplayID) {
         guard !adj.isPaused else { return }
         adjustmentsLock.withLock { activeAdjustments[displayID] = adj }
@@ -139,11 +131,9 @@ final class GammaService: @unchecked Sendable {
             0.0, 1.0, 1.0)
     }
 
-    /// Drop the in-memory adjustment for a disconnected display. Display IDs
-    /// are reused, so a stale entry would otherwise be pushed onto whatever
-    /// display inherits the ID next (refreshDisplays reapplies unconditionally
-    /// for kept displays). The UUID-keyed persisted copy stays untouched;
-    /// reapplyIfNeeded restores it when the same physical display returns.
+    /// Drops the in-memory adjustment only: display IDs are reused, and a stale entry
+    /// would otherwise leak onto whatever display inherits the ID next. The UUID-keyed
+    /// persisted copy is untouched; reapplyIfNeeded restores it on reconnect.
     func invalidate(for displayID: CGDirectDisplayID) {
         _ = adjustmentsLock.withLock { activeAdjustments.removeValue(forKey: displayID) }
     }
@@ -160,10 +150,8 @@ final class GammaService: @unchecked Sendable {
         }
     }
 
-    /// Resets gamma to identity for a single display without affecting other displays.
-    /// Also removes any custom ColorSync profile override so the factory ICC profile
-    /// is restored, preventing a "flat" / uncalibrated appearance after reset.
-    /// Prefer this over `restoreColorSync()` whenever only one display needs resetting.
+    /// Also removes any custom ColorSync profile override, restoring the factory ICC
+    /// profile (otherwise the display looks flat/uncalibrated after reset).
     func resetSingleDisplay(_ displayID: CGDirectDisplayID) {
         _ = adjustmentsLock.withLock { activeAdjustments.removeValue(forKey: displayID) }
         let size = 256
@@ -171,8 +159,6 @@ final class GammaService: @unchecked Sendable {
         var g = r; var b = r
         CGSetDisplayTransferByTable(displayID, UInt32(size), &r, &g, &b)
 
-        // Remove any custom ColorSync profile override so the factory ICC profile is
-        // re-activated (equivalent to a per-display ColorSync restore).
         if let rawUUID = CGDisplayCreateUUIDFromDisplayID(displayID),
            let deviceClass = kColorSyncDisplayDeviceClass?.takeUnretainedValue(),
            let profileIDKey = kColorSyncDeviceDefaultProfileID?.takeUnretainedValue() {
@@ -185,9 +171,8 @@ final class GammaService: @unchecked Sendable {
 
     // MARK: - Persistence (displayUUID keyed, survives displayID reassignment; issue #32)
 
-    /// Persist an adjustment under the display's stable UUID, not its `CGDirectDisplayID`:
-    /// macOS can reassign the id across reboots/reconnects, which used to apply a saved
-    /// color temperature to the wrong physical display on a dual-external setup.
+    /// Keyed by the display's stable UUID, not `CGDirectDisplayID` (issue #32). See
+    /// docs/brightness-notes.md (gamma and software brightness) for why.
     @MainActor
     func saveState(_ adj: GammaAdjustment, for display: DisplayInfo) {
         let dict: [String: Any] = [
@@ -229,17 +214,10 @@ final class GammaService: @unchecked Sendable {
         UserDefaults.standard.removeObject(forKey: GammaPersistenceKey.uuidKey(for: display.displayUUID))
     }
 
-    /// Moves any legacy, `CGDirectDisplayID`-keyed saved adjustment onto the stable
-    /// UUID key (issue #32), for every display currently online. Call whenever the
-    /// display list is (re)built, e.g. from `DisplayManager.refreshDisplays()`, before
-    /// anything reapplies a saved adjustment. Safe to call repeatedly: a no-op once a
-    /// display has no legacy entry left, and never overwrites an adjustment already
-    /// saved under the UUID key.
-    ///
-    /// Deliberately does not touch a legacy key whose displayID has no live display
-    /// right now: that id may simply belong to a disconnected monitor, and guessing
-    /// would risk applying a stale adjustment to the wrong physical display, the exact
-    /// bug this migration fixes.
+    /// Moves legacy displayID-keyed state onto the UUID key (issue #32). Idempotent;
+    /// never overwrites an existing UUID entry. Does not touch a legacy key with no
+    /// live display right now: guessing which physical display it belonged to is the
+    /// exact bug this migration fixes.
     @MainActor
     func migrateLegacyStateIfNeeded(for displays: [DisplayInfo]) {
         let defaults = UserDefaults.standard
@@ -287,10 +265,8 @@ final class GammaService: @unchecked Sendable {
         // the boosted top; in the normal range the 1.0 ceiling is unchanged.
         let cap = max(1.0, brightnessFactor)
 
-        // Build the table by hand instead of CGSetDisplayTransferByFormula: the formula API
-        // forces min/max into [0,1] with min<=max, which silently drops inversion (rLo>rHi),
-        // positive gain (rHi>1), and positive contrast. Sampling the same curve into
-        // CGSetDisplayTransferByTable and clamping per entry honors all three.
+        // Built by hand, not via CGSetDisplayTransferByFormula: see docs/brightness-notes.md
+        // (gamma and software brightness) for why.
         let capacity = 256
         var redTable   = [CGGammaValue](repeating: 0, count: capacity)
         var greenTable = [CGGammaValue](repeating: 0, count: capacity)
@@ -349,10 +325,7 @@ final class GammaService: @unchecked Sendable {
             swap(&bLo, &bHi)
         }
 
-        // No [0,1] clamp here: the apply paths sample these endpoints into a transfer table
-        // and clamp per entry, so out-of-range endpoints are preserved and drive real effects,
-        // inversion (rLo>rHi), positive gain (rHi>1), and positive contrast (rHi>1, rLo<0).
-        // Clamping here would pin rHi to 1.0 and silently no-op gain and contrast above 0.
+        // No [0,1] clamp here: see docs/brightness-notes.md (gamma and software brightness).
 
         return ChannelParams(
             rLo: rLo, rHi: rHi, rGam: rGammaExp,

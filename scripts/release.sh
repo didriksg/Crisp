@@ -58,7 +58,7 @@ lipo -create "$BUILD/Crisp-arm64" "$BUILD/Crisp-x86_64" -output "$APP/Contents/M
 echo "==> Compiling crispctl (arm64 + x86_64)…"
 for a in arm64 x86_64; do
   swiftc -O -swift-version 6 -target "$a-apple-macos14.0" \
-    Sources/crispctl/main.swift Crisp/Models/CrispControlModel.swift Crisp/Models/BrightnessKeySteps.swift \
+    Sources/crispctl/*.swift Crisp/Models/CrispControlModel.swift Crisp/Models/BrightnessKeySteps.swift \
     -o "$BUILD/crispctl-$a"
 done
 lipo -create "$BUILD/crispctl-arm64" "$BUILD/crispctl-x86_64" -output "$APP/Contents/MacOS/crispctl"

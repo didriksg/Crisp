@@ -44,7 +44,6 @@ final class LaunchService: @unchecked Sendable {
         return false
     }
 
-    /// Toggle and return the new state.
     @discardableResult
     func toggle() -> Bool {
         if isEnabled {

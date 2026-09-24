@@ -60,7 +60,6 @@ struct SystemColorView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            // Current color display
             HStack(spacing: 12) {
                 RoundedRectangle(cornerRadius: 6)
                     .fill(vm.sampledColor.map { Color(nsColor: $0) } ?? Color.gray.opacity(0.2))
@@ -77,7 +76,6 @@ struct SystemColorView: View {
             }
             .padding(.horizontal, 12)
 
-            // Sample button
             Button(action: vm.startSampling) {
                 HStack {
                     Image(systemName: vm.isSampling ? "eyedropper.halffull" : "eyedropper")
@@ -89,7 +87,6 @@ struct SystemColorView: View {
             .padding(.horizontal, 12)
             .disabled(vm.isSampling)
 
-            // History
             if !settings.colorPickerHistory.isEmpty {
                 DisclosureGroup(isExpanded: $showHistory) {
                     LazyVGrid(columns: Array(repeating: GridItem(.fixed(24), spacing: 4), count: 10), spacing: 4) {

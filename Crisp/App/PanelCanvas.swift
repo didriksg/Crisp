@@ -3,10 +3,11 @@ import SwiftUI
 import os.log
 
 // The split-canvas panel resize engine. Architecture and the failure map that
-// forced every rule here: docs/panel-resize.md. In short: the window frame is
-// the ONLY animator; SwiftUI never animates geometry; blocks are stacked by
-// explicit integral frames each tick, so content below a toggling section
-// rides the window edge atomically.
+// forced every rule here: docs/panel-resize.md. In short: the shell layer, not
+// the window, is the only per-tick animator; SwiftUI never animates geometry;
+// blocks are stacked by explicit integral frames each tick, so content below a
+// toggling section rides the shell edge atomically. The window frame itself
+// changes only at rest.
 
 /// Top-left origin so blocks stack downward from the pinned top edge and a
 /// clip's height change reveals its content top-first, curtain style.
@@ -16,21 +17,17 @@ class FlippedView: NSView {
         super.init(frame: frame)
         wantsLayer = true
         layer?.masksToBounds = true
-        // Do NOT disable postsFrameChangedNotifications here: NSHostingView
-        // listens for ancestor frame changes to keep its window-coordinate
-        // mapping fresh; without them, hit zones go stale after blocks move
-        // (click dead zones near the panel edges).
+        // Do NOT disable postsFrameChangedNotifications: NSHostingView needs
+        // ancestor frame-change notifications for hit-zone mapping. See
+        // docs/panel-resize.md (failure map #8).
     }
     required init?(coder: NSCoder) { fatalError() }
 }
 
-/// Window-filling root. The window is LARGER than the visible panel: the
-/// transparent margins host the layer shadow, and the window itself never
-/// resizes while an animation is in flight (the WindowServer prices every
-/// per-frame resize of a shadowed transparent window at 5-9ms, the measured
-/// root cause of every animated-resize cadence failure). Clicks landing in
-/// the margins are outside-clicks: close the panel, like native menus
-/// consuming the dismissing click.
+/// Window-filling root, larger than the visible panel: transparent margins
+/// host the layer shadow, and the window itself never resizes mid-animation
+/// (docs/panel-resize.md, "Why the public paths fail"). Clicks in the margins
+/// are outside-clicks, closing the panel like native menus.
 final class PanelRootView: NSView {
     weak var shell: NSView?
     var onOutsideClick: (() -> Void)?
@@ -62,11 +59,9 @@ final class PanelViewport: FlippedView {
 }
 
 /// Vsync-locked critically damped spring on a scalar (the blocks' total
-/// height). Every rule is load-bearing (docs/panel-resize.md):
-/// frame-paced time (one refresh period per tick, never wall time), a link
-/// created once and never invalidated, velocity carry across retargets.
-/// Main actor because the link is created from a view and ticks on the main
-/// run loop; PanelCanvas, its only owner, is on the main actor too.
+/// height). Every rule here is load-bearing, see docs/panel-resize.md (failure
+/// map). Main actor: the link ticks on the main run loop, and PanelCanvas is
+/// its only owner.
 @MainActor
 final class FrameSpring: NSObject {
     private var link: CADisplayLink?
@@ -88,10 +83,9 @@ final class FrameSpring: NSObject {
         link = l
     }
 
-    /// The link syncs to whatever display it was created on. Recreate it when
-    /// the panel lands on a different screen, or a 165Hz monitor gets fed
-    /// 120Hz updates (uneven frame doubling, reads as judder). Safe at open
-    /// time: the link is hot again long before the first toggle.
+    /// The link syncs to whatever display it was created on; recreate it when
+    /// the panel moves screens, or a 165Hz monitor gets fed 120Hz updates
+    /// (judder). Safe at open time: the link is hot long before the first toggle.
     func retarget(view: NSView) {
         link?.invalidate()
         link = nil
@@ -103,13 +97,9 @@ final class FrameSpring: NSObject {
         target = Double(tg)
         v0 = velocity
         t = 0
-        // Start the clock at the flight's start, not the last idle vsync. The
-        // link ticks continuously and updates lastTick even while inactive, so
-        // without this the first active tick advanced t by a whole stale frame,
-        // snapping the clip ~one frame ahead of the SwiftUI curtain it should
-        // move in step with. That gap is invisible in 1.3.2 (the visible edge is
-        // the curtain-driven content), but here the visible edge is this
-        // spring-driven shell, so the inner content lagged the outer edge.
+        // Resets lastTick to now: the link ticks (and updates lastTick) even
+        // while idle, so skipping this burns a stale frame off t on the first
+        // active tick.
         lastTick = CACurrentMediaTime()
         active = true
     }
@@ -121,9 +111,8 @@ final class FrameSpring: NSObject {
 
     var isAnimating: Bool { active }
 
-    /// Park/unpark the vsync tick while the panel is hidden. Pausing (not
-    /// invalidating) keeps the never-create-on-demand rule: the link object
-    /// survives, so resuming at open has it hot long before the first toggle.
+    /// Pauses (never invalidates) the link while hidden. See docs/panel-resize.md
+    /// (failure map #2).
     func setPaused(_ paused: Bool) {
         link?.isPaused = paused
     }
@@ -133,12 +122,8 @@ final class FrameSpring: NSObject {
         let gap = (now - lastTick) * 1000
         lastTick = now
         guard active else { return }
-        // Wall-clock time clamped to a short catch-up window. A single missed
-        // vsync advances full wall time (temporally correct, no speed error);
-        // a genuine stall cannot teleport (clamp). Pure frame-pacing ran at
-        // HALF speed through sustained 60Hz stretches (tall panel, per-tick
-        // cost near the budget) and snapped to full speed when ticks
-        // recovered, which read as a jump.
+        // Wall time clamped to a short catch-up window. See docs/panel-resize.md
+        // (failure map #3).
         let period = l.targetTimestamp - l.timestamp
         t += min(gap / 1000, 0.021)
         let e = exp(-omega * t)
@@ -165,14 +150,13 @@ final class FrameSpring: NSObject {
     }
 }
 
-/// Hosting view for panel blocks, instrumented: counts layout() passes so a
-/// flight can report how many SwiftUI host re-layouts it triggered (issue #28,
-/// the 60Hz panel stretches). The counter is read/reset on the main thread only.
+/// Hosting view for panel blocks; counts layout() passes so a flight can
+/// report SwiftUI re-layouts triggered (issue #28). Read/reset on the main
+/// thread only.
 final class CountedHostingView: NSHostingView<AnyView> {
     nonisolated(unsafe) static var layoutCount = 0
-    /// issue #28: while a flight is running, a static block's SwiftUI layout
-    /// pass is pure waste (geometry and content unchanged); the canvas mutes
-    /// it and forces a real pass at settle.
+    /// issue #28: mutes a static block's SwiftUI layout during a flight (its
+    /// geometry is unchanged); forced live again at settle.
     var muteLayout = false
     override func layout() {
         Self.layoutCount += 1
@@ -181,11 +165,9 @@ final class CountedHostingView: NSHostingView<AnyView> {
     }
 }
 
-/// One block of panel content: a SwiftUI hosting view at its natural size
-/// inside a clip whose height animates between 0 and the content height.
-/// Fixed (always visible) blocks are just clips whose isOpen is always true;
-/// their height still animates when their CONTENT height changes (a preset
-/// added, a nested reveal inside Settings).
+/// One block of panel content: a hosting view at natural size inside a clip
+/// that animates between 0 and the content height. Fixed blocks are always
+/// open; height still animates when content height changes.
 @MainActor
 final class PanelBlock {
     let id: String
@@ -195,15 +177,13 @@ final class PanelBlock {
     let isOpen: () -> Bool
     /// Displayed clip height right now (animates toward `target`).
     var current: CGFloat = 0
-    /// Detail-region blocks: the shaded band is painted on the CLIP's layer
-    /// (tintBands), not the SwiftUI content, so a reveal fade dims only the
-    /// content while the band slides with the clip. Fading the band left a
-    /// bare-glass hole mid-collapse.
+    /// Detail blocks paint their shaded band on the clip's layer (tintBands),
+    /// not the SwiftUI content: fading it with the content left a bare-glass
+    /// hole mid-collapse.
     var banded = false
-    /// Header rows keep SwiftUI layout live even when their own height is
-    /// static in a flight: their chevron rotation is a per-frame SwiftUI
-    /// render, and the static-block muting froze it until settle (the arrow
-    /// snapped instead of turning). One-row hosts, so staying live is cheap.
+    /// Keeps SwiftUI layout live during a flight even when height is static: a
+    /// chevron's rotation needs per-frame render, and muting froze it until
+    /// settle.
     var liveInFlight = false
     var target: CGFloat { isOpen() ? contentHeight : 0 }
 
@@ -228,22 +208,15 @@ final class PanelCanvas {
     /// Transparent window margins hosting the layer shadow.
     let sideMargin: CGFloat = 40
     let bottomMargin: CGFloat = 48
-    /// Room above the shell for the twin's 1pt rim stroke; with the shell
-    /// flush to the window top, the outset twin would be clipped and the
-    /// top rim line vanish in flight.
+    /// Room above the shell for the twin's rim stroke: flush to the window top,
+    /// the outset twin would clip and the top rim line would vanish in flight.
     let topMargin: CGFloat = 2
     private let topInset: CGFloat = 8
     private let docTopInset: CGFloat = 4
     private let docBottomInset: CGFloat = 4
-    /// Slack added to each block's NSHostingView canvas ABOVE its content height.
-    /// The top-glue in BlockHost (.frame(maxHeight:.infinity, alignment:.top))
-    /// only engages when the content MODEL is shorter than the canvas: only then
-    /// does it fill the slack and pin the content's frame to the top, so a
-    /// mid-reveal curtain (shorter presentation) animates INSIDE a fixed
-    /// top-aligned frame. A canvas sized exactly to the content (no slack) lets
-    /// NSHostingView position by the shorter presentation instead -> it centered
-    /// the reveal and dropped the top on open. 1.3.2 got this for free with one
-    /// fixed 2400 canvas for the whole panel; the split canvas needs it per block.
+    /// Slack above each block's content height so BlockHost's top-glue pins
+    /// content to the top during a mid-reveal curtain. See docs/panel-resize.md
+    /// (hostSlack).
     private let hostSlack: CGFloat = 1200
 
     private(set) var blocks: [PanelBlock] = []
@@ -255,24 +228,13 @@ final class PanelCanvas {
     private weak var shellView: NSView?
     private weak var shadowView: NSView?
     weak var shadowMask: CAShapeLayer?
-    /// The light line along the bottom edge on macOS 27, where the panel's own
-    /// rim is drawn per edge instead of running white all the way round. Its
-    /// zPosition keeps it over the blocks whatever is added to the shell after
-    /// it (the footer clip goes in later), and the shell's rounded mask cuts
-    /// it at the two corners.
+    /// macOS 27's own bottom rim line, drawn here since the system doesn't.
+    /// See docs/panel-resize.md (bottomEdge).
     private let bottomEdge = CALayer()
-    /// Whether the twin's bottom stroke is cut, which is macOS 27 in dark
-    /// mode. Kept here rather than read per tick: layoutNow runs on every
-    /// frame of a flight and useFlightShadow already resolves the appearance
-    /// on every open.
+    /// True when the shadow twin's bottom stroke is cut (macOS 27 dark mode).
+    /// Cached, not read per tick. See docs/panel-resize.md (bottomEdge).
     private var hidesBottomRim = false
-    /// Fitted against a native menu on the same wallpaper, both at 1x, as the
-    /// median of the edge row over the body. The system lifts its bottom row
-    /// 32 levels over a dark wallpaper and 24 over a light one, and its sides
-    /// 5, which the glass alone already draws as 8 with no border on top. So
-    /// only the bottom edge carries a line. It composites straight over the
-    /// body, so the two backdrops give 0.161 and 0.193 and this sits between
-    /// them.
+    /// Fitted against a native menu bar pill. See docs/panel-resize.md (bottomEdge).
     private static let bottomEdgeColor = NSColor(white: 1, alpha: 0.175)
     private static let bottomEdgeWidth: CGFloat = 1
     /// Settled shell height from the last layout, for windowTight().
@@ -284,27 +246,21 @@ final class PanelCanvas {
     private var anchorX: CGFloat = 0
 
     private var animFrom: [CGFloat] = []
-    /// Targets CAPTURED at animate start. Per-tick math must never read the
-    /// live block targets: a mid-flight toggle flips them synchronously, and
-    /// interpolating toward a new target with the old progress teleports the
-    /// block in one frame. Mid-flight changes re-anchor via requestApply
-    /// (velocity carry) instead.
+    /// Captured at animate start; per-tick math must never read live block
+    /// targets. See docs/panel-resize.md (failure map #7).
     private var animTarget: [CGFloat] = []
     private var animTargetSum: CGFloat = 0
     private var animFromSum: CGFloat = 0
-    /// Blocks fading with this flight: a section opening from zero fades in,
-    /// one closing to zero fades out, tracking the spring. Mirrors the soft
-    /// .opacity transition SwiftUI gives the in-block curtains (Brightness
-    /// Keys, Support), so every reveal gets the same treatment.
+    /// Blocks fading with this flight: opening from zero fades in, closing to
+    /// zero fades out, tracking the spring. Mirrors the .opacity transition
+    /// SwiftUI gives in-block curtains.
     private var fadeInIdx: Set<Int> = []
     private var fadeOutIdx: Set<Int> = []
     private var scrollOffset: CGFloat = 0
     private var animatePending = false
-    /// The shell is layer-driven and presents its frame change in the CURRENT
-    /// CATransaction; SwiftUI commits the inner curtain's render and presents it
-    /// ONE frame later. Applying each spring tick one frame late lands the shell
-    /// on the same frame the curtain does, so the outer edge and inner content
-    /// move together (the "inner lags the outer" residual). Reset per flight.
+    /// The shell presents its frame change in the CURRENT CATransaction;
+    /// SwiftUI presents its curtain render ONE frame later. Applying each tick
+    /// one frame late lands both on the same frame. Reset per flight.
     private var pendingScalar: CGFloat?
     private var flightTicks = 0
     private var flightHostLayouts0 = 0
@@ -314,9 +270,8 @@ final class PanelCanvas {
     /// Sub-timings of the last layoutNow, for the tick log.
     private(set) var lastLoopMs: Double = 0
     private(set) var lastWinMs: Double = 0
-    /// True only during the warm-up pre-paint, so every block lies inside the
-    /// viewport and genuinely draws once (a capped viewport would leave the
-    /// lower blocks unpainted, defeating the pre-paint).
+    /// True only during warm-up pre-paint, so every block lies inside the
+    /// viewport and genuinely draws once.
     private var ignoreCap = false
 
     func install(shell: NSView, shadow: NSView, panel: NSPanel) {
@@ -344,9 +299,8 @@ final class PanelCanvas {
         spring.onTick = { [weak self] x in
             guard let self else { return }
             self.flightTicks += 1
-            // One-frame buffer: apply the previous tick, hold this one. See
-            // pendingScalar. onSettle sets the exact targets, superseding any
-            // held value, so the last frame lands precisely.
+            // One-frame buffer: apply the previous tick, hold this one (pendingScalar).
+            // onSettle supersedes with exact targets, so the last frame lands precisely.
             if let prev = self.pendingScalar { self.applyScalar(prev) }
             self.pendingScalar = CGFloat(x)
         }
@@ -376,9 +330,8 @@ final class PanelCanvas {
         footer?.current = footer?.target ?? 0
     }
 
-    /// fittingSize straight after init is nondeterministic; force a layout
-    /// pass first (failure map item 5). SwiftUI's geometry reporting keeps
-    /// heights fresh from then on.
+    /// fittingSize right after init is nondeterministic; force layout first.
+    /// See docs/panel-resize.md (failure map #5).
     func measureAll() {
         for b in blocks + [footer].compactMap({ $0 }) {
             b.host.layoutSubtreeIfNeeded()
@@ -386,12 +339,9 @@ final class PanelCanvas {
         }
     }
 
-    /// SwiftUI reported a block's natural (fully-laid-out) height: initial
-    /// layout, a nested reveal's end state, presets changing. It reports the
-    /// final height in one shot (the curtain animates at the presentation
-    /// layer, invisible to geometry callbacks), so the spring animates the clip
-    /// to it. The host frame tracks the spring (layoutNow), which keeps the
-    /// content top-aligned during the reveal (see layoutNow).
+    /// SwiftUI reports a block's natural height once (initial layout, a nested
+    /// reveal's end state, presets changing); the spring then animates the clip
+    /// to it, and layoutNow keeps content top-aligned during the reveal.
     func contentChanged(_ id: String, height: CGFloat) {
         // height 0 is legitimate (the update row while no update is known).
         if let f = footer, f.id == id {
@@ -452,11 +402,9 @@ final class PanelCanvas {
         animFromSum = fromSum
         animTargetSum = targetSum
         pendingScalar = nil
-        // Reveals fade while they slide: the HOST (content) fades, the clip
-        // (which carries the band for detail blocks) only resizes. Opening
-        // blocks start invisible (their clip is still zero-height this frame,
-        // so no flash either way); everything else snaps opaque in case a
-        // prior flight was retargeted mid-fade.
+        // Reveals fade the HOST (content), not the clip (which carries the band
+        // for detail blocks): opening blocks start invisible; everything else
+        // snaps opaque in case a prior flight was mid-fade.
         fadeInIdx.removeAll()
         fadeOutIdx.removeAll()
         for i in blocks.indices {
@@ -468,24 +416,17 @@ final class PanelCanvas {
             let a: CGFloat = fadeInIdx.contains(i) ? 0 : 1
             if blocks[i].host.alphaValue != a { blocks[i].host.alphaValue = a }
         }
-        // One window grow per toggle, HERE at rest (nothing moves in this
-        // frame, so its WindowServer cost cannot jump); per-tick work during
-        // the flight is layer-only. Shadow swaps first so the grow's setFrame
-        // is shadowless (no server shadow recompute).
+        // Grows the window once per toggle, here at rest so its WindowServer
+        // cost cannot cause a jump; shadow swaps first so the grow's setFrame
+        // is shadowless.
         useFlightShadow()
         windowForFlight()
         flightTicks = 0
         flightHostLayouts0 = CountedHostingView.layoutCount
-        // Mute the STATIC blocks' SwiftUI layout for the flight: the window's
-        // constraint engine walks every host on every per-tick clip resize,
-        // and ~10 SwiftUI layout passes per 8.3ms frame were the 60Hz panel
-        // stretches. A static block's geometry and content are unchanged
-        // mid-flight, so its layout() is skipped wholesale. The block whose
-        // height animates stays live: nested curtains (resolution and preset
-        // dropdowns, Image Adjustment) report their final height once and
-        // then animate at the SwiftUI presentation layer, which needs
-        // per-frame layout; muting it froze the inner reveal until settle.
-        // endFlightMuting() at settle/snap runs one real pass at rest.
+        // Mutes static blocks' SwiftUI layout during the flight (walking every
+        // host per clip resize is too costly at 60-165Hz); the animating
+        // block's own host stays live for nested curtains. Unmuted again at
+        // rest (endFlightMuting).
         for (i, b) in blocks.enumerated() {
             (b.host as? CountedHostingView)?.muteLayout =
                 (animFrom[i] == animTarget[i]) && !b.liveInFlight
@@ -524,21 +465,18 @@ final class PanelCanvas {
         for i in fadeOutIdx { blocks[i].host.alphaValue = 1 - fade }
         for (i, b) in blocks.enumerated() {
             let exact = animFrom[i] + s * (animTarget[i] - animFrom[i])
-            // Ceiling is the TALLER of this flight's endpoints, not the current
-            // contentHeight. A nested reveal closing (Image Adjustment) sets the
-            // block's contentHeight to its new SHORT value before the flight
-            // starts; clamping to that snapped current down instantly on frame
-            // one (outer panel closed instant while the inner curtain animated),
-            // yet grew smoothly on open. Bounding by the start height instead
-            // lets the clip spring down in step with the curtain.
+            // Bounds by the flight's start height, not current contentHeight: a
+            // nested reveal that shrinks its contentHeight before the flight
+            // starts must still collapse in step with the curtain, not snap
+            // instantly.
             b.current = min(max(exact, 0), max(animFrom[i], animTarget[i]))
         }
         layoutNow()
     }
 
-    /// The one layout function: stacks blocks with cumulative integral
-    /// rounding (sums stay exact, no per-block jitter), then derives the
-    /// window frame. Only integral frames reach AppKit (failure map item 4).
+    /// Stacks blocks with cumulative integral rounding, then derives the window
+    /// frame. Only integral frames reach AppKit. See docs/panel-resize.md
+    /// (failure map #4).
     func layoutNow() {
         guard let panel else { return }
         let t0 = CACurrentMediaTime()
@@ -550,11 +488,8 @@ final class PanelCanvas {
             let h = y - cursor
             let clipR = NSRect(x: 0, y: cursor, width: width, height: h)
             if b.clip.frame != clipR { b.clip.frame = clipR }
-            // The host canvas is TALLER than the content (hostSlack), so the
-            // top-glue in BlockHost engages and pins the content to the top; the
-            // clip above reveals only `current` of it and masks the slack. A
-            // canvas sized to the content let NSHostingView center the shorter
-            // mid-reveal presentation, dropping the top on every open.
+            // hostSlack keeps this canvas taller than the content so BlockHost's
+            // top-glue pins it to the top; the clip above reveals only `current`.
             let hostR = NSRect(x: 0, y: 0, width: width,
                                height: (b.contentHeight + hostSlack).rounded(.up))
             if b.host.frame != hostR { b.host.frame = hostR }
@@ -583,9 +518,8 @@ final class PanelCanvas {
             if f.host.frame != fhR { f.host.frame = fhR }
         }
         let t1 = CACurrentMediaTime()
-        // The WINDOW is static here: only the shell and its shadow twin move,
-        // in one Core Animation transaction (atomic, GPU-composited). Window
-        // frames change only at rest, in setWindowHeight.
+        // The window itself never moves here; only the shell and its shadow
+        // twin do, atomically. Window frames change only at rest.
         let rootH = panel.contentView?.bounds.height ?? 0
         let shellR = NSRect(x: sideMargin, y: (rootH - topMargin - shellH).rounded(),
                             width: width, height: shellH)
@@ -599,20 +533,9 @@ final class PanelCanvas {
             bottomEdge.frame = edgeR
             CATransaction.commit()
         }
-        // The twin is outset ONE DEVICE PIXEL (its border strokes outside
-        // the glass): the native rim is a 1px hairline at any backing scale,
-        // so the outset is 1/scale points, not 1pt. Shadow geometry stays
-        // the true shell rect, and the knockout mask removes the shadow
-        // interior so the glass backdrop never samples it.
+        // Shadow twin geometry (outset px, macOS 27 dark-mode bottom stroke,
+        // blur cut above the top row): see docs/panel-resize.md (Shadow twin).
         let px = 1 / max(panel.backingScaleFactor, 1)
-        // In dark mode macOS 27 ends its menus with the light line and then
-        // the wallpaper: the dark hairline runs down the sides and the top
-        // and not under the bottom edge. So there the twin stops at the
-        // shell's bottom edge instead of one pixel below it, which leaves its
-        // bottom stroke inside the knocked-out interior. Light mode keeps the
-        // stroke, which the system draws there (202 under an edge of 255 over
-        // a background of 245). The shadow geometry does not move either way:
-        // the inner path sits at the same place in screen space.
         let svR = hidesBottomRim ? NSRect(x: shellR.minX - px, y: shellR.minY,
                                           width: shellR.width + 2 * px, height: shellR.height + px)
                                  : shellR.insetBy(dx: -px, dy: -px)
@@ -628,9 +551,6 @@ final class PanelCanvas {
             let p = CGMutablePath()
             p.addRect(CGRect(x: -60, y: -60, width: svR.width + 120, height: svR.height + 120))
             p.addPath(innerPath)
-            // The native shadow barely wraps above the top edge (a faint
-            // ~6% shade in the menu-bar gap, nothing beyond); cut the
-            // blur 3px above the twin's top border row.
             p.addRect(CGRect(x: -60, y: svR.height + 3, width: svR.width + 120, height: 57))
             if let mask = shadowMask { mask.frame = maskR; mask.path = p }
             CATransaction.commit()
@@ -640,14 +560,12 @@ final class PanelCanvas {
         lastWinMs = (CACurrentMediaTime() - t1) * 1000
     }
 
-    /// Window frames are set ONLY here, and only while the panel is at rest
-    /// (animation boundaries, positioning): even a shadowless transparent
-    /// window resize is a WindowServer transaction we keep out of the
-    /// per-tick path.
+    /// Window frames are set ONLY here, at rest: even a shadowless transparent
+    /// window resize is a WindowServer transaction kept out of the per-tick path.
     private func setWindowHeight(_ h: CGFloat) {
         guard let panel else { return }
-        // h is the VISIBLE height below anchorTopY; the window extends
-        // topMargin above it (rim headroom, covered by the menu bar).
+        // h is the visible height below anchorTopY; the window extends topMargin
+        // above it (rim headroom, covered by the menu bar).
         let fullHeight = h.rounded() + topMargin
         let f = NSRect(x: anchorX - sideMargin, y: anchorTopY + topMargin - fullHeight,
                        width: width + 2 * sideMargin, height: fullHeight)
@@ -670,59 +588,29 @@ final class PanelCanvas {
         setWindowHeight(lastShellH + bottomMargin)
     }
 
-    /// The panel wears the CA clone shadow at ALL times, in flight and at
-    /// rest. The server shadow cannot follow the shell in flight without
-    /// the measured 5-9ms per-frame recompute, and a hybrid (native at
-    /// rest, clone in flight) flashes at every settle: hasShadow renders on
-    /// the WindowServer's schedule (~200ms after invalidateShadow, video-
-    /// measured), the twin on Core Animation's, so no swap can be atomic.
-    /// The clone is pixel-calibrated against the native shadow instead
-    /// (profiles in AppDelegate).
+    /// The panel wears the CA clone shadow at all times, in flight and at rest:
+    /// switching between native and clone shadow per frame flashes at settle
+    /// (they render on different schedules). See docs/panel-resize.md (Shadow twin).
     private func useFlightShadow() {
-        // Disabled actions: raw layer property changes implicitly animate
-        // (0.25s fade), but the native shadow they replace vanishes
-        // instantly, so any fade reads as a rim flash at flight start.
+        // Disabled actions: raw layer changes implicitly animate (0.25s fade),
+        // but the native shadow they replace vanishes instantly, reading as a
+        // rim flash.
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         shadowView?.isHidden = false
-        // The white inner line only reads in dark mode; in light mode the
-        // glass's own edge bevel already saturates white on the straight
-        // edges, and the extra stroke washes out the corners' cyan
-        // refraction (measured 231,241,244 vs the native 214,244,248).
-        // NSApp, not the panel: the panel is positioned (and its shadow first
-        // applied) while still off screen, where panel.effectiveAppearance
-        // has not resolved to dark yet, so it would paint light-mode values at
-        // spawn and repaint dark on the first interaction (a visible change).
-        // The app appearance is always resolved and matches the system menu
-        // bar, which is what native menus follow.
+        // Appearance read from NSApp, not the panel (still off screen, and
+        // unresolved, when first applied). Rim, blur, and border values are
+        // calibrated per mode: see docs/panel-resize.md (Shadow twin).
         let dark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-        // The white inner line is a full point (2px at 2x, video-measured),
-        // unlike the black rim, which is a 1-device-pixel hairline. macOS 27
-        // flattened the menus: the line round the sides and the top is gone
-        // and only the bottom edge carries one, so there the border stays off
-        // and bottomEdge draws it.
+        // macOS 27 flattens the rim to the bottom edge only (bottomEdge draws it).
         let flat = SystemLook.isMacOS27OrLater
         shellView?.layer?.borderWidth = dark && !flat ? 1 : 0
         bottomEdge.isHidden = !dark
         hidesBottomRim = flat && dark
-        // The native rim and blur are appearance-dependent: rim ~0.29 black
-        // in light mode vs near-black (~0.85) in dark; the blur runs ~0.21
-        // light vs ~0.37 dark (bottom edge 15.7% vs 20% darkening). macOS 27
-        // draws the dark hairline lighter, and it is black at a fixed alpha:
-        // over a wallpaper of 28.5 the system reads 9.8 and over one of 135.5
-        // it reads 55.7, which one alpha of 0.57 fits to two levels at both
-        // ends.
         shadowView?.layer?.borderColor = NSColor.black
             .withAlphaComponent(dark ? (flat ? 0.58 : 0.85) : 0.29).cgColor
-        // macOS 27 also lightened the light mode shadow: beside the panel the
-        // system darkens its background by 7 levels of 147 at the edge, where
-        // 0.21 black draws 19 of 136 over the same wallpaper. Dark mode keeps
-        // 0.37, which already lands on the system's 10 levels.
-        //
-        // A whole NSShadow, not a new colour on the one the view holds: AppKit
-        // syncs the view's shadow onto the layer on a display pass, and
-        // mutating the object in place does not ask for one, so the new alpha
-        // never reaches the screen.
+        // A whole NSShadow, not a mutated color: AppKit only syncs the view's
+        // shadow property onto its layer on a display pass.
         let menuShadow = NSShadow()
         menuShadow.shadowColor = NSColor.black
             .withAlphaComponent(dark ? 0.37 : (flat ? 0.08 : 0.21))
@@ -738,21 +626,18 @@ final class PanelCanvas {
         useFlightShadow()
     }
 
-    /// Re-apply the appearance-tied rim + clone-shadow tints. useFlightShadow
-    /// picks them from NSApp.effectiveAppearance, but only runs on a flight or
-    /// settle, so a light<->dark switch (or the first on-screen open, before the
-    /// launch-time appearance had resolved) otherwise left the panel wearing the
-    /// other mode's rim until an expansion refreshed it. Called on every open
-    /// and on system theme change.
+    /// Re-applies the appearance-tied rim and shadow tints: useFlightShadow only
+    /// runs on a flight or settle, so a light/dark switch (or first open, before
+    /// launch appearance resolves) would otherwise show the wrong mode's rim.
     func refreshAppearance() {
         guard panel != nil else { return }
         useRestShadow()
         tintBands()
     }
 
-    /// Paints the detail band (labelColor at 8%, the AppKit resolution of the
-    /// SwiftUI Color.primary band the detail region used to carry) on banded
-    /// blocks' clip layers, resolved against the current appearance.
+    /// Paints the detail band (labelColor at 8%, matching the SwiftUI
+    /// Color.primary band the detail rows show) on banded blocks' clip layers,
+    /// resolved against the current appearance.
     func tintBands() {
         let appearance = shellView?.effectiveAppearance ?? NSApp.effectiveAppearance
         var band = NSColor.labelColor.withAlphaComponent(0.08).cgColor
@@ -788,10 +673,9 @@ final class PanelCanvas {
         PanelCanvas.log.log("link fps=\(screen.maximumFramesPerSecond)")
     }
 
-    /// Stop the vsync wakeups while the panel is hidden: idle ticks are no-ops,
-    /// but 60-165 process wakeups per second all day are not free. Snap any
-    /// in-flight animation first so a paused link cannot strand onSettle's
-    /// cleanup (unmuting, window tighten).
+    /// Stops vsync wakeups while hidden (idle ticks aren't free at 60-165Hz).
+    /// Snaps any in-flight animation first so a paused link can't strand
+    /// onSettle's cleanup.
     func parkSpring() {
         if spring.isAnimating { snapToTargets() }
         spring.setPaused(true)

@@ -13,11 +13,9 @@ struct HDRToggleView: View {
     /// (initial sync, revert on failure), so those writes do not re-trigger
     /// the service.
     @State private var isProgrammaticChange = false
-    /// A user-initiated HDR request that has not settled yet. setHDRPreference
-    /// waits out a boost collapse plus a settle before switching modes, and an
-    /// unrelated screen reconfiguration in that window would make the live
-    /// resync read the OLD state and fight the pending request. Resyncs are
-    /// skipped until the request's own read-back lands.
+    /// A user HDR request not yet settled by setHDRPreference. Resyncs are
+    /// skipped while it's in flight, so an unrelated reconfiguration can't
+    /// overwrite the pending request with stale state.
     @State private var requestInFlight = false
 
     var body: some View {
@@ -52,10 +50,9 @@ struct HDRToggleView: View {
             .menuRowHover(isHovered)
             .onHover { isHovered = $0 }
             .onAppear { resyncFromLiveState() }
-            // HDR can change outside Crisp (System Settings, or the auto
-            // boost teardown) while the panel sits open, and every HDR flip
-            // fires a screen reconfiguration; re-read the live state then so
-            // the toggle never shows stale HDR-on.
+            // HDR can change outside Crisp (System Settings, auto-boost
+            // teardown) while the panel is open; every flip fires a
+            // reconfiguration, so re-read live state then.
             .onReceive(
                 NotificationCenter.default.publisher(for: NSApplication.didChangeScreenParametersNotification)
                     .debounce(for: .milliseconds(500), scheduler: RunLoop.main)

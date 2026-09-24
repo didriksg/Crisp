@@ -4,22 +4,18 @@ import ApplicationServices
 // MARK: - Shared Icon Helper
 
 /// A colored circular SF Symbol icon chip, macOS 26 Control Center style.
-/// `active` follows the native menu-bar rule (Wi-Fi/Battery): the colored chip
-/// is spent on state (connected, on, selected); inactive rows render a bare
-/// monochrome glyph in the same footprint so color still means something.
+/// `active` follows the native menu-bar rule: the colored chip is spent on
+/// state (connected, on, selected); inactive rows render a bare monochrome glyph.
 struct MenuItemIcon: View {
     let systemName: String
     var color: Color = .blue
     var active: Bool = true
-    /// Optical size compensation. Sparse glyphs (a bare `plus`) read smaller than
-    /// dense ones (`gearshape.fill`) at the same point size, so a few call sites
-    /// nudge theirs up to match the rest of the column. Leave it alone otherwise.
+    /// Optical size compensation: sparse glyphs read smaller than dense ones at the
+    /// same point size. Leave at 13 unless a call site needs the nudge.
     var glyphSize: CGFloat = 13
 
-    /// Colored chips keep the filled glyph (white on accent, as the native menus do);
-    /// the gray inactive chip takes the outline twin so it reads as line art instead of
-    /// a solid shape. Not every symbol has one, and Image(systemName:) draws nothing when
-    /// the name is missing, so fall back to the filled name.
+    /// Colored chips keep the filled glyph; the gray inactive chip takes the outline
+    /// twin (falling back to the filled name if no outline variant exists).
     private var glyph: String {
         guard !active else { return systemName }
         let outline = systemName.replacingOccurrences(of: ".fill", with: "")
@@ -28,13 +24,10 @@ struct MenuItemIcon: View {
 
     var body: some View {
         // One view, not two branches, so active<->inactive cross-fades the glyph
-        // and fill instead of hard-swapping. Inactive keeps the same chip footprint
-        // with a faint gray fill (Wi-Fi non-selected style); active fills with the
-        // accent. Color still marks state, the change just animates.
+        // and fill instead of hard-swapping.
         Image(systemName: glyph)
             .font(.system(size: glyphSize, weight: .regular))
-            // Inactive glyph at full label strength (not .secondary) so it stays legible
-            // on the faint chip; the lack of color, not a dimmer glyph, marks it inactive.
+            // Full label strength, not .secondary: color, not glyph dimness, marks inactive.
             .foregroundColor(active ? .white : .primary)
             .frame(width: 26, height: 26)
             .background(Circle().fill(active ? color : Color.primary.opacity(0.10)))
@@ -51,31 +44,22 @@ struct MenuItemIcon: View {
 enum PanelOpenGuard {
     static var openedAt = Date.distantPast
     static var allowsActivation: Bool { Date().timeIntervalSince(openedAt) > 0.25 }
-    /// While true, the panel ignores its auto-dismiss triggers (resign-key and
-    /// outside-click). Set around a system-modal prompt we raise ourselves (the
-    /// admin auth dialog for installing a HiDPI override) so clicking/typing in
-    /// that dialog doesn't dismiss the panel out from under it.
+    /// While true, the panel ignores resign-key and outside-click dismissal. Set around
+    /// a system-modal prompt we raise ourselves (e.g. the HiDPI-override admin dialog).
     static var suppressAutoDismiss = false {
         didSet { if suppressAutoDismiss { suppressGeneration &+= 1 } }
     }
-    /// Bumped on every new suppression window. A DELAYED reset (the admin-auth
-    /// helper's 500ms tail) captures this when it suppresses and skips its reset
-    /// if another window started since, so it can't clear that newer window
-    /// mid-flight (the smooth-scaling soft-reconnect holds one for ~2s).
+    /// Bumped on every suppression window so a delayed reset from an older one can't
+    /// clear a newer one still in flight.
     static var suppressGeneration = 0
-    /// Ignore bare resign-key dismissals until this instant. After a smooth-scaling
-    /// soft-reconnect completes (and suppressAutoDismiss releases), WindowServer keeps
-    /// stealing key focus for a few seconds while the display settles; a late steal
-    /// would close the panel out from under the user. Genuine outside clicks still
-    /// dismiss through the global click monitor, which does not consult this.
+    /// Ignore bare resign-key dismissals until this instant: WindowServer keeps stealing
+    /// key focus briefly after some settle operations. Real outside clicks still dismiss.
     static var resignKeyGraceUntil = Date.distantPast
-    /// True while an AppKit menu (a SwiftUI `Menu`, e.g. a row's ⋯) is tracking.
-    /// Those popups render in their own window outside the panel frame, so a click
-    /// on a menu item reads as an outside-click; suppress dismissal while tracking.
+    /// True while a SwiftUI `Menu` (e.g. a row's ⋯) is tracking: it renders outside the
+    /// panel frame, so a click on it would otherwise read as an outside-click.
     static var isMenuTracking = false
-    /// True while an in-panel confirmation alert (e.g. delete) is presented, so an
-    /// outside-click / resign-key leaves the panel and the pending choice intact
-    /// instead of tearing them down mid-decision.
+    /// True while an in-panel confirmation alert is presented, so an outside-click or
+    /// resign-key can't tear the panel down mid-decision.
     static var isConfirmationActive = false
 }
 
@@ -94,17 +78,13 @@ extension Notification.Name {
     /// transient UI (collapse the tool/nav sections) and reopen fresh like a native menu.
     static let crispPanelDidClose = Notification.Name("crisp.panelDidClose")
 
-    /// Posted each time the panel opens, so content mirroring live external state
-    /// (e.g. the system auto-brightness toggle) can re-read it, the view mounts once,
-    /// so its .onAppear can't re-fire on later opens.
+    /// Posted each time the panel opens, so content mirroring live external state can
+    /// re-read it (the view mounts once, so .onAppear can't re-fire on later opens).
     static let crispPanelDidOpen = Notification.Name("crisp.panelDidOpen")
 
-    /// Posted by the preset form before it commits and closes (object nil, stops
-    /// every recorder), and by a recorder row starting a recording (object: its
-    /// row identity, which the poster itself ignores), so an in-flight recording
-    /// elsewhere stops. Hotkey registration resumes once no recorder suspends it
-    /// (HotkeyService counts suspensions). The recorder's own onDisappear only
-    /// fires after the close animation, hence the notification.
+    /// Stops an in-flight shortcut recording elsewhere: posted by the preset form before
+    /// it commits/closes, and by a recorder row starting its own recording. A recorder's
+    /// onDisappear alone is too late, firing only after the close animation.
     static let crispStopShortcutRecording = Notification.Name("crisp.stopShortcutRecording")
 }
 
@@ -112,9 +92,8 @@ extension Animation {
     /// Duration shared by the SwiftUI curtains nested inside blocks and the
     /// panel window's FrameSpring (PanelCanvas); change both by changing this.
     static let panelResizeDuration: Double = 0.16
-    /// The one curve every panel size change shares (rows, footer, window, and
-    /// icon state fades): the smooth spring Control Center panels use when a list
-    /// expands.
+    /// The one curve every panel size change shares (rows, footer, window, icon fades):
+    /// the smooth spring Control Center panels use when a list expands.
     static let panelResize = Animation.smooth(duration: panelResizeDuration)
 }
 
@@ -129,9 +108,8 @@ struct CurtainReveal: ViewModifier {
             // Keep the content at its natural height even while the frame
             // below clamps to 0, so rows never compress during the reveal.
             .fixedSize(horizontal: false, vertical: true)
-            // A nested curtain toggle changes this height as one final model
-            // value (see the contentHeight note below), so re-animate with the
-            // shared spring or rows below this curtain jump instantly.
+            // A nested curtain toggle changes this height in one step, so
+            // re-animate with the shared spring, or rows below this curtain jump instantly.
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { newHeight in
                 withAnimation(.panelResize) { naturalHeight = newHeight }
             }
@@ -170,12 +148,9 @@ extension View {
 }
 
 extension View {
-    /// Keep scroll content pinned to the top on first layout and while its
-    /// size animates; without this the scroll offset transiently re-anchors
-    /// during expansion and the whole panel content shifts up for a moment.
-    /// The role-scoped anchors are macOS 15+; on 14 the all-roles anchor is
-    /// close enough (it additionally top-aligns short content, which the
-    /// panel fills anyway).
+    /// Keep scroll content pinned to the top during expansion, or the offset transiently
+    /// re-anchors and the panel content shifts up for a moment. Role-scoped anchors are
+    /// macOS 15+; the all-roles anchor on 14 is close enough.
     @ViewBuilder func topAnchoredScroll() -> some View {
         if #available(macOS 15.0, *) {
             self.defaultScrollAnchor(.top, for: .sizeChanges)
@@ -188,9 +163,8 @@ extension View {
 
 // MARK: - SectionDivider
 
-/// The one canonical section separator, used between every group across the
-/// panel (main menu, display detail, settings) so the divider rhythm is
-/// consistent everywhere.
+/// The one canonical section separator, used across the whole panel so the
+/// divider rhythm is consistent everywhere.
 struct SectionDivider: View {
     var body: some View {
         Divider()
@@ -202,14 +176,14 @@ struct SectionDivider: View {
 
 // MARK: - SectionHeader
 
-/// Secondary text that clears WCAG AA on the light popover background. The system
-/// .secondary measures ~3.9:1 there (below the 4.5:1 required at caption sizes);
-/// dark mode measures ~5.8:1, so keep the system color and darken only light mode.
+/// Secondary text that clears WCAG AA on the light popover background: system
+/// .secondary falls short there. Dark mode keeps the system color.
+/// Measured: see docs/ui-notes.md (Color.secondaryReadable)
 extension Color {
     static let secondaryReadable = Color(nsColor: NSColor(name: nil) { appearance in
         appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
             ? .secondaryLabelColor
-            : NSColor(white: 0.40, alpha: 1.0)  // ~5.4:1 on the 245-251 light material
+            : NSColor(white: 0.40, alpha: 1.0)
     })
 }
 
@@ -359,33 +333,26 @@ struct CommandLineToolRow: View {
 // MARK: - SupportRow
 
 /// Optional "buy me a coffee" link at the bottom of Settings, styled as a normal
-/// menu row (icon badge + label + hover + trailing ↗) so it's as findable as the
-/// update row, the genre standard for free apps. Never a popup or launch-time
-/// nag, and every feature stays free.
+/// menu row so it's as findable as the update row. Never a popup or launch-time nag.
 struct SupportRow: View {
-    // Owned by the parent (SettingsView) so its panel-close handler can collapse
-    // it; a private @State here would survive the reset and reopen still expanded,
-    // unlike every other submenu.
+    // Owned by the parent (SettingsView) so its panel-close handler can collapse it,
+    // like every other submenu.
     @Binding var expanded: Bool
 
     private let kofi = "https://ko-fi.com/didriksg"
     private let afdian = "https://ifdian.net/a/didriksg"
     private let github = "https://github.com/sponsors/didriksg"
 
-    /// A supporter's payment region can't be detected reliably in a sideloaded
-    /// app (no App Store storefront; Locale.current.region is only a formatting
-    /// hint mainland users often switch away), so the submenu lists them all and
-    /// lets them pick. Mainland China can't complete the Stripe-based checkouts
-    /// (Ko-fi, GitHub Sponsors) and needs Afdian's WeChat/Alipay, so the hint only
-    /// ORDERS the list, surfacing the likely option first; none is ever hidden.
+    /// Payment region can't be detected reliably in a sideloaded app, so the submenu
+    /// lists every link and this only orders them: mainland China needs Afdian's
+    /// WeChat/Alipay over the Stripe-based Ko-fi/GitHub checkouts.
     private var prefersChinese: Bool {
         Locale.current.region?.identifier == "CN"
             || Bundle.main.preferredLocalizations.first?.hasPrefix("zh-Hans") == true
     }
 
-    /// Afdian's own brand name is 爱发电; the "(Afdian)" romanization only helps a
-    /// non-Chinese reader, so drop it when the UI itself is Chinese (keyed on the UI
-    /// language, not region: an English UI in CN still needs the handle).
+    /// Drop the "(Afdian)" romanization when the UI itself is Chinese (keyed on UI
+    /// language, not region).
     private var afdianTitle: String {
         Bundle.main.preferredLocalizations.first?.hasPrefix("zh") == true
             ? "爱发电" : "爱发电 (Afdian)"
@@ -400,10 +367,8 @@ struct SupportRow: View {
                 isExpanded: $expanded
             )
 
-            // Always laid out so the curtain glides the links open with the panel
-            // spring, instead of popping to full height while the row animates.
-            // prefersChinese only orders the rows (static per launch), so branching
-            // on it here doesn't affect the reveal.
+            // Always laid out so the curtain glides the links open with the panel spring
+            // instead of popping to full height.
             VStack(spacing: 0) {
                 if prefersChinese {
                     SupportLinkRow(title: afdianTitle, url: afdian)
@@ -456,21 +421,18 @@ private struct SupportLinkRow: View {
     }
 }
 
-// MARK: - SettingsView (Phase 12: embedded in MenuBarView)
+// MARK: - SettingsView
 
 struct SettingsView: View {
     @ObservedObject private var settings = SettingsService.shared
     @ObservedObject private var volumeService = VolumeService.shared
-    // SettingsView stays mounted (only height-clipped) across panel opens, so the
-    // support submenu's expansion must be reset explicitly on close like every
-    // other section, or it reopens still expanded.
+    // SettingsView stays mounted across panel opens, so expansion state must be reset
+    // explicitly on close like every other section.
     @State private var showSupport = false
     @State private var showBrightnessKeys = false
     @State private var showHiDPIShortcut = false
-    // Accessibility trust drives which Brightness Keys UI shows (toggle vs target menu).
-    // AXIsProcessTrusted() isn't observable and the panel content mounts once, so re-read
-    // it on every open (below) or the section shows a stale state after the user grants or
-    // revokes in System Settings. (vx44)
+    // AXIsProcessTrusted() isn't observable, so re-read it on every open (below) or the
+    // section shows stale state after the user grants/revokes in System Settings. (vx44)
     @State private var isTrusted = AXIsProcessTrusted()
     @EnvironmentObject var displayManager: DisplayManager
 
@@ -505,15 +467,11 @@ struct SettingsView: View {
         Int(((combinedBuiltinLuminanceRatio ?? settings.combinedBuiltinBrightnessFactor) * 100).rounded())
     }
 
-    /// Opt-in control for brightness-key redirection, shown inside the Brightness Keys section
-    /// only while Accessibility is missing. The toggle is the deliberate, in-context trigger for
-    /// the native trust prompt (nothing is requested at launch); it also opens the exact Settings
-    /// pane, and the tap arms live once granted, no restart. On grant the parent swaps this for
-    /// the target menu. (b00d.1, jv1b)
+    /// Opt-in control for brightness-key redirection, shown only while Accessibility is
+    /// missing: the in-context trigger for the native trust prompt (nothing is requested
+    /// at launch). On grant the parent swaps this for the target menu. (b00d.1, jv1b)
     private struct BrightnessKeysPermissionNotice: View {
-        // ponytail: local intent so the switch animates on tap. On grant the parent replaces
-        // this whole view with the target menu; on deny it stays on until the section next
-        // renders, which is harmless since the keys simply aren't armed.
+        // ponytail: local intent so the switch animates on tap; harmless if denied.
         @State private var requesting = false
 
         var body: some View {
@@ -550,22 +508,17 @@ struct SettingsView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 4)
             .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-                // Returning from System Settings: if access still isn't granted (declined, or a
-                // stale grant from a differently-signed build), un-stick the toggle so it can't
-                // sit "on" while the caption still says access is needed and no target menu shows.
+                // Returning from System Settings without granting: un-stick the toggle.
                 if !AXIsProcessTrusted() { requesting = false }
             }
         }
 
         private func requestAccess() {
-            // Fire the native trust prompt (shows the system dialog the first time)...
-            // kAXTrustedCheckOptionPrompt is a global var in the Command Line Tools
-            // SDK, which Swift 6 reads as shared mutable state. The key it carries
-            // is part of the framework's interface, so name it outright.
+            // kAXTrustedCheckOptionPrompt is a global var in the Command Line Tools SDK;
+            // name the key outright rather than string-literal it.
             let opts = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
             _ = AXIsProcessTrustedWithOptions(opts)
-            // ...and open the exact pane, so the toggle still lands somewhere useful after the
-            // one-shot prompt has already been dismissed once.
+            // Also open the exact pane, since the one-shot system prompt may already be gone.
             if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
                 NSWorkspace.shared.open(url)
             }
@@ -573,19 +526,14 @@ struct SettingsView: View {
     }
 
     var body: some View {
-        // spacing 0: each row carries its own .vertical padding (like the Tools group),
-        // so rows sit ~10px apart instead of 5+6+5. Dividers/headers pad themselves.
+        // spacing 0: each row carries its own .vertical padding. Dividers/headers pad themselves.
         VStack(alignment: .leading, spacing: 0) {
-            // Auto Brightness: a behavior preference (moved out of the Tools
-            // group, which is display features only). Always shown, even with no
-            // external connected: it's a preference, not a dead control, so you
-            // can arm it before docking and it activates when a display appears.
+            // Behavior preference, not a display feature, so it sits outside the Tools
+            // group and stays shown with no external connected (can be armed before docking).
             AutoBrightnessView()
 
-            // Show combined brightness. Hidden unless more than one brightness
-            // slider exists (one per connected display, virtuals excluded since
-            // they get no slider): with a single slider, "combined" would just
-            // duplicate it. The preference persists, so it returns on reconnect.
+            // Hidden unless more than one brightness slider exists, or "combined" would
+            // just duplicate the single slider.
             if physicalDisplays.count > 1 {
                 Toggle(isOn: Binding(
                     get: { settings.showCombinedBrightness },
@@ -637,9 +585,8 @@ struct SettingsView: View {
                 }
             }
 
-            // Show volume sliders (issue #23). Hidden while no connected monitor
-            // exposes DDC volume: the toggle would control nothing. Hiding the
-            // sliders does not disable the volume keys.
+            // Hidden while no connected monitor exposes DDC volume (#23); the toggle
+            // would control nothing. Hiding the sliders does not disable the volume keys.
             if displayManager.displays.contains(where: { $0.volumeSupported || volumeService.isForced($0) }) {
                 Toggle(isOn: Binding(
                     get: { settings.showVolumeSliders },
@@ -659,10 +606,9 @@ struct SettingsView: View {
                 .padding(.vertical, 3)
             }
 
-            // Which displays the hardware brightness keys adjust. Once Accessibility is granted,
-            // an expandable row + checkmark list (the Resolution / Color Profile idiom). Before
-            // that there is no row or target subtitle at all, only the opt-in toggle, so enabling
-            // is discoverable without expanding and no target reads as live before it is. (jv1b)
+            // Which displays the hardware brightness keys adjust (checkmark-list idiom, only
+            // once Accessibility is granted, or the target subtitle would read as live before
+            // it is). (jv1b)
             if isTrusted {
                 ExpandableRow(
                     icon: "keyboard",
@@ -681,10 +627,8 @@ struct SettingsView: View {
                             settings.brightnessKeyTarget = target
                         }
                     }
-                    // "Selected displays only": a checklist of the current displays.
-                    // Real toggles (not CheckmarkRow, which can't deselect) since this is
-                    // multi-select. Membership is keyed by the stable displayUUID so it
-                    // survives reconnects; built-in included, since "All" affects it too.
+                    // Real toggles, not CheckmarkRow (which can't deselect), since this is
+                    // multi-select. Keyed by displayUUID so membership survives reconnects.
                     if settings.brightnessKeyTarget == .selected {
                         ForEach(displayManager.displays) { display in
                             Toggle(isOn: Binding(
@@ -714,7 +658,6 @@ struct SettingsView: View {
             // Global shortcuts: the curated action list (issue #61).
             ShortcutsSection(expanded: $showHiDPIShortcut)
 
-            // Launch at login
             Toggle(isOn: Binding(
                 get: { settings.launchAtLogin },
                 set: { newValue in
@@ -750,29 +693,22 @@ struct SettingsView: View {
                 .foregroundColor(.secondaryReadable)
                 .padding(.horizontal, 12)
 
-            // Optional support link, tucked next to the version stamp where
-            // "about" info lives. Muted, but with a link affordance so it doesn't
-            // read as static text, no popup, no launch nag; every feature stays free.
+            // Tucked next to the version stamp where "about" info lives; no popup, no
+            // launch nag, every feature stays free.
             SupportRow(expanded: $showSupport)
         }
         .padding(.vertical, 6)
         .onReceive(NotificationCenter.default.publisher(for: .crispPanelDidOpen)) { _ in
-            // Re-read trust on every open so the section reflects a grant/revoke made in
-            // System Settings since the last open (the content mounts once). (vx44)
-            isTrusted = AXIsProcessTrusted()
-            // Arm the tap whenever trust is effective, not only at launch. After an upgrade the
-            // launch-time check reads false while macOS re-validates the replaced bundle, so the
-            // tap never arms; the target menu then shows (trust settles true) while the keys are
-            // dead, and re-granting can't recover it because the opt-in toggle that would re-arm
-            // is hidden once trusted. start() is idempotent. (upgrade zombie)
+            isTrusted = AXIsProcessTrusted()  // vx44, see isTrusted's declaration above
+            // Re-arm whenever trust is effective, not only at launch: after an upgrade the
+            // launch-time check can read false while macOS re-validates the bundle. start() is idempotent.
             if isTrusted { BrightnessKeyService.shared.start() }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            // Also refresh when the app reactivates (e.g. returning from System Settings after
-            // granting), so the section flips from the opt-in toggle to the target menu without
-            // needing the panel closed and reopened. (brightness-keys zombie toggle fix)
+            // Also refresh on reactivate, so the toggle flips to the target menu without
+            // closing and reopening the panel.
             isTrusted = AXIsProcessTrusted()
-            if isTrusted { BrightnessKeyService.shared.start() }  // re-arm if trust became effective post-launch (upgrade zombie)
+            if isTrusted { BrightnessKeyService.shared.start() }
         }
         .onReceive(NotificationCenter.default.publisher(for: .crispPanelDidClose)) { _ in
             showSupport = false
@@ -793,8 +729,7 @@ struct DisplayRowView: View {
     let onToggleExpand: () -> Void
 
     var body: some View {
-        // Native Display panel style: bold name, gray subtitle, trailing chevron.
-        // No icon chip, no leading chevron, no badge (matches the system panel).
+        // Native Display panel style: bold name, gray subtitle, chevron, no icon chip.
         HStack {
             VStack(alignment: .leading, spacing: 1) {
                 Text(display.name)
@@ -817,9 +752,8 @@ struct DisplayRowView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 4)
-        // Tap AFTER the padding so the clickable shape is the full padded row,
-        // identical to the hover highlight; before it, the padding was a dead
-        // border (clicks on the visibly highlighted edge did nothing).
+        // Keep .contentShape after the padding, so the clickable area matches the full
+        // padded row like the hover highlight: before the padding, the highlighted edge does not click.
         .contentShape(Rectangle())
         .onTapGesture {
             guard PanelOpenGuard.allowsActivation else { return }

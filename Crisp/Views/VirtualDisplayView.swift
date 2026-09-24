@@ -1,8 +1,8 @@
 import SwiftUI
 import CoreGraphics
 
-/// "Virtual Displays" management section shown in the MenuBarView tools area.
-/// Lists all saved virtual display configurations and allows creating / deleting them.
+/// "Virtual Displays" management section: lists saved configurations and
+/// allows creating / deleting them.
 struct VirtualDisplayView: View {
     @StateObject private var service = VirtualDisplayService.shared
     @State private var showCreateForm = false
@@ -18,9 +18,7 @@ struct VirtualDisplayView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if service.configs.isEmpty && !showCreateForm {
-                // Centered secondary text is the native empty-state idiom ("No
-                // Recent Items"); a label-column indent here reads as an orphaned
-                // row floating mid-panel with no icon to anchor it.
+                // Centered empty-state idiom, not an orphaned indented row (docs/DESIGN.md).
                 Text("No virtual displays yet")
                     .font(.caption)
                     .foregroundColor(.secondary)
@@ -69,8 +67,7 @@ struct VirtualDisplayView: View {
                     .padding(.bottom, 4)
             }
 
-            // Create area: a trigger row that fades into a bounded card
-            // (mirrors the New Preset flow).
+            // Trigger row fades into a bounded card (mirrors the New Preset flow).
             if showCreateForm {
                 CreateVirtualDisplayForm(
                     isCreating: $isCreating,
@@ -127,15 +124,13 @@ struct VirtualDisplayView: View {
                 Text("Are you sure you want to delete this virtual display configuration?")
             }
         }
-        // Keep the panel alive while the confirmation is up so an outside-click
-        // doesn't tear it down mid-decision. onDisappear guards against the flag
-        // sticking true if the view unmounts while a config is still pending.
+        // Keep the panel alive while the confirmation is up, so an outside-click
+        // doesn't tear it down mid-decision; onDisappear guards a stuck flag.
         .onChange(of: configToDelete) { _, newValue in
             PanelOpenGuard.isConfirmationActive = (newValue != nil)
         }
         .onDisappear { PanelOpenGuard.isConfirmationActive = false }
-        // Collapse the inline create/edit forms when the panel closes, so it
-        // reopens fresh like the rest of the panel (fires while hidden).
+        // Collapse inline create/edit forms when the panel closes, so it reopens fresh.
         .onReceive(NotificationCenter.default.publisher(for: .crispPanelDidClose)) { _ in
             showCreateForm = false
             editingID = nil
@@ -143,8 +138,7 @@ struct VirtualDisplayView: View {
         }
     }
 
-    /// Re-creates the live CGVirtualDisplay for a config that is off (e.g. after
-    /// a crash/force-quit left the config persisted but the display gone).
+    /// Re-creates the live CGVirtualDisplay for a config that is off.
     private func handleActivate(_ config: VirtualDisplayService.VirtualDisplayConfig) {
         guard activatingID == nil else { return }
         activatingID = config.id
@@ -307,8 +301,8 @@ struct VirtualDisplayRow: View {
 
 // MARK: - Create Form
 
-/// Bounded card for creating a new virtual display configuration. Mirrors the
-/// preset card: left-aligned labels, native switch rows, native footer buttons.
+/// Bounded card for creating a new virtual display configuration, mirroring
+/// the preset card's layout.
 struct CreateVirtualDisplayForm: View {
     /// Non-nil when editing an existing config; nil when creating a new one.
     let editing: VirtualDisplayService.VirtualDisplayConfig?
@@ -348,8 +342,7 @@ struct CreateVirtualDisplayForm: View {
         self.onConfirm = onConfirm
         _name = State(initialValue: editing?.name ?? String(localized: "Virtual Display"))
         _autoCreate = State(initialValue: editing?.autoCreate ?? true)
-        // Match the config's size to a preset; a non-preset size (e.g. a custom
-        // aspect ratio) selects "Custom" and prefills the width/height fields.
+        // A non-preset size selects "Custom" and prefills width/height.
         let presetIdx = editing.flatMap { e in
             Self.presetOptions.firstIndex(where: { $0.width == e.width && $0.height == e.height })
         }
@@ -360,7 +353,6 @@ struct CreateVirtualDisplayForm: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            // Name
             VStack(alignment: .leading, spacing: 4) {
                 Text("Name")
                     .font(.caption)
@@ -383,7 +375,6 @@ struct CreateVirtualDisplayForm: View {
                     .animation(.easeOut(duration: 0.12), value: nameFocused)
             }
 
-            // Resolution
             VStack(alignment: .leading, spacing: 4) {
                 Text("Resolution")
                     .font(.caption)
@@ -407,7 +398,6 @@ struct CreateVirtualDisplayForm: View {
                 }
             }
 
-            // Options
             VStack(alignment: .leading, spacing: 6) {
                 Text("Options")
                     .font(.caption2)
@@ -417,7 +407,6 @@ struct CreateVirtualDisplayForm: View {
                                  label: "Create at launch", isOn: $autoCreate)
             }
 
-            // Cancel / Create
             HStack(spacing: 10) {
                 Spacer()
                 Button("Cancel", action: onCancel)
@@ -454,8 +443,7 @@ struct CreateVirtualDisplayForm: View {
     }
 
     /// The chosen resolution: a preset, or the validated custom width×height.
-    /// Nil when "Custom" is selected but the fields are empty / out of range,
-    /// which disables the confirm button.
+    /// Nil disables the confirm button.
     private var resolution: (width: Int, height: Int)? {
         if selectedPreset < presets.count {
             let p = presets[selectedPreset]

@@ -11,7 +11,6 @@ struct AutoBrightnessView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Main toggle
             HStack(spacing: 8) {
                 MenuItemIcon(systemName: "sun.and.horizon.fill", color: .orange, active: service.isEnabled)
                     .accessibilityHidden(true)

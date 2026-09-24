@@ -1,20 +1,14 @@
 import XCTest
 import CoreGraphics
 
-/// Headless tests for the gamma-adjustment persistence key/migration decision core
-/// (issue #32: color temperature applied to the wrong display after a reboot).
-///
-/// `GammaPersistenceKey` is compiled directly into this test target (see `project.yml`
-/// sources, same route as `DDCServiceMatcher`), so no `@testable import Crisp` is needed
-/// (that would pull AppKit/IOKit and the private bridging header and defeat headless
-/// purity). Each test names the behaviour or mutation it pins in a trailing comment.
+/// Headless tests for the gamma-adjustment persistence key/migration decision core (#32:
+/// color temperature applied to the wrong display after a reboot). `GammaPersistenceKey`
+/// compiles directly into this test target, so no `@testable import Crisp` is needed.
 final class GammaPersistenceKeyTests: XCTestCase {
 
     // MARK: - Key construction
 
-    /// The UUID key embeds the display's stable identifier and is distinct from any
-    /// legacy displayID key for the same display (no accidental collision between the
-    /// two schemes).
+    /// The UUID key and the legacy key for the same display never collide.
     func testUUIDKeyIsDistinctFromLegacyKey() {
         let uuidKey = GammaPersistenceKey.uuidKey(for: "1234")
         let legacyKey = GammaPersistenceKey.legacyKey(for: 1234)
@@ -24,21 +18,18 @@ final class GammaPersistenceKeyTests: XCTestCase {
     }
 
     /// Two different displayIDs never produce the same legacy key.
-    /// Kills mutation: legacy key construction dropping the displayID from the string.
     func testLegacyKeysDifferPerDisplayID() {
         XCTAssertNotEqual(GammaPersistenceKey.legacyKey(for: 1), GammaPersistenceKey.legacyKey(for: 2))
     }
 
     /// Two different UUIDs never produce the same UUID key.
-    /// Kills mutation: UUID key construction dropping the uuid from the string.
     func testUUIDKeysDifferPerUUID() {
         XCTAssertNotEqual(GammaPersistenceKey.uuidKey(for: "aaa"), GammaPersistenceKey.uuidKey(for: "bbb"))
     }
 
     // MARK: - Migration: the core issue #32 fix
 
-    /// A live display whose current id has a legacy saved entry migrates: exactly one
-    /// target, mapping that display's legacy key to its UUID key.
+    /// A live display whose current id has a legacy entry migrates to its UUID key.
     func testLiveDisplayWithMatchingLegacyEntryMigrates() {
         let targets = GammaPersistenceKey.migrationTargets(
             liveDisplays: [(id: 501, uuid: "uuid-A")],
@@ -61,11 +52,7 @@ final class GammaPersistenceKeyTests: XCTestCase {
         XCTAssertEqual(targets, [])
     }
 
-    /// The core regression this issue reports: two live displays, only one whose current
-    /// id matches a legacy entry. Only that one display's legacy state migrates, and it
-    /// migrates to *its own* UUID, never the other display's.
-    /// Kills mutation: migrating every live display regardless of legacy-entry match, or
-    /// pairing the wrong uuid with a legacy key.
+    /// Two live displays, only one with a matching legacy id: only that one migrates, to its own UUID.
     func testOnlyTheDisplayWithAMatchingLegacyIDMigratesOnDualExternalSetup() {
         let targets = GammaPersistenceKey.migrationTargets(
             liveDisplays: [(id: 1, uuid: "uuid-left"), (id: 2, uuid: "uuid-right")],
@@ -79,12 +66,7 @@ final class GammaPersistenceKeyTests: XCTestCase {
         ])
     }
 
-    /// A stale legacy entry whose displayID belongs to no currently online display must
-    /// never be guessed at: that display may simply be disconnected, and guessing which
-    /// live display it "really" belongs to is the exact bug being fixed (applying a saved
-    /// adjustment to the wrong physical display).
-    /// Kills mutation: iterating `legacyDisplayIDsWithSavedState` instead of `liveDisplays`,
-    /// which would fabricate a target with no real uuid to migrate to.
+    /// A stale legacy entry with no live display is never guessed at.
     func testStaleLegacyEntryWithNoLiveDisplayIsIgnored() {
         let targets = GammaPersistenceKey.migrationTargets(
             liveDisplays: [(id: 1, uuid: "uuid-A")],
@@ -93,13 +75,9 @@ final class GammaPersistenceKeyTests: XCTestCase {
         XCTAssertEqual(targets, [])
     }
 
-    /// After a reboot reassigns displayIDs (macOS swaps which physical display gets which
-    /// id), a legacy entry saved under the *old* id for a display now living under a
-    /// different id must not be migrated onto that display: its current id no longer
-    /// matches the legacy key, so nothing pairs it with a (possibly wrong) uuid.
+    /// After a reboot reassigns displayIDs, a legacy entry saved under the old id must not
+    /// migrate onto the display now living under a different id.
     func testReassignedDisplayIDDoesNotMigrateUnderNewIdentity() {
-        // Display "uuid-A" used to be id 1 (legacy key saved there); after reboot it is
-        // id 2, and nothing saved a legacy entry under id 2.
         let targets = GammaPersistenceKey.migrationTargets(
             liveDisplays: [(id: 2, uuid: "uuid-A")],
             legacyDisplayIDsWithSavedState: [1]

@@ -487,9 +487,11 @@ enum CrispControlCLIModel {
             retry automatically: run 'hdr get' first.
             """)
     ]
-    static let otherRows: [(usage: String, summary: String)] = [
-        ("help", "Show this help (also -h, --help)"),
-        ("version", "Show the Crisp version this tool ships with (also --version)")
+    static let otherRows: [(usage: String, arguments: String, summary: String)] = [
+        ("help", "", "Show this help (also -h, --help)"),
+        ("version", "", "Show the Crisp version this tool ships with (also --version)"),
+        ("skill show", "", "Print the agent skill for crispctl"),
+        ("skill install", "claude|codex", "Install that skill for Claude Code or Codex")
     ]
 
     static let intro = """
@@ -510,14 +512,14 @@ enum CrispControlCLIModel {
     /// theirs out. The detail lives on the group and command pages.
     static let help: String = {
         var lines = [intro, "", "Usage:  crispctl <command> <subcommand> [<args>]", ""]
-        let widths = columnWidths(entries.map(\.columns) + otherRows.map { ($0.usage, "") })
+        let widths = columnWidths(entries.map(\.columns) + otherRows.map { ($0.usage, $0.arguments) })
         for group in Group.allCases {
             lines.append(group.title + ":")
             for entry in entries where entry.group == group { lines.append(row(entry.columns, entry.summary, widths)) }
             lines.append("")
         }
         lines.append("Other commands:")
-        for other in otherRows { lines.append(row((other.usage, ""), other.summary, widths)) }
+        for other in otherRows { lines.append(row((other.usage, other.arguments), other.summary, widths)) }
         lines += ["", displayNote, "", contract, "", "Run 'crispctl <command> --help' for more information on a command."]
         return lines.joined(separator: "\n")
     }()
@@ -564,6 +566,8 @@ enum CrispControlCLIModel {
         case request(CrispControlRequest)
         case help(HelpTopic)
         case version
+        case showSkill
+        case installSkill(agent: String)
         case failure(String)
     }
     enum ResponseResult: Equatable { case success, serverFailure, invalid }
@@ -579,6 +583,7 @@ enum CrispControlCLIModel {
     }
     static func parse(arguments: [String]) -> ParseResult {
         if let help = helpRequest(arguments) { return help }
+        if let skill = skillRequest(arguments) { return skill }
         if let request = matchedRequest(arguments) { return .request(request) }
         return .failure(usageMessage(for: arguments))
     }
@@ -594,6 +599,16 @@ enum CrispControlCLIModel {
             .max { $0.words.count < $1.words.count }
         return .help(opened.map(HelpTopic.command) ?? .group(group))
     }
+    private static func skillRequest(_ arguments: [String]) -> ParseResult? {
+        guard arguments.first == "skill" else { return nil }
+        if arguments == ["skill", "show"] { return .showSkill }
+        if arguments.count == 3, arguments[1] == "install", skillFolders[arguments[2]] != nil {
+            return .installSkill(agent: arguments[2])
+        }
+        return .failure("usage: crispctl skill show or crispctl skill install claude|codex")
+    }
+    /// Where each agent reads user skills, relative to the home folder.
+    static let skillFolders = ["claude": ".claude/skills", "codex": ".agents/skills"]
     /// What a wrong invocation gets: the usage of the command it was closest to, or,
     /// for a word that is no command at all, where the commands are listed.
     static func usageMessage(for arguments: [String]) -> String {

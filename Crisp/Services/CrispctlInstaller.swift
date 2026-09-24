@@ -1,10 +1,8 @@
 import Foundation
 import os
 
-/// Puts the bundled crispctl on the PATH. Release builds carry it at
-/// Contents/MacOS/crispctl; installing is one symlink into /usr/local/bin, behind
-/// the same admin prompt the HiDPI override uses, because that directory is
-/// root-owned on a stock Mac. The Homebrew cask makes the same link on install.
+/// Puts the bundled crispctl (Contents/MacOS/crispctl) on the PATH via a symlink into
+/// /usr/local/bin, behind the same admin prompt as the HiDPI override (root-owned dir).
 @MainActor
 enum CrispctlInstaller {
     private static let log = Logger(subsystem: "com.crisp.app", category: "app")
@@ -25,9 +23,8 @@ enum CrispctlInstaller {
     }
 
     static func install() {
-        // Where /usr/local/bin belongs to the user (Intel Macs with Homebrew) the
-        // link needs no prompt, so try that first, the way VS Code's shell
-        // command install does; a stale link of ours is replaced on the way.
+        // Try unprivileged first (VS Code's shell command install does the same): works
+        // where /usr/local/bin belongs to the user, e.g. Intel Macs with Homebrew.
         let fm = FileManager.default
         if (try? fm.destinationOfSymbolicLink(atPath: linkPath)) != nil { try? fm.removeItem(atPath: linkPath) }
         if (try? fm.createSymbolicLink(atPath: linkPath, withDestinationPath: bundledPath)) != nil { return }

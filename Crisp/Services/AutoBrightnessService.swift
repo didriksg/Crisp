@@ -2,17 +2,16 @@ import Foundation
 import IOKit
 import CoreGraphics
 
-// DisplayServices private API, reads the builtin display's actual brightness
-// (0.0–1.0), the value the slider/keys/ambient sensor move. Primary read path:
-// CoreDisplay_Display_GetUserBrightness is pinned at 1.0 on macOS 26 (probe:
-// slider changes moved DisplayServices 0.97→0.72 while CoreDisplay stayed 1.0).
+// DisplayServices private API: the built-in's actual brightness (0.0-1.0),
+// the value the slider/keys/ambient sensor move. Primary read path; see
+// docs/brightness-notes.md (Auto brightness) for why CoreDisplay can't
+// substitute.
 private let _DisplayServices_GetBrightness: (@convention(c) (CGDirectDisplayID, UnsafeMutablePointer<Float>) -> Int32)? = {
     guard let handle = dlopen("/System/Library/PrivateFrameworks/DisplayServices.framework/DisplayServices", RTLD_LAZY) else { return nil }
     guard let sym = dlsym(handle, "DisplayServicesGetBrightness") else { return nil }
     return unsafeBitCast(sym, to: (@convention(c) (CGDirectDisplayID, UnsafeMutablePointer<Float>) -> Int32).self)
 }()
 // CoreDisplay private API, reads the user-set brightness of a display (0.0–1.0).
-// Loaded via dlsym at runtime to avoid linking against the private CoreDisplay framework.
 private let _CoreDisplay_GetBrightness: (@convention(c) (CGDirectDisplayID) -> Double)? = {
     guard let handle = dlopen("/System/Library/Frameworks/CoreDisplay.framework/CoreDisplay", RTLD_LAZY) else { return nil }
     guard let sym = dlsym(handle, "CoreDisplay_Display_GetUserBrightness") else { return nil }
@@ -70,17 +69,15 @@ final class AutoBrightnessService: ObservableObject, @unchecked Sendable {
     @Published private(set) var builtinBrightness: Double = 0
     private var lastAppliedBrightness: Double = -1
 
-    /// Per-display brightness offset from the built-in (percent = external - builtin),
-    /// captured while tracking; relative mode drives externals to builtin% + offset.
-    /// In-memory only; re-pinned on enable. Kept across disconnects on purpose so a
-    /// reconnected monitor gets the user's preferred offset back.
+    /// Per-display brightness offset from the built-in (external - builtin, in
+    /// percent); relative mode drives externals to builtin% + offset. In-memory
+    /// only, kept across disconnects so a reconnected monitor gets it back.
     private var offsets: [CGDirectDisplayID: Double] = [:]
     /// Set when tracking (re)starts (enable, or toggling relative on) so the next apply
     /// re-pins offsets from the current levels instead of moving anything.
     private var needsRebaseline = false
-    /// Last manual external-brightness adjustment. Absolute mode has no offset
-    /// re-pinning, so a 30s grace keeps auto-sync from fighting the user's hand
-    /// on the slider; the eventual re-sync is that mode's contract.
+    /// Last manual external-brightness adjustment; absolute mode's 30s grace
+    /// (applyBrightness) keeps auto-sync from fighting the user's hand.
     private var lastExternalManualAdjust: Date?
 
     /// Set to true after the first poll attempt completes (success or failure).
@@ -90,7 +87,7 @@ final class AutoBrightnessService: ObservableObject, @unchecked Sendable {
     // MARK: - Private
 
     private var pollingTask: Task<Void, Never>?
-    private let pollingInterval: TimeInterval = 2.0  // seconds
+    private let pollingInterval: TimeInterval = 2.0
     /// Observes live built-in brightness pushes so externals sync the instant the
     /// built-in moves; the 2s poll stays on as a fallback heartbeat.
     private var builtinChangeObserver: NSObjectProtocol?
@@ -117,13 +114,10 @@ final class AutoBrightnessService: ObservableObject, @unchecked Sendable {
             return nil
         }
 
-        // DisplayServices first: the only API that tracks the real brightness here.
-        // Trust its success code (== 0) and accept a value of 0 as a genuinely dark panel.
-        // Do NOT additionally require dsValue > 0 and fall through on a dark/failed read:
-        // the CoreDisplay fallback below is pinned at 1.0 on macOS 26, so falling through
-        // reported a bogus 100% and flipped externals UP to (100 - offset) when the built-in
-        // bottomed out. If DisplayServices is present but the read fails, report unavailable
-        // (nil) so externals hold, rather than emitting that bogus full-brightness reading.
+        // DisplayServices first: the only API that tracks the real brightness
+        // here. Trust its success code and accept 0 as genuinely dark; do not
+        // fall through to CoreDisplay on a dark-but-successful read (see
+        // docs/brightness-notes.md for the bogus-100% bug that caused).
         if let getBrightness = _DisplayServices_GetBrightness {
             var dsValue: Float = 0
             guard getBrightness(builtinID, &dsValue) == 0 else { return nil }
@@ -177,10 +171,9 @@ final class AutoBrightnessService: ObservableObject, @unchecked Sendable {
                 await self.applyBrightness(builtin: self.readBuiltinBrightness())
             }
         }
-        // Re-pin a display's offset when the user manually adjusts it, so relative mode
-        // holds their chosen level instead of overriding it after the cooldown.
-        // Synchronous (queue nil, on the posting thread) so the offset lands before any
-        // apply can use a stale one, that race is what the 30s cooldown used to mask.
+        // Re-pin a display's offset on manual adjustment. Synchronous (queue
+        // nil): the offset must land before any apply can read it, or the 30s
+        // cooldown only masks the underlying race (docs/brightness-notes.md).
         externalAdjustObserver = NotificationCenter.default.addObserver(
             forName: .crispExternalManualAdjust, object: nil, queue: nil
         ) { [weak self] note in
@@ -195,10 +188,9 @@ final class AutoBrightnessService: ObservableObject, @unchecked Sendable {
                 self.offsets[id] = value - builtinPct
             }
         }
-        // A manual built-in change is the user's intent, not the ambient signal. Re-pin
-        // offsets so externals hold and the offset absorbs the change. Set synchronously
-        // (queue nil, on the posting thread) so it lands before the built-in subscription's
-        // apply runs and drags the externals.
+        // A manual built-in change is the user's intent, not the ambient
+        // signal: re-pin so externals hold. Synchronous so it lands before
+        // the built-in subscription's apply runs and drags the externals.
         builtinAdjustObserver = NotificationCenter.default.addObserver(
             forName: .crispBuiltinManualAdjust, object: nil, queue: nil
         ) { [weak self] _ in
@@ -234,14 +226,12 @@ final class AutoBrightnessService: ObservableObject, @unchecked Sendable {
 
         guard let builtin, builtin > 0 else { return }
 
-        // Only apply if builtin brightness changed more than 2% since last application,
-        // unless forced (the user just flipped relative<->absolute, so externals must
-        // re-aim now instead of waiting for the next built-in change).
+        // Only apply on a >2% built-in change, unless forced (a relative<->absolute
+        // toggle, which must re-aim externals now).
         guard force || abs(builtin - lastAppliedBrightness) >= 0.02 else { return }
 
-        // Absolute mode: a fresh manual external adjustment wins for 30s (relative mode
-        // absorbs it into the offset instead). A forced apply is a deliberate mode
-        // toggle, so it bypasses the grace.
+        // Absolute mode: a fresh manual external adjustment wins for 30s
+        // (relative mode absorbs it into the offset instead); forced bypasses it.
         if !force, !relativeMode, let last = lastExternalManualAdjust,
            Date().timeIntervalSince(last) < 30 { return }
 
@@ -257,7 +247,6 @@ final class AutoBrightnessService: ObservableObject, @unchecked Sendable {
             BrightnessService.shared.linearBrightness(for: $0.displayID)
         }
         for display in snapshot {
-            // Only sync to external (non-builtin) displays.
             guard !display.isBuiltin else { continue }
 
             let target: Double
@@ -268,17 +257,14 @@ final class AutoBrightnessService: ObservableObject, @unchecked Sendable {
                     offsets[display.displayID] = display.brightness - builtinPct
                 }
                 let offset = offsets[display.displayID] ?? 0
-                // Clamp to the display's own ceiling, not a literal 100: while
-                // Extra Brightness is on, the pinned offset can place the target
-                // in the boost region, and capping at 100 would silently drag a
-                // boosted display back down on every built-in change.
+                // Clamp to the display's own ceiling, not a literal 100: with
+                // Extra Brightness on, 100 would drag a boosted display down.
                 target = min(display.maxBrightness, max(0.0, builtinPct + offset))
             } else if let builtinLinear,
                       let builtinMaxNits = builtinDisplay?.nominalMaxNits,
                       let externalMaxNits = display.nominalMaxNits {
-                // Absolute means absolute luminance, not equal slider percentages.
-                // The built-in curve is highly nonlinear, so derive DDC percent
-                // from estimated nits using the same calibration as Combined.
+                // Absolute means absolute luminance, not equal slider percentages
+                // (see docs/brightness-notes.md); same calibration as Combined.
                 let matched = CombinedBrightnessMath.externalBrightnessMatchingBuiltin(
                     builtinLinear: builtinLinear,
                     builtinMaxNits: builtinMaxNits,
@@ -292,10 +278,9 @@ final class AutoBrightnessService: ObservableObject, @unchecked Sendable {
 
             let current = display.brightness
             if abs(current - target) >= 2.0 {
-                // Short glide, just enough to smooth the DDC steps (~0.4s is about the
-                // DDC write floor). The built-in subscription re-aims this continuously
-                // as the panel moves, so the stream of updates is the motion; the old
-                // 1.6s (tuned for the 2s poll) just made the external trail the built-in.
+                // Short glide (~0.4s, the DDC write floor): the built-in
+                // subscription re-aims continuously, so a longer duration
+                // makes the external trail it (docs/brightness-notes.md).
                 BrightnessService.shared.setBrightnessSmooth(
                     target, for: display, isAutoAdjust: true, duration: 0.4)
             }
@@ -322,10 +307,9 @@ final class AutoBrightnessService: ObservableObject, @unchecked Sendable {
         if UserDefaults.standard.object(forKey: relativeKey) != nil {
             relativeMode = UserDefaults.standard.bool(forKey: relativeKey)
         } else if UserDefaults.standard.object(forKey: enabledKey) != nil {
-            // Upgrade migration: prior installs (enabledKey persisted before relativeMode
-            // existed) used Auto Brightness under the absolute-mirror behavior; keep it
-            // instead of silently switching them to relative offsets. Fresh installs
-            // (no keys at all) keep the relative default.
+            // Upgrade migration: installs from before relativeMode existed used
+            // absolute-mirror behavior; keep it instead of silently switching
+            // them to relative offsets. Fresh installs keep the relative default.
             relativeMode = false
         }
     }

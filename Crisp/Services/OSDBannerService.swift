@@ -3,83 +3,46 @@ import SwiftUI
 import CoreImage
 
 /// Draws Crisp's own on-screen display on macOS 26, in the style of the
-/// system's brightness and volume capsule under the menu bar. OSDUIHelper,
-/// which BrightnessHUDService still calls on macOS 14 and 15, draws the
-/// pre-Tahoe bottom-centre bezel on 26, and the system's own capsule
-/// (Control Center's SystemBanner) has no third-party entry point (#76).
+/// system's brightness and volume capsule under the menu bar. OSDUIHelper
+/// draws the pre-Tahoe bezel instead on macOS 14 and 15 (BrightnessHUDService);
+/// the system's own capsule has no third-party entry point (#76).
 ///
-/// One panel per screen, created on first use and never ordered out: a
-/// surface that samples what is behind it replays its materialize bloom when
-/// it comes back on screen (see the menu panel notes in AppDelegate), so
-/// hidden means alpha 0. Screens that vanish get their panel closed on the
-/// next show.
+/// One panel per screen, created on first use and never ordered out (alpha 0
+/// when hidden): showing it again would replay its materialize bloom.
 @available(macOS 26.0, *)
 @MainActor
 final class OSDBannerService {
     static let shared = OSDBannerService()
     private init() {}
 
-    /// Measured from the native capsule on 26.5.1, at rest: 10 pt in from
-    /// the right screen edge, 10 pt below the menu bar, corner radius 20 with
-    /// a continuous curve. The 292 x 64 size lives on the view. Read off the
-    /// lit columns of both capsules over a banded backdrop: the HUD's run
-    /// ends one pixel further right than this one's did at inset 11, and both
-    /// runs are the same 292 wide.
-    ///
-    /// Measure the native capsule at rest, a second after the key press: it
-    /// settles down from above over the first half second, and a frame caught
-    /// during that settle reads 2 pt narrower, 1 pt shorter and rounder than
-    /// the capsule the eye actually sees.
-    /// How far the capsule stays from the side edge: the system's HUD on
-    /// macOS 27 sits 17 pt in, measured on the same screen with both capsules
-    /// up. Older releases keep the 10 the bezel was measured at.
+    /// Capsule geometry at rest, fitted to the native capsule on 26.5.1:
+    /// inset from the trailing screen edge, below the menu bar, corner
+    /// radius. macOS 27 moves the trailing inset in from 10 to 17.
+    /// Measured: see docs/osd-notes.md (Capsule geometry).
     static var trailingInset: CGFloat { drawsMacOS27Capsule ? 17 : 10 }
     static let topInset: CGFloat = 10
     static let cornerRadius: CGFloat = 20
-    /// The capsule's tone, as one grey over the backdrop. The system HUD reads
-    /// 0.657 x backdrop + 31 on a flat backdrop, so the grey is mixed to draw
-    /// the same line: alpha 0.343 leaves that slope, and white 0.355 under it
-    /// puts the offset at 31. Measured back over a black, a mid grey and a
-    /// light backdrop the banner lands on 31, 129 and 184, the HUD's own
-    /// three. The same line is applied inside the backdrop's own filters (see
-    /// makeToneFilters); this layer is what draws it if that layer is missing.
-    /// macOS 27 draws a slightly lighter capsule: measured settled over
-    /// backdrops of 0 to 255 its body follows 0.675 x backdrop + 32, where
-    /// 26.5.1 followed 0.657 x backdrop + 31.
+    /// The capsule's tone: one grey mixed to match the system HUD's line over
+    /// a flat backdrop; slightly lighter on macOS 27.
+    /// Measured: see docs/osd-notes.md (Capsule tone).
     static var scrimColor: NSColor {
         drawsMacOS27Capsule ? NSColor(white: 0.386, alpha: 0.325)
                             : NSColor(white: 0.355, alpha: 0.343)
     }
-    /// What the capsule does to the colour behind it, which the grey alone
-    /// cannot do. A grey at alpha 0.343 keeps 0.657 of the backdrop's colour
-    /// away from grey; the HUD keeps 1.26 of it, so a coloured window behind
-    /// the banner stayed noticeably duller than behind the HUD. Measured on
-    /// four saturated backdrops the HUD lands on the same brightness line as
-    /// this one to a tenth of a level and multiplies what is left of the colour by
-    /// 1.26 every time, so the sample is saturated by 1.26 / 0.657 after the
-    /// grey. Over a strong green the HUD reads 17, 168, 55 and so does this.
+    /// How much of the backdrop's own colour the grey scrim leaves; saturated
+    /// back up to match the HUD, or a coloured window under the capsule reads
+    /// noticeably duller than behind the HUD.
+    /// Measured: see docs/osd-notes.md (Backdrop saturation).
     static let backdropSaturation = 1.26 / (1 - 0.343)
 
-    /// Accessibility > Display > Reduce transparency, which the system's own
-    /// capsule follows and this one has to follow with it. Measured on 26.5.1
-    /// over flat backdrops of 0, 115, 179 and 255 the HUD draws 26, 54, 70 and
-    /// 89 with the setting on, a line of 0.247 in + 26 where it otherwise draws
-    /// 0.657 in + 31, so the capsule is much darker. It still tracks what is
-    /// behind it, so this is a heavier blur and a darker line and not a flat
-    /// fill: the backdrop keeps none of its detail (0.09, 0.17, 0.19 and 0.26
-    /// of the energy a page of text carries at 2, 4, 8 and 16 pixels, against
-    /// 1.00, 2.26, 3.15 and 4.23 with the setting off). The colour survives at
-    /// a lower saturation, measured the same way over a green, a red and a
-    /// blue: the HUD keeps 1.65 of what the line leaves, not 1.92.
+    /// Accessibility > Display > Reduce Transparency: darker scrim, lower
+    /// saturation, heavier blur, flat badge tones, all fitted to the system
+    /// HUD under that setting.
+    /// Measured: see docs/osd-notes.md (Reduce transparency).
     static let reducedScrimColor = NSColor(white: 0.135, alpha: 0.753)
     static let reducedSaturation = 1.65
     /// Enough to leave the backdrop no detail at all, as the HUD's does.
     static let reducedBlurRadius: CGFloat = 20
-    /// The close badge under the same setting: the system's is a flat disc
-    /// with no rim, the same over every backdrop, and it still follows the
-    /// appearance. Measured over a black and a white backdrop in both: disc
-    /// 242 with a 122 cross in the light appearance, 20 with a 149 cross in
-    /// the dark.
     static func reducedBadgeDisc(dark: Bool) -> NSColor {
         NSColor(white: dark ? 0.078 : 0.949, alpha: 1)
     }
@@ -89,128 +52,36 @@ final class OSDBannerService {
     static var reduceTransparency: Bool {
         NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
     }
-    /// The HUD softens its backdrop, and that is most of what tells the two
-    /// apart over a real window. Nothing public blurs the way it does, so the
-    /// layer samples its backdrop at reduced resolution, as the HUD does, and
-    /// blurs the smaller sample.
-    ///
-    /// The measure is the energy in each scale band inside the capsule, over
-    /// the same page of text behind both. Band k is boxmean(k) - boxmean(2k):
-    /// a cumulative measure, the energy above each scale, piles every finer
-    /// band into each number, so all five come out in the same ratio and say
-    /// nothing. The page has to be dense, since a sparse one lets the bare
-    /// strips the measure reads fall between lines and the HUD's own number
-    /// moves 16 percent run to run.
-    ///
-    /// Across 1-2, 2-4, 4-8, 8-16 and 16-32 pixels the HUD reads 2.56, 2.65,
-    /// 3.21, 3.37 and 3.25: nearly flat. A gaussian is not flat, so no single
-    /// radius holds both ends. 2.0 is three and a half times too soft at 1-2
-    /// pixels. 1.0 lands the two fine
-    /// bands (2.33 and 2.71) and runs about half again too sharp at the coarse
-    /// ones, and it is the best of the sweep by a wide margin.
-    ///
-    /// What would fit is a mix, about 43 percent of the unblurred half
-    /// resolution sample over 57 percent of a heavy blur, which reproduces all
-    /// five bands. It cannot be built. Three mechanisms were measured and all
-    /// three are inert: the glass filter's own five-level blur pyramid
-    /// (inputBlurRadius with inputBlurOpacity0...4 and inputBlurDistance0...4)
-    /// changes nothing at any radius, with or without distances and with or
-    /// without the face; the layer's opacity does not mix a sharp share in
-    /// either, since at 0.90 the profile is identical to 1.0; and stacking two
-    /// backdrop layers
-    /// does not mix, because the upper one samples what is already composited
-    /// below it.
-    ///
-    /// The radius is not a smooth dial. It is quantised somewhere inside the
-    /// filter: 0.6 measures as unblurred, and 0.8 is far sharper than 1.0.
-    /// macOS 27 softens the backdrop far more than 26 did. Measured as the
-    /// share of a bar pattern that survives behind the capsule, 8 pt from
-    /// crest to crest: the system draws 0.29 there and 1.0 drew 0.57. The dial
-    /// is still not smooth, 1.1 through 1.8 all land between 0.37 and 0.41,
-    /// and 2.0 is the first value that meets it at 0.27.
+    /// How the backdrop is blurred to match the HUD's softening: sampled at
+    /// reduced resolution, radius chosen from a per-scale-band sweep (no
+    /// build reaches the true fit), heavier on macOS 27.
+    /// Measured: see docs/osd-notes.md (Backdrop blur radius).
     static let backdropScale = 0.5
     static var backdropBlurRadius: Double { drawsMacOS27Capsule ? 2.0 : 1.0 }
-    /// The system capsule was redrawn on macOS 27: it softens its backdrop
-    /// more, and its rim follows the edge direction instead of running white
-    /// all the way round. Everything fitted on 26.5.1 stays for macOS 26,
-    /// which is what this tells apart.
+    /// True from macOS 27 on, where the system redrew the capsule: softer
+    /// backdrop, and a rim that follows the edge instead of a flat white ring.
     static let drawsMacOS27Capsule = SystemLook.isMacOS27OrLater
     /// One point, as on 26.
     static let rimWidth: CGFloat = 1.15
     static let rimInset: CGFloat = 0
-    /// The rim colour, added on rather than blended over, and the same line
-    /// along the top and the bottom edge. Over a flat backdrop the system's
-    /// two edges read alike: over 29 its top row is 136 and its bottom 134
-    /// with the body at 57, and over 199 both clip at 255 with the body at
-    /// 172. A white blended over cannot draw that pair, since the 0.40 that
-    /// lands on 136 over the dark backdrop draws 205 over the light one. An
-    /// added line holds the same 79 levels on both.
-    ///
-    /// Over a busy backdrop the system's top row does run brighter than its
-    /// bottom (125 levels over the body against 80), but that is the glass
-    /// pulling the backdrop behind it into the edge, so it follows what is
-    /// behind rather than the edge itself.
-    ///
-    /// Nothing is drawn down the two rounded ends. The system's ends do run
-    /// dark, about 65 levels under the body, but that is the glass view's own
-    /// edge, which this one draws too: the two land on 57 and 118 against the
-    /// system's 52 and 116. A dark layer on top of it reaches a second pixel
-    /// inwards (63 against the system's 116 over a mid grey), which is a
-    /// border the system's capsule does not have.
+    /// The rim: an additive white line (not blended) along the top and bottom
+    /// edge only, with a short inner glow, fitted to the system HUD.
+    /// Measured: see docs/osd-notes.md (Rim colour and glow).
     static let rimEdgeColor = NSColor(white: 1, alpha: 0.27)
-    /// The glow just inside the top and the bottom edge: about 25 levels at
-    /// the first row under the rim, gone by the sixth.
     static let rimGlowColor = NSColor(white: 1, alpha: 0.15)
     static let rimGlowShare = 0.10
-    /// Where the edge gradient reaches its own colour, as a share of the
-    /// width: the system is at its full edge value 40 pt in from a corner
-    /// (0.14 of 288).
     static let rimEdgeShare = 0.06
-    /// How far the edge bends its backdrop, and over how many points. Both are
-    /// fitted against the HUD's own bend, measured as displacement rather than
-    /// by eye: a stripe backdrop of one period behind both capsules, and the
-    /// phase of that pattern read column by column in from the edge. The HUD
-    /// pulls its backdrop 4.8 pt sideways at the strongest point, 8 pt in from
-    /// the edge, and lets go 26 pt in. This pair draws 4.3 pt at the same
-    /// place and lets go in the same column, with the HUD's second, weaker
-    /// shoulder at 15 pt in as well. The height is not a dial: 16 bends
-    /// nothing at all and 30 folds the backdrop over itself, so it stays at
-    /// 20, which is what the system's own glass carries, and the amount does
-    /// the fitting. The amounts the system's own glass variants carry, -26 to
-    /// -80, move this backdrop by well under a point.
-    ///
-    /// Refitted on the tone the edge actually shows, which the displacement
-    /// alone missed: over a backdrop of 16 pt bands, how far each column in
-    /// from the edge sits off the flat tone the middle of the capsule holds.
-    /// The HUD reads 33, 27, 22, 20, 19, 18, 13, 11 and 11 levels off at 2 to
-    /// 10 pt in; -110 read 35, 30, 27, 22, 20, 19, 17, 14 and 12, a quarter
-    /// strong the whole way in, which is the dark band the eye finds along
-    /// the bottom edge over a bright window. This amount reads 32, 27, 21,
-    /// 21, 20, 17, 14, 12 and 11: within a level of the HUD at every column.
+    /// How far and over how many points the edge bends the backdrop, fitted
+    /// to the HUD's own bend.
+    /// Measured: see docs/osd-notes.md (Refraction amount and height).
     static let refractionAmount = -80.0
     static let refractionHeight = 20.0
     /// The window level OSDUIHelper and Control Center draw their capsule at.
     static let windowLevel = NSWindow.Level(rawValue: 2005)
-    /// Entry, hold and exit fitted to the system HUD, measured frame by
-    /// frame on 26.5.1 as the tone the screen actually shows. The capsule
-    /// fades in over 0.55 s on a curve with a slow start, while it grows in
-    /// from 11 pt narrower and 2 pt shorter on each side and settles down
-    /// 5.5 pt over 0.35 s, easing out. It holds 1 s after the last press,
-    /// then lifts back and shrinks a little further than it grew from (14 by
-    /// 3 pt a side) over 0.45 s, and fades on its own curve, which falls fast
-    /// and tails off: the system's takes 163 ms from four fifths of its tone
-    /// to one fifth and 291 ms to a twentieth, and this one 163 and 297.
-    ///
-    /// One fade carries the whole capsule, grey included: a separate, slower
-    /// animation on the grey brings the backdrop in ahead of the tone, which
-    /// reads as the banner arriving sharp. Every curve was fitted against the
-    /// native capsule on the same backdrop, so change them by measuring, not
-    /// by taste.
-    /// macOS 27 takes its time over the same three stages. Measured frame by
-    /// frame at 60 fps over the same backdrop, with one press and nothing else
-    /// moving on screen: the system capsule holds its tone 530 ms after it
-    /// first shows where this one held at 310, and it is off screen 1233 ms
-    /// after it arrives where this one had gone at 1016.
+    /// Entry, hold and exit timings and curves, fitted frame by frame to the
+    /// system HUD; macOS 27 runs the same three stages slower. Change these
+    /// by measuring, not by taste.
+    /// Measured: see docs/osd-notes.md (Entry, hold and exit timings).
     static var visibleDuration: TimeInterval { drawsMacOS27Capsule ? 0.98 : 1.0 }
     static var fadeInDuration: TimeInterval { drawsMacOS27Capsule ? 0.68 : 0.55 }
     static let fadeInCurve = CAMediaTimingFunction(controlPoints: 0.4, 0.05, 0.2, 0.9)
@@ -219,10 +90,6 @@ final class OSDBannerService {
     static let fadeOutCurve = CAMediaTimingFunction(controlPoints: 0.2, 0.65, 0.35, 1)
     static let exitShrinkDuration: TimeInterval = 0.45
     static let exitShrinkCurve = CAMediaTimingFunction(controlPoints: 0.2, 0.4, 0.3, 1)
-    /// How much smaller the capsule opens. macOS 27 opens from further in:
-    /// the system capsule is invisible for its first 137 ms and comes into
-    /// view at 266 pt wide, 28 under its settled 294, and takes until 520 ms
-    /// to close that.
     static var entryInset: CGSize { drawsMacOS27Capsule ? CGSize(width: 38, height: 8) : CGSize(width: 11, height: 2) }
     static let exitInset = CGSize(width: 14, height: 3)
     static let hiddenLift: CGFloat = 5.5
@@ -277,12 +144,9 @@ final class OSDBannerService {
     }
 
     /// Centred on Crisp's menu bar item, under the menu bar (visibleFrame
-    /// excludes it), and never closer than `trailingInset` to either side
-    /// edge. Measured on the system HUD: the brightness capsule's centre sits
-    /// on the Display control's, to half a point, and the volume capsule sits
-    /// at the trailing inset because centring it on the Sound control would
-    /// take it past the screen edge. With no item to measure, the top right
-    /// corner, which is where the banner always sat before.
+    /// excludes it), never closer than `trailingInset` to either side edge.
+    /// Falls back to the top right corner with no item to centre on.
+    /// Measured: see docs/osd-notes.md (Capsule geometry).
     static func frame(on screen: NSScreen, centredOn midX: CGFloat?) -> NSRect {
         let width = OSDBannerView.size.width
         let corner = screen.frame.maxX - trailingInset - width
@@ -299,31 +163,13 @@ final class OSDBannerService {
             .insetBy(dx: -windowMargin, dy: -windowMargin)
     }
 
-    /// Whether `screen` is showing a full-screen space, which the system places
-    /// its own capsule by: measured on 26.5.1 over a full-screen window, the
-    /// HUD centres on the screen's midline to the point, instead of hanging
-    /// under a menu bar item. It has to, since the bar and every item on it
-    /// move to another screen while a space is full screen, and the banner
-    /// would otherwise fall back to the corner and sit half a screen from the
-    /// HUD. Note this is only for a real full-screen space: a screen whose menu
-    /// bar has simply moved away keeps the corner, which is where the system
-    /// puts its capsule then too.
-    ///
-    /// The signal is a window covering the display exactly, owned by an app
-    /// with a Dock tile, since only those take a space full screen. A zoomed
-    /// window stops short of the menu bar and does not match, and nothing
-    /// covers a display exactly in the ordinary case (measured in both
-    /// states). An accessory app's window can, though: the Cua Driver desktop
-    /// tool keeps an empty overlay over a whole display while it runs, and
-    /// without the owner check the banner centred on the midline, 708 pt from
-    /// its item.
-    ///
-    /// The answer is held briefly per display. This runs on every key press,
-    /// and the window list is a round trip to the window server: usually about
-    /// 1.3 ms here, but measured at 53 ms on a bad one with only thirty
-    /// windows open, which on a held key is a visible hitch in the fade the
-    /// press itself is driving. A space takes far longer than the hold to come
-    /// and go, so a stale answer inside it cannot be wrong in practice.
+    /// Whether `screen` is showing a full-screen space: the system then
+    /// centres its capsule on the midline instead of hanging under the menu
+    /// bar item, which moves off that screen. Only a window owned by an app
+    /// with a Dock tile counts, or a borderless overlay (e.g. Cua Driver)
+    /// misdetects as full screen. Cached briefly per display since the window
+    /// list is a window-server round trip.
+    /// Measured: see docs/osd-notes.md (Full-screen detection).
     private static var fullScreenCache: [CGDirectDisplayID: (value: Bool, at: Date)] = [:]
     private static let fullScreenCacheLife: TimeInterval = 0.5
 
@@ -350,12 +196,10 @@ final class OSDBannerService {
         return covered
     }
 
-    /// Where Crisp's menu bar item sits on `screen`, or nil when there is no
-    /// item to hang under. The item is on one screen at a time and the menu
-    /// bar carries the same items on all of them, so its offset from the right
-    /// edge holds on the others; AppDelegate.positionPanel mirrors the menu
-    /// panel the same way. An item the menu bar has no room for keeps a window
-    /// away from the bar, which the last guard drops.
+    /// Where Crisp's menu bar item sits on `screen`, or nil with nothing to
+    /// hang under (also nil when the bar has no room for the item). The
+    /// offset from the right edge holds across screens; AppDelegate.
+    /// positionPanel mirrors it the same way.
     private func anchorMidX(on screen: NSScreen) -> CGFloat? {
         guard let window = statusItem?.button?.window,
               let itemScreen = window.screen,
@@ -363,19 +207,17 @@ final class OSDBannerService {
         return screen.frame.maxX - (itemScreen.frame.maxX - window.frame.midX)
     }
 
-    /// Lights the menu bar item while the banner holds, and puts it out as the
-    /// banner starts to leave, not when it has gone: measured on the system's
-    /// own, its item goes dark between 0.85 and 0.95 seconds after the press,
-    /// while its capsule is still half there. One timer for every screen, so a
-    /// press anywhere pushes the light out again, like the hide timer.
+    /// Lights the menu bar item while the banner holds, and dims it as the
+    /// banner starts to leave rather than once it is gone, matching the
+    /// system. One timer for every screen: a press anywhere pushes it out.
+    /// Measured: see docs/osd-notes.md (Menu bar item light).
     private func light() {
         unlightWork?.cancel()
         setHighlight?(true)
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
-            // A banner the pointer is on holds itself up, and the system's own
-            // item stays lit through that, measured 2.25 seconds after the
-            // press. The light goes out with the hold that follows the leave.
+            // A banner the pointer is on holds itself up; the light follows,
+            // going out only with the hold after the leave.
             guard !self.panels.values.contains(where: { $0.model.hovering }) else { return }
             self.setHighlight?(false)
         }
@@ -404,25 +246,19 @@ final class OSDBannerService {
         setHighlight?(false)
     }
 
-    /// Takes every banner away at once. Crisp's own panel carries the same
-    /// value on its own slider, so a banner already up when the panel opens is
-    /// noise over it, and it floats above the panel: BrightnessHUDService
-    /// keeps a new one away and calls this for the ones that are there.
+    /// Takes every banner away at once. Called by BrightnessHUDService.suppressed
+    /// when Crisp's own panel opens, since a banner already up would float above it.
     func hideVisible() {
         for panel in panels.values where panel.alphaValue > 0 {
             panel.dismiss()
         }
     }
 
-    /// The layer the capsule blurs its backdrop with. Nothing public blurs
-    /// this gently: every NSGlassEffectView material and every
-    /// NSVisualEffectView material takes the same 204-level step below 20,
-    /// against the HUD's 37, and a Core Image filter over the backdrop cannot
-    /// touch it, because the window server composites the backdrop, not this
-    /// process. CABackdropLayer is private, so it is asked for by name and
-    /// every step of the lookup may fail; without it the banner keeps the
-    /// scrim alone, which holds the tone exactly and only leaves the backdrop
-    /// sharp.
+    /// The layer the capsule blurs its backdrop with. No public blur draws
+    /// this gently, so CABackdropLayer is asked for by name (private, so any
+    /// step of the lookup may fail); without it the banner falls back to the
+    /// scrim alone, tone correct but with a sharp backdrop.
+    /// Measured: see docs/osd-notes.md (Backdrop layer).
     private static func makeBackdrop(frame: NSRect) -> CALayer? {
         guard let tone = makeToneFilters() else { return nil }
         let blur = reduceTransparency ? reducedBlurRadius : backdropBlurRadius
@@ -447,11 +283,9 @@ final class OSDBannerService {
         else { return nil }
         let backdrop = backdropClass.init()
         backdrop.frame = frame
-        // Also private, and the layer works without them, so each is only set
-        // where it exists. windowServerAware is what the system's own glass
-        // sets on its backdrop layer (dumped from a live NSGlassEffectView):
-        // without it the sample is the app's own view of what is behind the
-        // window, which goes stale when nothing on screen changes.
+        // Also private; each is set only where it exists. Without
+        // windowServerAware the sample goes stale when nothing on screen
+        // changes (see docs/osd-notes.md, Backdrop layer).
         if backdrop.value(forKey: "scale") != nil {
             backdrop.setValue(backdropScale, forKey: "scale")
         }
@@ -474,38 +308,17 @@ final class OSDBannerService {
         return backdrop
     }
 
-    /// The close badge's own tone line. The system's badge does not sit on the
-    /// capsule at all: it samples the desktop the way the capsule does and
-    /// lays its own line over it. Measured over flat backdrops of five tones,
-    /// its disc reads 187, 203, 230 and 249 where the desktop reads 56, 116,
-    /// 183 and 255, which is out = 0.31 in + 170. No white at any alpha over
-    /// the capsule can draw that: it takes alpha 0.65 to land on 203 in the
-    /// middle and 0.90 to land on 249 at the top, so over a light desktop a
-    /// flat badge reads as a grey disc where the system's is nearly clear.
-    /// The pair is not that line: the filters do not realise what they are
-    /// asked for (0.31 and 0.667 measure as 0.219 and 0.648), so both were
-    /// fitted against the system's badge over the same backdrops.
-    ///
-    /// The system's badge follows the system appearance, which is the whole
-    /// reason there are two pairs here: over the same grey backdrop its disc
-    /// reads 187 in light and 88 in dark. Swept over four backdrops in each
-    /// appearance, in one run per pair on the same screen, its line is
-    /// 0.431 in + 150 light and 0.510 in + 23 dark, and these pairs land on
-    /// 0.433 in + 150 and 0.510 in + 21. Within 6 levels at every backdrop,
-    /// which is the curve the system's own line carries and a multiply and an
-    /// add cannot draw.
-    ///
-    /// What is still not matched: near the far end of each appearance the
-    /// system sometimes swaps to the other look, a light disc in dark over a
-    /// backdrop of 166 and a dark one in light under about 35. It is not a
-    /// fixed threshold, since the same 166 backdrop left the dark look in place
-    /// on a later run. Following it at all needs the backdrop's own level,
-    /// which only Screen Recording gives.
+    /// The close badge's own tone line: it samples the desktop like the
+    /// capsule and lays a line over it, fitted separately per appearance
+    /// since the system badge follows light/dark independently of the
+    /// capsule. Still not matched: the system occasionally swaps look near
+    /// the far end of an appearance, at no fixed threshold.
+    /// Measured: see docs/osd-notes.md (Badge tone).
     private static func badgeTone(dark: Bool) -> (multiply: Double, add: Double) {
         dark ? (multiply: 0.636, add: 0.012) : (multiply: 0.562, add: 0.539)
     }
-    /// Heavier than the capsule's: over a checkerboard the system's badge
-    /// leaves 3 levels of the backdrop's 59, where the capsule leaves 15.
+    /// Heavier than the capsule's own blur.
+    /// Measured: see docs/osd-notes.md (Badge tone).
     private static let badgeBlurRadius: CGFloat = 8
     private static func makeBadgeBackdrop(frame: NSRect, dark: Bool) -> CALayer? {
         guard let multiply = makeFilter("multiplyColor"),
@@ -517,12 +330,9 @@ final class OSDBannerService {
                             tone: [multiply, add], refract: false)
     }
 
-    /// The grey and the colour, as filters over the sampled backdrop rather
-    /// than as a layer over it. Order matters: the grey's line has to be drawn
-    /// first and the colour lifted on what it leaves, because saturating the
-    /// backdrop first drives a strong colour past black in one channel and
-    /// clips it. Multiply then add is that line, mixed from the same grey the
-    /// fallback layer uses.
+    /// The grey and the colour, as filters over the sampled backdrop. Order
+    /// matters: multiply (the grey) must run before saturate, or saturating a
+    /// strong colour first clips it past black in one channel.
     private static func makeToneFilters() -> [NSObject]? {
         guard let multiply = makeFilter("multiplyColor"),
               let add = makeFilter("colorAdd"),
@@ -536,14 +346,11 @@ final class OSDBannerService {
         return [multiply, add, saturate]
     }
 
-    /// Every fallback below this depends on it returning nil for a filter the
-    /// system does not have, and two things had to be added for that to be
-    /// true. The selector is checked, because performing a missing one raises
-    /// and takes the app down on the first key press rather than degrading.
-    /// And the name is checked against the system's own list, because
-    /// filterWithName: answers ANY name with a live object whose inputKeys are
-    /// empty: without this a renamed filter would leave the capsule with no
-    /// grey and no bend, and nothing would return nil to say so.
+    /// Every fallback below depends on this returning nil for a filter the
+    /// system lacks. The selector is checked first, since performing a
+    /// missing one crashes rather than degrading; the name is checked
+    /// against the system's own list, since filterWithName: returns a live
+    /// but inert object for any name at all.
     private static func makeFilter(_ name: String) -> NSObject? {
         guard let filterClass = NSClassFromString("CAFilter") as? NSObject.Type,
               filterClass.responds(to: NSSelectorFromString("filterWithName:")),
@@ -564,20 +371,12 @@ final class OSDBannerService {
         return Set(names)
     }()
 
-    /// Bends the backdrop into the capsule's edge, the way a real edge of
-    /// glass would. The HUD does this and it is the last thing that tells the
-    /// two apart on a patterned backdrop: behind the HUD a straight line
-    /// curves along the inside of the edge, behind a plain masked capsule it
-    /// runs straight into a hard cut.
-    ///
-    /// This is the system's own glass filter. It reads the shape it bends
-    /// around from a distance-field layer, which is why it draws nothing on a
-    /// bare backdrop layer, so the shape layer goes in as a named sublayer
-    /// and the filter is pointed at it. The face is left off: the flat grey
-    /// carries the tone, and the filter's own face colour never applied here.
-    ///
-    /// Every class and key is private. Any of them missing leaves the banner
-    /// with the blurred backdrop and no bend, which is where it was before.
+    /// Bends the backdrop into the capsule's edge, the way real glass would;
+    /// on a patterned backdrop this is the last thing that tells the capsule
+    /// apart from the HUD. This is the system's own glass filter: it reads
+    /// its bend shape from a distance-field sublayer (a bare backdrop layer
+    /// draws no bend). Every class and key is private; any missing one leaves
+    /// the banner with the blurred backdrop and no bend.
     private static func makeRefraction(on backdrop: CALayer, frame: NSRect) -> NSObject? {
         guard let sdfClass = NSClassFromString("CASDFLayer") as? CALayer.Type,
               let elementClass = NSClassFromString("CASDFElementLayer") as? CALayer.Type,
@@ -599,10 +398,9 @@ final class OSDBannerService {
         shape.addSublayer(holder)
         backdrop.addSublayer(shape)
         filter.setValue(shapeName, forKey: "inputSourceSublayerName")
-        // This filter carries a blur of its own, and its default is heavy:
-        // left alone it takes the banner to 5.2 of the backdrop's fine
-        // structure where the HUD leaves 15.4. The gaussian above it is the
-        // one that is fitted, so this one is off.
+        // This filter's own blur is heavy by default; the gaussian above it
+        // is the one that is fitted (see docs/osd-notes.md, Refraction
+        // amount and height), so this one is off.
         filter.setValue(0.0, forKey: "inputBlurRadius")
         filter.setValue(1.0, forKey: "inputRefractionOpacity")
         filter.setValue(refractionAmount, forKey: "inputInnerRefractionAmount")
@@ -619,10 +417,9 @@ final class OSDBannerService {
         screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID
     }
 
-    /// Reduce transparency changes what a panel draws, and every filter is set
-    /// when its layers are made, so the panels are dropped and built again the
-    /// first time the banner comes up after the setting moves. Nothing watches
-    /// the setting: there is no work to do while no banner is on screen.
+    /// Every filter is baked in when a panel's layers are made, so panels are
+    /// dropped and rebuilt the first time a banner shows after Reduce
+    /// Transparency changes; nothing watches the setting while none is up.
     private func dropPanelsIfTransparencyChanged() {
         guard builtReduced != Self.reduceTransparency else { return }
         builtReduced = Self.reduceTransparency
@@ -640,9 +437,9 @@ final class OSDBannerService {
         }
     }
 
-    /// How far the window reaches past the capsule on every side. The close
-    /// badge hangs 2.5 points over the corner and its shadow reaches 30 past
-    /// it, and a window cut to the capsule clips both off.
+    /// How far the window reaches past the capsule on every side, for the
+    /// close badge and its shadow.
+    /// Measured: see docs/osd-notes.md (Window margin and badge).
     static let windowMargin: CGFloat = 30
 
     /// The window is the capsule with that margin around it.
@@ -658,9 +455,8 @@ final class OSDBannerService {
         root.bounds.insetBy(dx: Self.windowMargin, dy: Self.windowMargin)
     }
 
-    /// The close badge, centred 6.5 points in from the capsule's top left
-    /// corner and 18 across, so it hangs 2.5 points over the corner. Measured
-    /// on the system HUD over a flat backdrop.
+    /// The close badge's frame, centred near the capsule's top left corner.
+    /// Measured: see docs/osd-notes.md (Window margin and badge).
     private static func badgeRect(in root: NSView) -> NSRect {
         let capsule = capsuleRect(in: root)
         return NSRect(x: capsule.minX + OSDBadgeView.centreInset - OSDBadgeView.size / 2,
@@ -720,13 +516,10 @@ final class OSDBannerService {
         root.addSubview(glassView ?? clip)
 
         let hosting = NSHostingView(rootView: OSDBannerView(model: p.model))
-        // Every colour in the banner is explicit, so the appearance only
-        // reaches what the system draws itself, which is the held knob's
-        // glass. That has to be the light one: the system's own slider knob
-        // lifts its backdrop, and dark glass over the capsule's own tone is
-        // invisible (measured 102 where the body reads 100). The appearance
-        // goes here and not on the panel: the capsule takes its own tone from
-        // the grey, and an appearance on the panel would tint that too.
+        // Colours are explicit everywhere except the held knob's glass, which
+        // needs the light appearance: dark glass over the capsule's own tone
+        // is invisible. Set here, not on the panel, since a panel appearance
+        // would also tint the grey.
         hosting.appearance = NSAppearance(named: .darkAqua)
         // No intrinsic-size constraints: the content follows the window
         // through the entry grow and the exit shrink.
@@ -735,12 +528,11 @@ final class OSDBannerService {
         hosting.autoresizingMask = [.width, .height]
         root.addSubview(hosting)
 
-        // Hover is read here and not with SwiftUI's own onHover: onHover wants
-        // a key window, and this panel is key only while the pointer is
-        // already on it, so a tracking area set to be always active is what
-        // sees the pointer arrive. The view takes no
-        // clicks (hitTest returns nil), so the track's drag still lands.
-        // Three points out, so the badge hanging over the corner is inside it.
+        // Read here, not with SwiftUI's onHover: that wants a key window, and
+        // this panel is only key while the pointer is already on it. hitTest
+        // returns nil so clicks fall through to the track and the badge.
+        // Three points wider than the capsule, so the corner-hanging badge
+        // stays inside it.
         let hover = BannerHoverView(frame: Self.capsuleRect(in: root).insetBy(dx: -3, dy: -3))
         hover.autoresizingMask = [.width, .height]
         hover.onHover = { [weak p] inside in p?.setHovering(inside) }
@@ -772,11 +564,9 @@ final class OSDBannerService {
         root.addSubview(badge)
         p.badge = badge
 
-        // The native capsule carries a rim one point wide along its edge,
-        // drawn here over the capsule and its content. Measured at rest it
-        // lifts the capsule 74 levels over a black backdrop, 47 over a mid
-        // grey and 28 over a light one, which is white blended over, not
-        // added: a flat alpha fits all three.
+        // The rim: one point wide, drawn over the capsule and its content,
+        // white blended over on macOS 26.
+        // Measured: see docs/osd-notes.md (Rim colour and glow).
         //
         // macOS 27 redrew that rim: it is bright along the straight top and
         // bottom and dark down the two rounded ends, so OSDBevelView draws it
@@ -825,14 +615,12 @@ struct OSDGlass {
     let rim: CALayer
     let bevel: NSView
 
-    /// The layer that carries the view's glass filter, set up so that every
-    /// filter it is given is tuned. The view writes a new filter at each size
-    /// change (its blur follows its size, 5.7 at 260 pt wide to 6.1 at 288),
-    /// from SwiftUI's render pass, after any layout hook: a tuning put back
-    /// from outside lost to it on every other frame of the entry's grow and
-    /// the exit's shrink, and the glass flashed. So the layer tunes the filter
-    /// as it is set. Nil if the view has no such filter, and the banner then
-    /// shows the view as it draws itself.
+    /// The layer carrying the view's glass filter, tuned as it is set. The
+    /// view rewrites its filter on every size change from SwiftUI's render
+    /// pass, after any layout hook, so a tuning applied from outside is lost
+    /// on alternating frames of the grow and shrink (the glass flashed); this
+    /// class tunes it at write time instead. Nil if the view has no such
+    /// filter.
     func tunedBackdrop() -> CALayer? {
         view.layoutSubtreeIfNeeded()
         guard let layer = Self.backdrop(in: view.layer),
@@ -925,10 +713,8 @@ struct OSDGlass {
 }
 
 /// The window is bigger than the capsule so the badge and its shadow have
-/// room (see OSDBannerService.windowMargin), and a banner that is up takes
-/// mouse events. This hands back everything outside the capsule, or the
-/// margin would swallow clicks on the menu bar above the banner and on the
-/// desktop around it.
+/// room (see windowMargin). This hands back everything outside the capsule,
+/// or the margin would swallow clicks on the menu bar and desktop around it.
 @available(macOS 26.0, *)
 final class BannerRootView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? {
@@ -997,22 +783,10 @@ final class OSDBadgeView: NSView {
         applyAppearance()
     }
 
-    /// The two looks the system's badge has. In light it is a light disc with
-    /// a dark cross and in dark the mirror of that, over the same backdrop:
-    /// measured over a grey desktop its disc reads 187 against 88 and its
-    /// cross flips with it. The tone lives in OSDBannerService.badgeAdd; here
-    /// are the ink and the rim.
-    ///
-    /// The ink is half the disc's way to black or to white, and it is the disc
-    /// it goes half way from, not a flat grey: over four backdrops in each
-    /// appearance the system's cross reads 0.491 to 0.502 of the way down in
-    /// light and 0.551 to 0.555 of the way up in dark.
-    ///
-    /// The rim is the disc's own edge, lit. The alpha is what it measures
-    /// rather than what it is asked for, since a one point border is half
-    /// covered by its own anti-aliasing: 0.66 lands on the 0.485 of the disc's
-    /// headroom the system's rim carries in light, and the dark rim carries
-    /// only 0.20 of it (measured 88 over a disc of 46, and 71 over 30).
+    /// The two looks the system badge has: a light disc with a dark cross, or
+    /// the mirror in dark, over the same backdrop. Ink and rim tone live
+    /// here; the disc's own tone is in OSDBannerService.badgeTone.
+    /// Measured: see docs/osd-notes.md (Badge tone).
     private func applyAppearance() {
         let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
         let reduced = OSDBannerService.reduceTransparency
@@ -1032,29 +806,14 @@ final class OSDBadgeView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("not used") }
 
-    /// The shadow the system's badge sits on, which is what makes it an object
-    /// over a light desktop rather than a disc that disappears into it. A
-    /// radial gradient, masked to the outside of the disc, since the disc is a
-    /// backdrop sample and lets whatever is under it through, which took ten
-    /// levels off its own tone.
-    ///
-    /// The alphas are the system's own, read as a drop profile: over a flat
-    /// backdrop, how far the screen sits below it ring by ring, in the quadrant
-    /// up and left of the disc where nothing but desktop is behind. Taken that
-    /// way the system's shadow is a black at 0.079 one point outside the disc,
-    /// 0.044 five points out, 0.024 eleven out and 0.007 twenty-two out, which
-    /// is the same profile over two backdrops. Read it there and not by eye:
-    /// the near end is what reads as a drawn circle, not the reach, and a tail
-    /// a third to a half too strong from eleven points out is what reads too
-    /// wide. A blur instead of a gradient
-    /// does not do it either, since the tail is far longer than any blur's.
-    ///
-    /// The dark appearance carries its own, weaker profile, which the same
-    /// measurement gives: 0.048 a point out where light has 0.079, and it is
-    /// gone by twenty points out where light still carries 0.024.
+    /// The shadow the badge sits on: a radial gradient masked to outside the
+    /// disc, since the disc itself is a backdrop sample and lets what's under
+    /// it through. Its alpha ring is fitted to the system badge's own drop
+    /// profile, which differs between light and dark.
+    /// Measured: see docs/osd-notes.md (Badge shadow).
     private static let shadowReach: CGFloat = 36
-    /// Points out from the centre, as fractions of the reach: 9, 10, 12, 14,
-    /// 17, 20, 24, 28, 31, 34, 36. Inside 9 is the disc, which the mask cuts.
+    /// Points out from the centre, as fractions of the reach. Inside 9 is the
+    /// disc, which the mask cuts.
     private static let shadowLocations: [CGFloat] = [
         0.25, 0.278, 0.333, 0.389, 0.472, 0.556, 0.667, 0.778, 0.861, 0.944, 1.0
     ]
@@ -1087,12 +846,10 @@ final class OSDBadgeView: NSView {
         return shadow
     }
 
-    /// The glyph over the disc. Its weight is what fits it: the system's
-    /// covers 29 pixels at 1x and its ink adds up to about 1900 levels below
-    /// the disc, where 9 point bold covers 29 at 1975 and every lighter weight
-    /// leaves the X too thin (8.5 regular covers 19 at 1003). Half a point over
-    /// the 9 the ink fit asked for. Its colour follows the appearance, see
-    /// applyAppearance.
+    /// The glyph's weight is fitted so its ink covers as much of the disc as
+    /// the system's own glyph does; lighter weights read as too thin. Colour
+    /// follows the appearance, see applyAppearance.
+    /// Measured: see docs/osd-notes.md (Badge glyph).
     func addGlyph() {
         let config = NSImage.SymbolConfiguration(pointSize: 9.5, weight: .bold)
         guard let image = NSImage(systemSymbolName: "xmark", accessibilityDescription: nil)?
@@ -1100,12 +857,10 @@ final class OSDBadgeView: NSView {
         let view = NSImageView(image: image)
         view.contentTintColor = Self.inkColour(
             dark: effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua)
-        // Centred on the X's own crossing point, which is what the eye reads
-        // as the middle of the badge. SF Symbols carry their own bearings, so
-        // the ink is not in the middle of the image they hand over, and a
-        // hand-measured nudge does not survive a size change (or a screen: at
-        // one pixel a point a half point moves nothing at all). This asks the
-        // image where its ink is.
+        // Centred on the X's own crossing point, not the image's bounding
+        // box: SF Symbols carry their own bearings, so a hand-measured nudge
+        // would not survive a size or screen change. This reads the ink's
+        // actual position from the rendered image instead.
         let ink = Self.inkOffset(of: image)
         view.frame = bounds.offsetBy(dx: -ink.x, dy: -ink.y)
         view.imageScaling = .scaleNone

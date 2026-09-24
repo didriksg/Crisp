@@ -4,9 +4,8 @@ import IOKit.pwr_mgt
 // ponytail: session-only + prevent-display-sleep only. Persist across launches or add a
 // system-only ("let the screen dim") mode if asked; both are a few lines here.
 /// Holds an IOKit power assertion that keeps the display (and, implicitly, the system)
-/// awake while active. Session-only: not persisted, so a fresh launch starts inactive.
-/// The assertion is released automatically when the process exits, so quitting Crisp can
-/// never strand the Mac awake.
+/// awake while active. Session-only; the assertion releases automatically on exit, so
+/// quitting Crisp can never strand the Mac awake.
 @MainActor
 final class KeepAwakeService: ObservableObject {
     static let shared = KeepAwakeService()
@@ -15,11 +14,9 @@ final class KeepAwakeService: ObservableObject {
     @Published private(set) var isActive = false
     private var assertionID: IOPMAssertionID = 0
 
-    /// True when an admin has switched Keep Awake off for this Mac: a configuration profile
-    /// for the `com.crisp.app` domain carrying `crisp.disableKeepAwake` = true. Managed
-    /// values land in UserDefaults on their own and outrank the user's own preferences, so
-    /// a `defaults write` cannot switch it back on. The Tools row is hidden rather than
-    /// greyed out; there is no room in the panel to explain who turned it off. (issue #70)
+    /// True when a configuration profile sets `crisp.disableKeepAwake` = true; managed
+    /// values outrank the user's own, so a `defaults write` cannot switch it back on.
+    /// The Tools row is hidden rather than greyed out. (issue #70)
     static var isDisabledByPolicy: Bool {
         UserDefaults.standard.bool(forKey: "crisp.disableKeepAwake")
     }

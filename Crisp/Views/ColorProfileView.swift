@@ -1,8 +1,8 @@
 import SwiftUI
 
 /// Color profile selection as a native checkmarked list (same style as the
-/// resolution and preset lists), grouped into Recommended / All Profiles like
-/// the system Displays panel; checkmark on the active profile.
+/// resolution and preset lists): a flat list scoped to this display, like
+/// macOS's display color dropdown; checkmark on the active profile.
 struct ColorProfileView: View {
     @ObservedObject var display: DisplayInfo
     /// The parent row's subtitle; updated here so it refreshes immediately on switch.
@@ -26,8 +26,6 @@ struct ColorProfileView: View {
                 .padding(.leading, 24)
                 .padding(.vertical, 6)
             } else {
-                // Flat list, like macOS's display color dropdown, no Recommended /
-                // All grouping. The list is already scoped to this display.
                 ForEach(profiles) { profile in
                     CheckmarkRow(label: profile.name, isSelected: profile.path == selectedPath) {
                         select(profile)

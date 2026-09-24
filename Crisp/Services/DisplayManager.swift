@@ -2,8 +2,7 @@ import Foundation
 import CoreGraphics
 import AppKit
 
-// Global C-compatible callback for display reconfiguration.
-// Must be a top-level function (not a closure) to be used as a C function pointer.
+// Must be a top-level function, not a closure, to be used as a C function pointer.
 private func displayReconfigCallback(
     displayID: CGDirectDisplayID,
     flags: CGDisplayChangeSummaryFlags,
@@ -12,36 +11,26 @@ private func displayReconfigCallback(
     guard let ptr = userInfo else { return }
     let manager = Unmanaged<DisplayManager>.fromOpaque(ptr).takeUnretainedValue()
 
-    // .movedFlag fires when a display's origin changes (a rearrange, in Crisp or
-    // in System Settings). Without it the arranger keeps rendering stale bounds.
+    // .movedFlag: without it the arranger keeps rendering stale bounds after a rearrange.
     let relevant: CGDisplayChangeSummaryFlags = [.addFlag, .removeFlag, .setMainFlag, .setModeFlag, .movedFlag]
     guard !flags.isDisjoint(with: relevant) else { return }
-
-    // Skip the begin-configuration notification; only act when the change is complete.
-    // (beginConfigurationFlag is set at the start of a transaction; absence means it finished.)
     guard !flags.contains(.beginConfigurationFlag) else { return }
 
     Task { @MainActor in
         ReconfigEvents.shared.resolve(displayID: displayID, flags: flags)
         if flags.isDisjoint(with: [.addFlag, .removeFlag, .movedFlag]) {
-            // Mode or main-display change: refresh mode info for existing displays only.
             manager.refreshExistingDisplayModes()
         } else {
-            // Add/remove/move: rebuild so display bounds (arrangement) are current;
-            // refreshExistingDisplayModes doesn't re-read bounds.
+            // refreshExistingDisplayModes doesn't re-read bounds, so add/remove/move needs a rebuild.
             manager.refreshDisplays()
         }
     }
 }
 
-/// Awaitable one-shot bridge over the CG reconfiguration callback: suspend
-/// until `displayID` posts a completed event matching `flags`, or the timeout
-/// elapses (returns false). Replaces blind sleeps and polls for "the display
-/// left the online list" / "the mode change landed". Events are not replayed,
-/// so callers must check their condition right before awaiting; on a MainActor
-/// caller that check-then-await is race-free (the resolving callback also runs
-/// on the main actor), elsewhere the timeout bounds the miss at the old
-/// fixed-sleep cost.
+/// Awaitable bridge over the CG reconfiguration callback: suspend until `displayID` posts a
+/// completed event matching `flags`, or the timeout elapses. Replaces blind sleeps/polls.
+/// Events aren't replayed, so callers must check their condition right before awaiting; a
+/// MainActor caller is race-free with the resolving callback, others bound the miss to `timeout`.
 @MainActor
 final class ReconfigEvents {
     static let shared = ReconfigEvents()
@@ -93,13 +82,11 @@ class DisplayManager: ObservableObject {
     /// detail and Resolution section, landing the user back where they were. Cleared once applied.
     @Published var pendingResolutionExpandUUID: String?
 
-    /// What each external display ID named at the last refresh: vendor, product,
-    /// serial and channel location. A reconfiguration only invalidates the DDC
-    /// transport for the IDs whose fingerprint changed or went away, so an add or
-    /// move elsewhere cannot cancel a write in flight to an untouched display.
+    /// What each external display ID named at the last refresh, so only the IDs whose
+    /// fingerprint actually changed invalidate their DDC transport (not an untouched display).
     private var externalChannelFingerprints: [CGDirectDisplayID: String] = [:]
 
-    // nonisolated(unsafe) allows deinit (which is nonisolated in Swift 6) to access this value.
+    // nonisolated(unsafe) so deinit (nonisolated in Swift 6) can access this.
     nonisolated(unsafe) private var callbackContext: UnsafeMutableRawPointer?
     nonisolated(unsafe) private var screenParamsObserver: NSObjectProtocol?
 
@@ -107,11 +94,9 @@ class DisplayManager: ObservableObject {
         PhysicalDisplayToggleService.shared.displayManager = self
         refreshDisplays()
         setupReconfigCallback()
-        // On connect, the CG reconfiguration callback fires before AppKit's
-        // NSScreen.screens includes the new display, so DisplayInfo.init can miss
-        // the monitor's localized name and fall back to "Display N" for good.
-        // AppKit posts this notification exactly when its screen list is current,
-        // which is the first moment the lookup is guaranteed to see the display.
+        // The CG reconfiguration callback fires before NSScreen.screens includes a new
+        // display, so DisplayInfo.init can miss its localized name; this notification is the
+        // first moment AppKit's screen list is guaranteed current.
         screenParamsObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
             object: nil,
@@ -131,9 +116,8 @@ class DisplayManager: ObservableObject {
         }
     }
 
-    /// Re-resolve display names against the now-current NSScreen list, replacing
-    /// any "Display N" fallback a connect-time race left behind (and tracking
-    /// renames macOS applies to its own list).
+    /// Replaces a "Display N" fallback left by the connect-time race (see init), and
+    /// tracks renames macOS applies to its own list.
     private func refreshDisplayNames() {
         for display in displays where !display.isBuiltin {
             if let real = NSScreen.screen(for: display.displayID)?.localizedName,
@@ -143,12 +127,8 @@ class DisplayManager: ObservableObject {
         }
     }
 
-    /// Invalidates the DDC transport only for the external IDs whose physical channel
-    /// changed: an ID that left the online list, a new one, or one that now names a
-    /// different panel (identity or location). Invalidating every online display instead
-    /// would cancel a pending write, a running fade, and the software fallback of a
-    /// display the user is dragging right now, just because another display was plugged,
-    /// unplugged or rearranged.
+    /// Invalidates DDC only for externals whose physical channel actually changed, not every
+    /// online display, so plugging in one monitor can't cancel a pending write or fade on another.
     private func invalidateDDCTopologyForChangedChannels(online newIDSet: Set<CGDirectDisplayID>) {
         var fingerprints: [CGDirectDisplayID: String] = [:]
         for id in newIDSet where CGDisplayIsBuiltin(id) == 0 && !MirroredModeService.isMirrorVirtual(id) {
@@ -165,8 +145,8 @@ class DisplayManager: ObservableObject {
         BrightnessService.shared.invalidateDDCTopology(for: changed)
     }
 
-    /// Identity plus channel location. Two identical monitors share vendor, product and
-    /// (often) serial, so the location is what tells them apart when macOS swaps their IDs.
+    /// Identity plus location: two identical monitors share vendor/product/serial, so
+    /// location is what tells them apart when macOS swaps their IDs.
     private func externalChannelFingerprint(for displayID: CGDirectDisplayID) -> String {
         let location = DDCService.shared.channelLocation(for: displayID) ?? ""
         return "\(CGDisplayVendorNumber(displayID))/\(CGDisplayModelNumber(displayID))"
@@ -174,11 +154,8 @@ class DisplayManager: ObservableObject {
     }
 
     func refreshDisplays() {
-        // Display IDs can be reshuffled across a reconnect storm with no ID
-        // ever leaving the online list (two panels swapping IDs), so the
-        // per-removed-ID cleanup below can miss a now-crossed channel map.
-        // Always drop the whole map; it lazily rebuilds with identity
-        // matching on the next DDC operation.
+        // Display IDs can be reshuffled across a reconnect storm with no ID leaving the
+        // online list, so drop the whole channel map; it lazily rebuilds on the next DDC op.
         DDCService.shared.invalidateAllChannelMappings()
 
         var displayCount: UInt32 = 0
@@ -190,7 +167,6 @@ class DisplayManager: ObservableObject {
         let newIDSet = Set((0..<Int(displayCount)).map { displayIDs[$0] })
         invalidateDDCTopologyForChangedChannels(online: newIDSet)
 
-        // Clean up DDC cache for removed displays to prevent stale entries accumulating
         let removedIDs = currentIDs.subtracting(newIDSet)
         removedIDs.forEach {
             DDCService.shared.clearCache(for: $0)
@@ -199,13 +175,11 @@ class DisplayManager: ObservableObject {
             BrightnessBoostService.shared.invalidate(for: $0)
             VolumeService.shared.invalidate(for: $0)
         }
-        // A mirrored physical unplugged, or its virtual master dying, must drop
-        // the mirror bookkeeping (and the orphan virtual with it). Checked against
-        // the online list, not removedIDs: the mirror virtual is never in
-        // `displays` (skipped below), so its death would not show up there.
+        // Checked against the online list, not removedIDs: the mirror virtual is never in
+        // `displays`, so its death wouldn't show up there otherwise.
         MirroredModeService.shared.reconcile(online: newIDSet)
 
-        // Diff-based refresh: keep existing DisplayInfo objects (preserves @Published state)
+        // Keep existing DisplayInfo objects to preserve @Published state.
         let existingByID = Dictionary(uniqueKeysWithValues: displays.map { ($0.displayID, $0) })
 
         var updatedDisplays: [DisplayInfo] = []
@@ -213,8 +187,7 @@ class DisplayManager: ObservableObject {
 
         for i in 0..<Int(displayCount) {
             let id = displayIDs[i]
-            // A mirror virtual (#65) is a rendering trick, not a display: keep it out
-            // so no view, preset, brightness path, or the arranger ever sees one.
+            // A mirror virtual (#65) is a rendering trick, not a display: keep it out entirely.
             if MirroredModeService.isMirrorVirtual(id) { continue }
             if let existing = existingByID[id] {
                 updatedDisplays.append(existing)
@@ -237,13 +210,9 @@ class DisplayManager: ObservableObject {
         for display in addedDisplays {
             Task { await BrightnessService.shared.refreshBrightness(for: display) }
             VolumeService.shared.refreshVolume(for: display)
-            // Monitors often answer DDC with nothing (or garbage) for the first
-            // seconds after link training, and a failed connect-time read has no
-            // retry: with auto-brightness on the panel poll skips externals, so a
-            // stale slider seed would stick until the next panel open. One delayed
-            // re-read heals it; the adopt deadband makes it a no-op if the first
-            // read was fine. Volume rides the same retry: a failed first probe
-            // would otherwise hide the slider until the next reconnect.
+            // Monitors often answer DDC with garbage for the first seconds after link
+            // training, and a failed connect-time read has no other retry; a delayed
+            // re-read heals a stale slider seed (no-op if the first read was fine).
             if !display.isBuiltin {
                 Task {
                     try? await Task.sleep(nanoseconds: 3_000_000_000)
@@ -253,13 +222,11 @@ class DisplayManager: ObservableObject {
             }
             Task {
                 await display.loadDetails()
-                // Auto-enable HiDPI for new external 2K+ displays that don't have it yet
                 if !display.isBuiltin {
                     await self.autoEnableHiDPIIfNeeded(for: display)
                 }
             }
-            // Restore saved gamma/software-brightness adjustments for the reconnected display.
-            // Brief delay lets WindowServer settle before we write transfer tables.
+            // Brief delay lets WindowServer settle before writing transfer tables.
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 300_000_000)
                 BrightnessService.shared.reapplySoftwareBrightnessIfNeeded(for: display)
@@ -267,73 +234,51 @@ class DisplayManager: ObservableObject {
             }
         }
 
-        // For displays that were already present, only update bounds/main flag (no DDC probe).
+        // Kept displays: only bounds/main flag, no DDC probe.
         let keptIDs = currentIDs.intersection(newIDSet)
         for display in updatedDisplays where keptIDs.contains(display.displayID) {
             display.bounds = CGDisplayBounds(display.displayID)
             display.isMain = CGDisplayIsMain(display.displayID) != 0
-            // Reconfigurations (mode switches, post-wake link retraining) can reset
-            // the transfer table macOS-side, losing gamma adjustments (issue #25).
-            // Restore any active adjustment, same as added displays already get;
-            // the in-memory reapply is a no-op when there is none.
+            // Reconfigurations can reset the transfer table macOS-side, losing gamma
+            // adjustments (issue #25); no-op when there's none to restore.
             GammaService.shared.reapply(for: display.displayID)
         }
 
-        // Keep the physical-disconnect list honest: drop any record whose display came back
-        // online (re-plugged, or macOS re-enabled it).
+        // Drops any physical-disconnect record whose display came back online.
         PhysicalDisplayToggleService.shared.reconcile()
-        // Runs on every refresh, but is a cheap no-op unless a soft reconnect's dead-man
-        // marker is set (mid-toggle crash, or a re-enable that failed outright). The service
-        // skips any display whose soft reconnect is still mid-blink, so this can't race a
-        // toggle's own retry loop even though the blink's reconfig events land here mid-toggle.
         Task { await PhysicalDisplayToggleService.shared.recoverStrandedSoftReconnect() }
-        // Same idea for mirror-mode strays: unmirror any panel a crashed session
-        // left mirroring one of our virtual displays. Cheap no-op otherwise.
         MirroredModeService.shared.recoverStrandedMirrors()
-        // A physical unplug bypasses disconnect()'s last-screen guard: internal disabled via
-        // Crisp + external cable pulled = zero active displays, all black. Bring one back.
+        // A physical unplug bypasses disconnect()'s last-screen guard. See docs/display-notes.md
+        // (restoreIfNoActiveDisplay).
         PhysicalDisplayToggleService.shared.restoreIfNoActiveDisplay()
 
-        // Keep the brightness observers on the current built-in and Apple displays so the
-        // slider tracks system brightness changes (keys, auto-brightness) live.
         BrightnessService.shared.startObservingNativeBrightness(for: displays)
     }
 
     /// Auto-enables HiDPI plist override for external 2K+ displays that don't have it yet.
-    /// This ensures switching between different monitors "just works" without manual re-enable.
     private func autoEnableHiDPIIfNeeded(for display: DisplayInfo) async {
         let vendor = display.vendorNumber
         let product = display.modelNumber
         guard vendor != 0, product != 0 else { return }
 
-        // Already enabled, nothing to do
         guard !HiDPIService.shared.isHiDPIEnabled(vendor: vendor, product: product) else { return }
 
-        // Determine native resolution from available modes
         let (nativeW, nativeH) = display.nativeResolution
 
-        // Only auto-enable for 2K+ displays (width >= 2560 or total pixels >= 2560*1440)
         guard nativeW >= 2560 || (nativeW * nativeH >= 2560 * 1440) else { return }
 
-        // CGS-direct already surfaces the panel's HiDPI scaled modes with no override (the normal
-        // case for 2K+ panels). When those are present, skip the override write + soft-reconnect
-        // entirely: no admin prompt, no blank. The override path below is only a fallback for a
-        // panel that genuinely lacks HiDPI in CGS.
+        // CGS-direct already surfaces HiDPI scaled modes with no override for most 2K+ panels;
+        // skip the write and its admin prompt/blank when that's already true.
         if display.availableModes.contains(where: {
             $0.isHiDPI && $0.pixelWidth >= nativeW && $0.width >= nativeW / 2
         }) { return }
 
-        // Install the dense smooth-scaling ladder directly, not just the coarse HiDPI set: this
-        // admin prompt is the one interruption, so make it deliver the full scaled slider in one
-        // shot. Anyone enabling HiDPI on a 2K+ external wants that range anyway.
-        // Panel-space dims: the override plist is rotation-blind (see panelNativeResolution).
+        // Installs the dense smooth-scaling ladder directly (not just coarse HiDPI), since the
+        // admin prompt is the one interruption. Panel-space dims: the plist is rotation-blind.
         let (panelW, panelH) = display.panelNativeResolution
         let err = HiDPIService.shared.enableSmoothScaling(
             vendor: vendor, product: product, nativeWidth: panelW, nativeHeight: panelH)
 
-        // On success, soft-reconnect so the freshly written override enumerates now (screen
-        // blanks ~1s), instead of the weak probe that left the modes dormant until a physical
-        // reconnect.
         if err == nil {
             await PhysicalDisplayToggleService.shared.softReconnect(display)
             HiDPIService.shared.refreshModes(for: display)
@@ -347,12 +292,10 @@ class DisplayManager: ObservableObject {
         CGDisplayRegisterReconfigurationCallback(displayReconfigCallback, ctx)
     }
 
-    /// Refreshes mode info and main-display flag for already-tracked displays
-    /// (for setModeFlag / setMainFlag events).
-    /// Cheaper than a full `refreshDisplays()`, does not add/remove DisplayInfo objects.
+    /// Cheaper than refreshDisplays(): refreshes mode/main-flag for tracked displays without
+    /// adding or removing DisplayInfo objects.
     func refreshExistingDisplayModes() {
         for display in displays {
-            // Always refresh isMain synchronously since it's cheap and needed for setMainFlag events.
             display.isMain = CGDisplayIsMain(display.displayID) != 0
             Task {
                 let newMode = await Task.detached(priority: .userInitiated) {
@@ -363,9 +306,7 @@ class DisplayManager: ObservableObject {
         }
     }
 
-    /// Disconnects a physical display from the layout (Apple Silicon only) via
-    /// PhysicalDisplayToggleService. Returns false if unsupported or refused (e.g. it would
-    /// leave no active display). The display list refreshes via the reconfiguration callback.
+    /// Returns false if unsupported or refused (e.g. it would leave no active display).
     @discardableResult
     func disconnectDisplay(_ display: DisplayInfo) async -> Bool {
         let result = await PhysicalDisplayToggleService.shared.disconnect(display)

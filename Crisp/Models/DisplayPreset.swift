@@ -29,8 +29,7 @@ struct DisplayPreset: Codable, Identifiable {
     var icon: String              // SF Symbol name
     var colorName: String? = nil  // chip color key; nil = default
     var displays: [DisplayPresetEntry]
-    /// Global shortcut that applies this preset; nil when not set. Old presets
-    /// decode as nil (issue #61).
+    /// Applies this preset; old presets decode as nil (#61).
     var shortcut: KeyboardShortcut? = nil
 
     // Which attributes this preset controls (derived from whether any entry stores one).
@@ -47,8 +46,7 @@ struct DisplayPreset: Codable, Identifiable {
     }
 }
 
-/// One toggleable attribute a preset can control. Used by the preset row's
-/// ⋯ menu to drop or re-add an attribute after the preset already exists.
+/// One toggleable attribute the preset row's ⋯ menu can drop or re-add.
 enum PresetCapture: String, CaseIterable, Identifiable {
     case resolution, brightness, arrangement
     var id: String { rawValue }

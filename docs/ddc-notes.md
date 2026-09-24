@@ -34,8 +34,8 @@ ships as a result. Read this before touching DDCService or chasing a
   bad header with the first six bytes, bad checksum, max 0), writes that
   failed all three attempts, the three-failure latch to gamma, HDR
   routing, read quarantine start and expiry, the map flush on
-  reconfiguration, any single I2C op over 500 ms, and the key tap
-  lifecycle. Per-write chatter sits at debug (memory only). The bug form
+  reconfiguration, any single I2C op over 500 ms (issue #72 saw 12 s reads),
+  and the key tap lifecycle. Per-write chatter sits at debug (memory only). The bug form
   asks reporters for `log show --last 30m --predicate 'subsystem ==
   "com.crisp.app"' --style compact`. Read that capture before asking
   questions; #14, #57 and #72 were each one capture's worth.
@@ -75,6 +75,22 @@ was showing. Also: it applies each brightness write with an internal
 fade, so rapid write streams (long slider drags) visibly flash as each
 write restarts the fade. Seen on other Dells too; accepted as a quirk.
 
+## AVService pairing (Apple Silicon)
+
+The DDC channel (DCPAVServiceProxy) and a display's identity (DisplayAttributes ->
+ProductAttributes) live in sibling subtrees under the same dispextN registry node;
+identity is never an ancestor of the AVService, so an upward parent-chain walk can't
+find it. `buildAVServiceMapByProximity` (DDCService.swift) does a single depth-first
+walk of the whole IOService plane instead, associating each AVService with the most
+recently seen identity (the same proximity strategy MonitorControl uses). Matching
+order: (1) stable CoreDisplay/IORegistry location, (2) vendor+product+non-zero serial
+then vendor+product, (3) traversal-order fallback for anything identity matching
+missed (e.g. two identical monitors that share vendor/product/serial). An earlier,
+ancestor-walk-based approach fell through to a sorted-CGDirectDisplayID index whenever
+the walk failed, which mis-paired channels and drove the wrong monitor; the sorted
+index doesn't track that the AVService order follows the framebuffer order within the
+same subtree, which is what proximity matching relies on instead.
+
 ## Failure classes and defenses
 
 | Failure | Symptom | Defense |
@@ -108,6 +124,14 @@ transaction has landed, and logs `waited N ms for DDC to go idle` past
 itself waits for whatever read or write is in flight with no Crisp-side
 bound, on purpose: a read that takes 6 s to give up costs 6 s of waiting,
 where issuing the transaction under it costs 6 s of a frozen Mac.
+
+Probing a channel whose display is off or wedged holds the same DCP I2C engine for
+about six seconds before it fails, so re-walking the registry for an unpaired display
+on every DDC op kept that engine busy for most of a refresh, and WindowServer's enable
+freezes behind it the same way (issue #33's shape; measured once as a 6 s freeze on a
+reconnect that landed inside a 6 s volume read). `DDCService.noChannelSince` remembers
+a miss for 20 s so a refresh does one walk instead of six, while still picking up a
+monitor that answers late.
 
 ## Rules of engagement
 

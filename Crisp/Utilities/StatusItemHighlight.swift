@@ -1,32 +1,13 @@
 import AppKit
 
 /// The lit pill behind Crisp's menu bar icon while the panel or the banner is
-/// up. macOS 26 and older get `NSStatusBarButton.highlight(_:)`, which paints
-/// nothing on macOS 27, so there the pill is drawn here.
-///
-/// The shape is the system's own, measured against a native item carrying the
-/// same symbol with its menu open: a plain capsule, corner radius half its
-/// height, inset 3 pt from the top and the bottom of the menu bar, and 2 pt
-/// wider than the item on each side.
-///
-/// It is drawn in the button's own layer. A window of its own over the menu
-/// bar shows up in a screen capture but not on the display, so that is not an
-/// option. The item's window clips at the item's edge, which
-/// would cost the pill those 2 pt on each side and cut the widest rows off the
-/// arc, so the window is widened by that much first.
-///
-/// It is added on rather than blended over. The system pill lifts the bar by a
-/// flat amount in all three channels, where a white at any alpha would lift
-/// the three by different amounts. Adding commutes, so the layer draws in
-/// front of the icon what the system draws behind it.
+/// up. `NSStatusBarButton.highlight(_:)` paints nothing on macOS 27, so there
+/// the pill is drawn here instead, in the button's own layer.
+/// See docs/panel-resize.md (StatusItemHighlight) for the measured shape and colors.
 enum StatusItemHighlight {
-    /// How far the pill stays from the menu bar's top and bottom edge, and how
-    /// far it runs past the item on each side.
     private static let barInset: CGFloat = 3
     private static let overhang: CGFloat = 2
 
-    /// How much the pill lifts the bar, in levels, measured off a native item
-    /// with its menu open on the same bar: 10, 11, 11 in the three channels.
     private static let lift: CGFloat = 11
 
     @MainActor
@@ -39,10 +20,8 @@ enum StatusItemHighlight {
         draw(lit, on: button)
     }
 
-    /// True while the pointer is over the item, taken as its whole window,
-    /// which is the area a press on the item lands in. The button's own rect
-    /// is not the same: it sits 2 pt above the menu bar and stops 4 pt short of
-    /// the window's bottom edge.
+    /// True over the item's whole window (the press area), not the button's own
+    /// smaller rect.
     @MainActor
     static func isPointerOver(_ button: NSStatusBarButton?) -> Bool {
         guard let window = button?.window else { return false }
@@ -65,9 +44,8 @@ enum StatusItemHighlight {
         layer.cornerRadius = frame.height / 2
     }
 
-    /// The pill in the button's own coordinates, after making room for it.
-    /// Taken from the menu bar rather than from the button, since the two are
-    /// not the same height and a bar with a notch above it is taller again.
+    /// The pill's frame in the button's own coordinates, sized off the menu bar
+    /// (not the button: a notched bar is a different height).
     @MainActor
     private static func frame(in button: NSStatusBarButton) -> CGRect? {
         guard let window = button.window, let screen = window.screen else { return nil }
@@ -82,11 +60,9 @@ enum StatusItemHighlight {
                       height: height)
     }
 
-    /// Widens the item's window by the overhang on each side, once, and gives
-    /// the button the new width. The item's length stays what it was, so the
-    /// icon keeps a native item's spacing in the bar. Called at setup, before
-    /// the item is ever lit: widening it moves the icon 2 pt, which must not
-    /// happen on the first click.
+    /// Widens the item's window by the overhang, once, so the pill isn't
+    /// clipped. Call before the item is ever lit: widening later visibly shifts
+    /// the icon.
     @MainActor
     static func makeRoom(for button: NSStatusBarButton?) {
         guard SystemLook.isMacOS27OrLater, let button, let window = button.window else { return }

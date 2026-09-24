@@ -31,11 +31,9 @@ extension DisplayPreset {
 // MARK: - PresetListView
 
 /// Section in MenuBarView listing user-created presets + Save Preset row.
-/// (Built-in Native/HiDPI segmented control has been moved to the HiDPI section in Settings.)
 struct PresetListView: View {
     @ObservedObject private var presetService = PresetService.shared
-    // Single open editor at a time (accordion): a row's edit form or the New
-    // Preset form, never both. Opening one collapses whatever else was open.
+    // Accordion: only one editor is open at a time (docs/DESIGN.md).
     @State private var activeEditor: PresetEditor?
 
     private var userPresets: [DisplayPreset] {
@@ -44,7 +42,6 @@ struct PresetListView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // User-created presets as rows
             ForEach(userPresets) { preset in
                 PresetRow(
                     preset: preset,
@@ -57,7 +54,6 @@ struct PresetListView: View {
                 )
             }
 
-            // Save preset button
             SavePresetView(isShowingForm: Binding(
                 get: { activeEditor == .new },
                 set: { activeEditor = $0 ? .new : nil }
@@ -88,9 +84,8 @@ struct PresetRow: View {
     /// otherwise flash the spinner for a frame every time its shortcut fires.
     @State private var showSpinner = false
 
-    /// Resolutions this preset will set, joined across displays. Shown as a hover
-    /// tooltip (.help) so the row stays compact and menu-like. nil when the preset
-    /// controls no resolution (brightness/arrangement-only), so no tooltip appears.
+    /// Resolutions this preset will set, joined across displays; shown as a hover
+    /// tooltip (.help) to stay compact. Nil when the preset sets no resolution.
     private var resolutionSummary: String? {
         let labels = preset.displays.compactMap { $0.width != nil ? $0.resolutionLabel : nil }
         return labels.isEmpty ? nil : labels.joined(separator: ", ")
@@ -113,8 +108,7 @@ struct PresetRow: View {
                     .transition(.opacity)
             }
         }
-        // Collapse the inline edit form when the panel closes, so it reopens
-        // fresh like the rest of the panel (fires while hidden).
+        // Collapse the inline edit form when the panel closes, so it reopens fresh.
         .onReceive(NotificationCenter.default.publisher(for: .crispPanelDidClose)) { _ in
             isEditing = false
         }
@@ -122,9 +116,8 @@ struct PresetRow: View {
             if applying {
                 Task {
                     try? await Task.sleep(for: .milliseconds(250))
-                    // Live service state, not the captured row value: a stale
-                    // read here would raise the spinner after a fast apply
-                    // already ended, with nothing left to lower it.
+                    // Live service state, not the captured row value: a stale read
+                    // would raise the spinner after a fast apply already ended.
                     if PresetService.shared.applyingPresetID == preset.id { showSpinner = true }
                 }
             } else {
@@ -136,8 +129,8 @@ struct PresetRow: View {
     private var rowContent: some View {
         HStack(spacing: 8) {
             if showSpinner {
-                // Same footprint as MenuItemIcon (26pt chip), or the swap dips
-                // the row height and the whole panel resizes for a beat.
+                // Same footprint as MenuItemIcon (26pt chip), or the row height
+                // dips and the panel resizes for a beat.
                 ProgressView()
                     .scaleEffect(0.7)
                     .frame(width: 26, height: 26)
@@ -152,16 +145,14 @@ struct PresetRow: View {
 
             Spacer()
 
-            // Assigned global shortcut, right-aligned like a native menu key
-            // equivalent (issue #61).
+            // Right-aligned like a native menu key equivalent (#61).
             if let combo = preset.shortcut?.display {
                 Text(verbatim: combo)
                     .font(.callout)
                     .foregroundColor(.secondaryReadable)
             }
 
-            // Slot stays reserved like the ⋯ below, so the shortcut glyphs don't
-            // shift when the checkmark comes and goes (issue #61).
+            // Slot stays reserved so glyphs don't shift when this comes and goes.
             Image(systemName: "checkmark")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundColor(.accentColor)
@@ -169,8 +160,7 @@ struct PresetRow: View {
                 .accessibilityHidden(!isCurrentMatch)
                 .accessibilityLabel("Currently active")
 
-            // Visible ⋯ menu, revealed on hover. Same actions as the right-click
-            // menu below, now discoverable.
+            // Revealed on hover; same actions as the right-click menu below.
             Menu {
                 rowActions
             } label: {

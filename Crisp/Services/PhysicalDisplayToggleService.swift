@@ -4,19 +4,12 @@ import ColorSync
 import IOKit
 import os.log
 
-/// Disconnects / reconnects REAL (physical) displays on the fly, the way BetterDisplay's
-/// "Disconnect Display" works. This is fundamentally different from VirtualDisplayService:
-/// there we create/destroy a CGVirtualDisplay object; here we toggle an existing hardware
-/// display in/out of the layout via the private SkyLight API `SLSConfigureDisplayEnabled`.
-///
-/// PLATFORM: Apple Silicon + macOS 13+ ONLY. On Intel the API does not perform a true
-/// disconnect. Everything is gated behind `isSupported`.
-///
-/// KEY QUIRK: once a display is disabled it disappears from `CGGetOnlineDisplayList`
-/// (and `CGGetActiveDisplayList`). To reconnect it we must find it again via
-/// `SLSGetDisplayList`, which still enumerates disabled displays. Because the disconnected
-/// display is also gone from DisplayManager's list, this service keeps its own snapshot
-/// (`disconnected`) of what we turned off so the UI can still offer a Reconnect action.
+/// Disconnects / reconnects REAL (physical) displays via the private SkyLight API
+/// `SLSConfigureDisplayEnabled`, the way BetterDisplay's "Disconnect Display" works.
+/// Apple Silicon only (`isSupported`); on Intel the API doesn't perform a true disconnect.
+/// A disabled display drops out of CGGetOnlineDisplayList/CGGetActiveDisplayList but still
+/// enumerates via SLSGetDisplayList, so `disconnected` keeps its own snapshot for the UI.
+/// See docs/display-notes.md (PhysicalDisplayToggleService).
 @MainActor
 final class PhysicalDisplayToggleService: ObservableObject {
     static let shared = PhysicalDisplayToggleService()
@@ -47,9 +40,8 @@ final class PhysicalDisplayToggleService: ObservableObject {
         case wouldLeaveNoActiveDisplay
         case configurationFailed(CGError)
         case displayNotFound
-        /// The 10s wrapper stopped waiting. It cannot cancel `CGCompleteDisplayConfiguration`,
-        /// so this says nothing about what the window server will do with the transaction: it
-        /// is the one failure that is not evidence the change did not take.
+        /// The 10s wrapper only stops waiting; it can't cancel CGCompleteDisplayConfiguration,
+        /// so this is not proof the change didn't take.
         case timedOut
 
         var description: String {
@@ -75,22 +67,15 @@ final class PhysicalDisplayToggleService: ObservableObject {
     @Published private(set) var disconnected: [DisconnectedDisplay] = []
 
     private let desiredKey = "crisp.PhysicalDisconnectedUUIDs"
-    /// Dead-man markers: the UUIDs of displays a softReconnect is (or was, if the app died)
-    /// mid-toggle on. A list, not a single slot: a manual smooth-scaling toggle and the
-    /// auto-HiDPI path (autoEnableHiDPIIfNeeded) can blink two different displays at once,
-    /// and each needs its own marker. See softReconnect / recoverStrandedSoftReconnect.
+    /// Dead-man markers for displays softReconnect is (or was, if the app died) mid-toggle on.
+    /// A list: two displays can blink at once. See softReconnect / recoverStrandedSoftReconnect.
     private let softReconnectPendingKey = "crisp.PhysicalDisplayToggleService.softReconnectPending"
-    /// UUIDs of displays whose softReconnect is mid-blink right now. Their markers above are
-    /// legitimately set for that whole window, and the blink's own removeFlag event fires
-    /// refreshDisplays (and thus recoverStrandedSoftReconnect) before the toggle finishes;
-    /// this keeps the recovery path and the sweep from re-enabling a display out from under
-    /// its own retry loop. Per-display, so concurrent blinks don't mask each other.
+    /// Displays whose softReconnect is mid-blink right now, so recovery and the disabled-display
+    /// sweep don't re-enable one out from under its own retry loop.
     private var softReconnectInFlight: Set<String> = []
-    /// UUIDs whose reconnect is running right now. `reconnect` only clears the record once
-    /// `setEnabled(true)` returns, and a reconfiguration callback inside that window runs
-    /// `refreshDisplays`, and therefore `reconcile`, which would find the display online with
-    /// its record still in place and switch it straight back off: the user clicks Reconnect
-    /// and nothing happens. The record is the wrong thing to read there, so read this instead.
+    /// UUIDs mid-reconnect right now. reconcile() must not read `disconnected` for these: a
+    /// reconfig callback firing before setEnabled(true) returns would see the record still in
+    /// place and switch the display straight back off.
     private var reconnectInFlight: Set<String> = []
 
     private func pendingSoftReconnectUUIDs() -> [String] {
@@ -115,10 +100,8 @@ final class PhysicalDisplayToggleService: ObservableObject {
 
     // MARK: - Logging
 
-    /// The disconnect path was the one display capability with no unified-log presence, which
-    /// left issue #33 (a whole-machine freeze on reconnect through a Lenovo hub) with only
-    /// WindowServer's half of the story: a 29.5 s silence in the reporter's capture and
-    /// nothing from us to say what we had asked for, or how long the ask took.
+    /// Every step here logs: issue #33 (a whole-machine freeze on reconnect) had only
+    /// WindowServer's side of the story. See docs/display-notes.md (PhysicalDisplayToggleService).
     private nonisolated static let log = Logger(subsystem: "com.crisp.app", category: "display")
 
     /// Matches DDCService's threshold so slow operations read the same across categories.
@@ -141,14 +124,12 @@ final class PhysicalDisplayToggleService: ObservableObject {
 
     // MARK: - Queries
 
-    /// True if the display is currently in our disconnected set.
     func isDisconnected(uuid: String) -> Bool {
         disconnected.contains { $0.uuid == uuid }
     }
 
-    /// True if disconnecting `display` right now would leave no *viewable* screen.
-    /// Virtual displays are excluded from the count on purpose: they are headless,
-    /// so leaving only a virtual display still blacks out the physical machine.
+    /// True if disconnecting `display` now would leave no *viewable* screen. Virtual displays
+    /// don't count: a headless virtual left alone still blacks out the physical machine.
     func wouldLeaveNoActiveDisplay(_ displayID: CGDirectDisplayID) -> Bool {
         CGDisplayIsActive(displayID) != 0 && physicalActiveDisplayCount() <= 1
     }
@@ -163,11 +144,8 @@ final class PhysicalDisplayToggleService: ObservableObject {
         return Array(ids.prefix(Int(count)))
     }
 
-    /// Count of active displays that are real physical screens, excluding virtual
-    /// displays managed by VirtualDisplayService (a virtual display is active in
-    /// CGGetActiveDisplayList but is not a viewable screen). This is what the Disconnect
-    /// row and the launch re-apply read; the blackout rescue reads
-    /// phantomAwareActiveDisplayCount instead.
+    /// Active physical (non-virtual) screens. Used by the Disconnect row and the launch
+    /// re-apply; the blackout rescue uses phantomAwareActiveDisplayCount instead.
     private func physicalActiveDisplayCount() -> Int {
         viewableActiveDisplays().count
     }
@@ -180,66 +158,19 @@ final class PhysicalDisplayToggleService: ObservableObject {
         let virtual = VirtualDisplayService.shared
         return ids.prefix(Int(count)).filter { id in
             guard !virtual.isVirtualDisplay(id) else { return false }
-            // Real panels carry 16-bit EDID vendor and product codes. Two kinds of
-            // entry enumerate as active without a screen behind them, and both fail
-            // that shape: the placeholder macOS spawns once the last real display is
-            // gone (vendor 'unkn' 0x756E6B6E, model 'virt' 0x76697274, four-character
-            // tags that cannot fit in 16 bits; fingerprinted live on macOS 26), and the
-            // stub a re-enabled record leaves when its hardware is no longer attached
-            // (vendor 0, model 0; observed live by @ncchen99 on #91, online and active,
-            // showing nothing). Counting either kept restoreIfNoActiveDisplay from
-            // firing, or let it stop, in the all-screens-black state it exists to fix.
-            // Matching by shape rather than by the one fingerprint also survives a
-            // future macOS renaming the placeholder.
+            // Filters out entries with no real panel behind them (macOS's post-blackout
+            // placeholder, or a re-enabled record whose hardware left). Issue #91.
+            // See docs/display-notes.md (phantomAwareActiveDisplayCount).
             let vendor = CGDisplayVendorNumber(id), model = CGDisplayModelNumber(id)
             let hasNoPanel = vendor == 0 || model == 0 || vendor > 0xFFFF || model > 0xFFFF
             return !hasNoPanel
         }
     }
 
-    /// The count the blackout rescue reads: physicalActiveDisplayCount with the #112
-    /// phantoms taken out. Read by restoreIfNoActiveDisplay and nowhere else, on
-    /// purpose: the Disconnect row and the launch re-apply keep the plain count, so a
-    /// wrong answer from the ports on a desk shape this has never seen can only make
-    /// the rescue fire, which re-enables a display Crisp itself turned off, and can
-    /// never hide a row or refuse a remembered disconnect.
-    ///
-    /// The shape filter in viewableActiveDisplays catches an entry with nothing behind
-    /// it. It cannot catch the third kind, from #112: after an undock while asleep,
-    /// WindowServer re-enumerates the absent externals at the full wake with their EDID
-    /// identities intact, so they are active, 16-bit and completely real-looking, and
-    /// they stay that way until the dock goes back in -- measured at 104 s with the desk
-    /// dark the whole time and the rescue standing down on a count of 2.
-    ///
-    /// What actually left with the cable is the port's transport node, so ask the ports
-    /// instead and cap the external count at what they can be carrying. Presence alone
-    /// is not enough: an empty HDMI port keeps its node, reading hpd Unknown and sink 0
-    /// in every sample of a whole run, and a phantom could hide behind it. Hot-plug
-    /// detect is the part that tracks the cable.
-    ///
-    /// Only a display that came through a port is capped. The built-in is not on one,
-    /// and neither is an external that still carries its product name while no port
-    /// carries it: a DisplayLink dock's USB framebuffer, measured here with the lid
-    /// closed (the machine exposes a transport node for its own HDMI port only, hpd Low,
-    /// sink 0, so the plain cap read 0 with the screen lit). It is the name and not
-    /// kCGDisplayIsVirtualDevice because the flag reads 1 on the phantoms too, and on
-    /// any real monitor while WindowServer re-enumerates it: through a display sleep
-    /// @ncchen99 measured virtual 0 to 1, transport 1 to 0 and the product name to
-    /// empty, all back at wake. The flag means "CoreDisplay knows nothing about this
-    /// entry yet", and a phantom is that state made permanent. The lit DisplayLink
-    /// display reads the same two flags and a full product name, which is where they
-    /// part.
-    ///
-    /// Two residuals, stated rather than patched. A phantom that turns out to carry a
-    /// name is counted and the rescue stands down, which is what it does without this
-    /// rule. And a DisplayLink-only desk in display sleep reads 0 for the length of the
-    /// sleep, since the name empties and no port carries it, so with a record on the
-    /// books the rescue would fire there and bring a screen back that the user turned
-    /// off. Reports from a release build decide whether either needs more.
-    ///
-    /// The info dictionary costs 2.5 to 8 ms per display, so it is read only once the
-    /// ports say fewer than the externals lit, which is the phantom state or a
-    /// DisplayLink desk. An ordinary desk never pays for it.
+    /// physicalActiveDisplayCount with the #112 phantoms (stale post-wake externals) filtered
+    /// by port presence. Read only by restoreIfNoActiveDisplay: a wrong answer here can only
+    /// make the rescue fire, never hide a row or refuse a remembered disconnect.
+    /// See docs/display-notes.md (phantomAwareActiveDisplayCount).
     private func phantomAwareActiveDisplayCount() -> Int {
         let viewable = viewableActiveDisplays()
         let externals = viewable.filter { CGDisplayIsBuiltin($0) != 1 }
@@ -251,11 +182,9 @@ final class PhysicalDisplayToggleService: ObservableObject {
         return PhantomPortCap.activeCount(offPort: viewable.count - onPort, onPort: onPort, portCap: portCap)
     }
 
-    /// Whether CoreDisplay still knows the display by name. Populated for a lit panel
-    /// whether or not a port carries it; empty for an entry WindowServer is
-    /// re-enumerating, or has re-enumerated with no hardware behind it (the #112
-    /// phantom). False when the dictionary cannot be read, which leaves the display
-    /// subject to the cap, the behaviour the rule had before this exemption.
+    /// Whether CoreDisplay still knows the display by name; empty for a #112 phantom or a
+    /// display WindowServer is mid-re-enumerating. See docs/display-notes.md
+    /// (phantomAwareActiveDisplayCount).
     private static func hasProductName(_ id: CGDirectDisplayID) -> Bool {
         guard let info = _CoreDisplayCreateInfoDictionary?(id)?.takeRetainedValue() as? [String: Any] else {
             return false
@@ -266,22 +195,10 @@ final class PhysicalDisplayToggleService: ObservableObject {
         return (info["DisplayProductName"] as? String)?.isEmpty == false
     }
 
-    /// The number of ports that can have a display behind them right now: a DisplayPort or
-    /// Thunderbolt transport node with hot-plug detect asserted, or a sink counted on it.
-    ///
-    /// Either signal is enough, because each one drops out on its own for a few hundred
-    /// milliseconds around a transition while the other holds. Measured on one desk: a live
-    /// display's port read `hpd=Low sink=1` right after an enable, and `hpd=High sink=0`
-    /// during a wake. Requiring hpd alone capped a real display away in both. Neither
-    /// signal is present on a port with nothing behind it -- an empty built-in HDMI port
-    /// reads `hpd=Unknown sink=0`, an emptied dock port `hpd=Low sink=0` -- and in the
-    /// phantom state the whole node is gone, so the pair still reads zero there.
-    ///
-    /// nil rather than 0 when the machine exposes no transport nodes of either class at
-    /// all, which means the signal is not available here rather than that nothing is
-    /// plugged in -- capping on that would black out a desk this rule has never seen.
-    /// A Mac that does expose them and reports none asserted is the #112 state, and 0 is
-    /// the right answer there.
+    /// Ports that can have a display behind them right now (DisplayPort/Thunderbolt hot-plug
+    /// detect or sink count). nil, not 0, when the machine exposes no such nodes: that means
+    /// the signal is unavailable, not that nothing is plugged in.
+    /// See docs/display-notes.md (liveDisplayPortCount).
     private func liveDisplayPortCount() -> Int? {
         var nodes = 0, asserted = 0
         for cls in ["IOPortTransportStateDisplayPort", "IOPortTransportStateCIO"] {
@@ -350,20 +267,9 @@ final class PhysicalDisplayToggleService: ObservableObject {
         let hdr: Bool?
     }
 
-    /// The state of every online display bar the ones about to be taken off, so the rest can
-    /// be put back afterwards. macOS keeps an arrangement per set of attached displays and applies
-    /// it whenever the set changes, so taking one display away can move the others to
-    /// whatever they last ran at in the smaller set: on this Mac a 1440p 165 Hz panel dropped
-    /// to 1080p 60 Hz and the built-in changed scale (issue #108). It is WindowServer's doing,
-    /// not Crisp's: the same SkyLight disable from a bare probe with Crisp quit does it too,
-    /// and pinning the other modes inside the disable transaction is accepted and ignored.
-    /// The user asked for one display to go, not for the rest to change, so what they had goes
-    /// back in a second transaction once the arrangement has landed.
-    ///
-    /// The mode is not all an arrangement carries: a portrait panel came back at 0 degrees when
-    /// another display was disconnected, and a monitor switched itself into HDR because the
-    /// arrangement it fell back to had been left that way. Both are replayed the same way the
-    /// mode is, so all three go in the snapshot.
+    /// Every online display's mode/rotation/HDR except the ones about to be taken off, so
+    /// they can be restored after WindowServer re-applies its per-arrangement state (issue
+    /// #108). See docs/display-notes.md (restoreStates).
     private func currentStates(excluding displayIDs: Set<CGDirectDisplayID> = []) -> [DisplayState] {
         onlineDisplayIDs().filter { !displayIDs.contains($0) }.compactMap { id in
             CGDisplayCopyDisplayMode(id).map {
@@ -372,9 +278,8 @@ final class PhysicalDisplayToggleService: ObservableObject {
         }
     }
 
-    /// The HDR switch as it stands, or nil when this display has none to restore. Read through
-    /// DisplayManager because that is where the DisplayInfo the HDR API works from lives; a
-    /// display missing from the list mid-rebuild simply keeps its HDR state out of the snapshot.
+    /// The HDR switch as it stands, or nil if this display has none. Read through
+    /// DisplayManager for the DisplayInfo the HDR API needs.
     private func liveHDR(_ displayID: CGDirectDisplayID) -> Bool? {
         guard let display = displayManager?.displays.first(where: { $0.displayID == displayID }),
               BrightnessBoostService.shared.isEligibleForHDRToggle(display) else { return nil }
@@ -394,9 +299,8 @@ final class PhysicalDisplayToggleService: ObservableObject {
                 return false
             }
         }
-        // The re-arrangement landed about a second after the commit here. Poll for it rather
-        // than wait a fixed time, so the flip the user sees is as short as it can be; the
-        // extra tick after the first move catches a second display changing in the same breath.
+        // Poll for the re-arrangement (lands ~1s after commit) instead of a fixed sleep, so
+        // the user-visible flip stays short.
         var changed = moved()
         for _ in 0..<30 where changed.isEmpty {
             try? await Task.sleep(nanoseconds: 100_000_000)
@@ -438,9 +342,8 @@ final class PhysicalDisplayToggleService: ObservableObject {
         defer { reconnectInFlight.remove(uuid) }
         let result = await setEnabled(true, displayID: targetID)
         if case .success = result {
-            // A reported success is not proof (see verifyBackOnline). The record is
-            // dropped either way: keeping it would have reconcile take the display
-            // away again the moment it does appear. The log says which case it was.
+            // Not proof of recovery (see verifyBackOnline); record drops either way, since
+            // keeping it would have reconcile switch the display back off the moment it appears.
             if !(await verifyBackOnline(uuid: uuid, timeout: 2.0)) {
                 Self.log.notice("reconnect of \(uuid, privacy: .public) reported success but the display is not back online after 2 s, record dropped")
             }
@@ -450,11 +353,8 @@ final class PhysicalDisplayToggleService: ObservableObject {
         return result
     }
 
-    /// Built-in test for a disconnect record. Prefers the flag captured at disconnect time,
-    /// while the ID still answered truthfully: in the all-black state this matters in,
-    /// SLSGetDisplayList has collapsed to the placeholder display and CGDisplayIsBuiltin
-    /// answers with garbage for the stale IDs left over. Records written before that flag
-    /// existed fall back to the live query, which is no worse than before.
+    /// Prefers the flag captured at disconnect time: in the all-black state, SLSGetDisplayList
+    /// has collapsed to a placeholder and CGDisplayIsBuiltin answers garbage for stale IDs.
     private func wasBuiltin(_ record: DisconnectedDisplay, id: CGDirectDisplayID) -> Bool {
         record.isBuiltin ?? (CGDisplayIsBuiltin(id) == 1)
     }
@@ -465,56 +365,28 @@ final class PhysicalDisplayToggleService: ObservableObject {
         allDisplaysIncludingDisabled().first { uuid(for: $0) == record.uuid }
     }
 
-    /// Soft-reconnects a display (disable then re-enable its framebuffer) to force macOS to
-    /// re-read a freshly written EDID override and re-enumerate its modes. This is what lets
-    /// smooth-scaling / HiDPI injection take effect without the user physically unplugging the
-    /// cable: IOServiceRequestProbe and SLSDetectDisplays are both too weak (verified no-ops),
-    /// but the off→on framebuffer toggle re-reads the override (verified live: an external's
-    /// mode count went 149→113 when its override was removed and 113→149 when restored, each
-    /// time via this toggle). The screen blanks ~1s. Re-resolves the ID by UUID before
-    /// re-enabling since the disconnect can reassign it, and retries the re-enable so a transient
-    /// failure can't strand a black screen. Unlike disconnect() it leaves the `disconnected` set
-    /// untouched: this is a re-enumeration blip, not a user-visible disconnect.
-    ///
-    /// Unlike disconnect(), this blinks even the sole active display: refusing just makes
-    /// the override a silent no-op until the next reboot or replug (issue #58), which is
-    /// worse than a ~1s blank the retry loop below is built to recover from. On portables a
-    /// throwaway virtual display is held for the blink's duration so Clamshell Sleep never
-    /// fires mid-toggle (see makeBlinkSleepGuard). Two safety nets back the blink up: a
-    /// dead-man marker in case the app dies mid-toggle (recoverStrandedSoftReconnect), and a
-    /// full disabled-display sweep if every re-enable retry fails outright
-    /// (reenableUnintentionallyDisabled). Refuses (false) on Intel, when the portable sleep
-    /// guard can't be created, or if the disable/verified re-enable never lands.
+    /// Disables then re-enables a display's framebuffer to force macOS to re-read a freshly
+    /// written HiDPI override and re-enumerate modes, without a physical unplug. Leaves
+    /// `disconnected` untouched (a re-enumeration blip, not a user disconnect); blinks even
+    /// the sole active display, using a throwaway virtual display to block Clamshell Sleep on
+    /// portables. See docs/display-notes.md (softReconnect).
     @discardableResult
     func softReconnect(_ display: DisplayInfo) async -> Bool {
         guard isSupported else { return false }
         let blinkUUID = display.displayUUID
-        // Two callers can race on the same display (manual toggle + auto-HiDPI on a fresh
-        // connect): a second blink mid-blink would double-toggle the framebuffer and try to
-        // create a second sleep guard with the same fixed identity, which WindowServer
-        // rejects (see VirtualDisplayService.create). First one wins; the caller's settle
-        // re-read adopts whatever it produced.
+        // Two callers can race the same display; a fixed virtual-display identity can't be
+        // created twice, so the first blink wins and the rest adopt its result.
         guard !softReconnectInFlight.contains(blinkUUID) else { return false }
         let startID = display.displayID
-        // The re-enumeration can come back on macOS's default mode instead of the one the
-        // user was running (refresh-rate reset observed live on a 180Hz panel); capture the
-        // exact mode so a verified re-enable can restore it. Must be captured before the
-        // sleep guard below exists: the guard's arrival alone knocked this panel from 165Hz
-        // to 144Hz (observed live), so capturing after it memorizes the knocked-down mode.
+        // Captured before the sleep guard exists: re-enumeration can land on macOS's default
+        // mode, and the guard's own arrival can itself knock the panel to a lower refresh rate.
         let previousMode = CGDisplayCopyDisplayMode(startID)
-        // A lid-closed portable sleeps the instant its sole active display goes away
-        // (Clamshell Sleep; verified live: the blink's disable triggered it mid-toggle, the
-        // wake left the display SLS-disabled behind a lying re-enable "success", and a
-        // PreventSystemSleep assertion does NOT stop it). A live virtual display keeps the
-        // display count above zero, which verifiably does prevent it (probed on the same
-        // hardware), so hold a throwaway one for the blink's duration. Lid-open laptops
-        // never get here (the built-in keeps the count above one); desktops need no guard
-        // (no clamshell rule). Refuse only if the guard can't be created: blinking into a
-        // guaranteed mid-toggle sleep is how displays get stranded.
+        // A lid-closed portable sleeps the instant its sole active display goes away, even
+        // under a PreventSystemSleep assertion; a live virtual display blocks it. Desktops and
+        // lid-open laptops never need the guard. See docs/display-notes.md (softReconnect).
         var sleepGuard: CGVirtualDisplay?
         if Self.hasBattery && wouldLeaveNoActiveDisplay(startID) {
-            // Reuse a guard parked by a previous unresolved blink first: the fixed identity
-            // can't exist twice, so creating a fresh one alongside it would just fail.
+            // Reuse a guard parked by a previous unresolved blink; the fixed identity can't exist twice.
             sleepGuard = lingeringSleepGuard
             lingeringSleepGuard = nil
             if sleepGuard == nil { sleepGuard = await makeBlinkSleepGuard() }
@@ -527,66 +399,47 @@ final class PhysicalDisplayToggleService: ObservableObject {
         Self.log.notice("soft reconnect blink: \(blinkUUID, privacy: .public) id \(startID, privacy: .public)")
         softReconnectInFlight.insert(blinkUUID)
         defer { softReconnectInFlight.remove(blinkUUID) }
-        // Persist before disabling: if the app dies between here and a verified re-enable
-        // below (crash, force-quit), the display would otherwise be stuck SLS-disabled with
-        // nothing left to bring it back. recoverStrandedSoftReconnect checks this at the next
-        // launch. Cleared as soon as the display is verifiably back online, or immediately
-        // below if the disable itself never happened.
+        // Persisted before disabling: if the app dies mid-toggle, recoverStrandedSoftReconnect
+        // finds this at the next launch and finishes the job.
         addPendingSoftReconnect(blinkUUID)
         guard case .success = await setEnabled(false, displayID: startID) else {
             removePendingSoftReconnect(blinkUUID)
             return false
         }
-        // Wait for the framebuffer to actually drop (removeFlag) before re-enabling;
-        // the 0.9s ceiling matches the old fixed sleep if the event never comes.
+        // Wait for the framebuffer to actually drop before re-enabling (0.9s ceiling if the event never comes).
         await ReconfigEvents.shared.next(for: startID, matching: .removeFlag, timeout: 0.9)
         var backOnline = false
         for _ in 0..<3 {
             let targetID = allDisplaysIncludingDisabled().first { uuid(for: $0) == blinkUUID } ?? startID
-            // Fire the enable without awaiting its result. The result is untrustworthy in
-            // both directions (successes can lie, see verifyBackOnline; failures can mask a
-            // display already coming up), and CGCompleteDisplayConfiguration can block ~10s
-            // past the display's actual return while the link retrains after an override
-            // rebuild (observed live), which would hold the mode restore below hostage
-            // behind a blocked call and turn it into a second visible blink ~10s after the
-            // toggle. Enumeration is the only proof either way.
+            // Fired without awaiting: the result is untrustworthy either way (see
+            // verifyBackOnline), and the commit can block ~10s after the display is actually
+            // back. Enumeration is the only proof. See docs/display-notes.md (softReconnect).
             Task { _ = await setEnabled(true, displayID: targetID) }
-            // The verify window must outlast a display link handshake (2-4s): re-issuing
-            // enable while the display is mid-sync restarts the link and blinks it again.
+            // Must outlast a display link handshake (2-4s), or re-issuing enable mid-sync restarts it.
             if await verifyBackOnline(uuid: blinkUUID, timeout: 4.0) { backOnline = true; break }
             try? await Task.sleep(nanoseconds: 300_000_000)
         }
         if !backOnline {
-            // The target never came back under its own re-enables: don't leave any display
-            // our own disable may have stranded off. Drop the in-flight claim first: the
-            // sweep skips displays with a live claim, which would otherwise make it ignore
-            // the very display it's here to rescue.
+            // Don't leave a display our own disable may have stranded; drop the in-flight claim
+            // first so the sweep below doesn't skip the very display it's here to rescue.
             softReconnectInFlight.remove(blinkUUID)
             await reenableUnintentionallyDisabled()
-            // One longer last look before declaring failure: slow re-enumeration must land
-            // in the success epilogue below. Treating it as failure skips the mode restore
-            // (refresh-rate reset observed live) and parks the guard, whose later release
-            // reshuffles the windows a second time, seconds after the toggle.
+            // One more look before declaring failure: slow re-enumeration must still land in
+            // the success path below (mode restore, guard release timing).
             backOnline = await verifyBackOnline(uuid: blinkUUID, timeout: 2.0)
         }
         guard backOnline else {
-            // Genuinely still down. The marker stays on purpose so refresh/relaunch keeps
-            // retrying, and the sleep guard is parked: releasing it now would hand a
-            // lid-closed portable straight to Clamshell Sleep with the display stranded,
-            // the exact state the guard exists to prevent. Recovery releases it once every
-            // marked display is resolved.
+            // Marker stays so refresh/relaunch keeps retrying; the sleep guard is parked
+            // (not released) or a lid-closed portable would sleep with the display stranded.
             if sleepGuard != nil { lingeringSleepGuard = sleepGuard }
             return false
         }
         removePendingSoftReconnect(blinkUUID)
         if let previousMode,
            let backID = allDisplaysIncludingDisabled().first(where: { uuid(for: $0) == blinkUUID }) {
-            // The blink re-reads override plists, which rebuilds the mode list and renumbers
-            // every mode ID (observed live: the same timing went 130 -> 683), so the captured
-            // object cannot be applied directly; re-find the equivalent mode in the fresh
-            // list by parameters. No match means the mode no longer enumerates (toggling
-            // smooth OFF removes the dense mode the user may have been running): macOS's
-            // fallback stands, same as pre-fix.
+            // Re-enumeration renumbers every mode ID, so the captured mode can't be re-applied
+            // directly; re-find its equivalent by parameters. No match means it no longer
+            // enumerates (e.g. smooth scaling was toggled off); macOS's fallback stands.
             let options = [kCGDisplayShowDuplicateLowResolutionModes: true] as CFDictionary
             let modes = CGDisplayCopyAllDisplayModes(backID, options) as? [CGDisplayMode] ?? []
             if let target = modes.first(where: {
@@ -595,8 +448,7 @@ final class PhysicalDisplayToggleService: ObservableObject {
                     && $0.pixelHeight == previousMode.pixelHeight
                     && abs($0.refreshRate - previousMode.refreshRate) < 1
             }) {
-                // A set issued while the link is still retraining can fail silently; verify
-                // it stuck and retry briefly instead of trusting one shot.
+                // A set issued mid-retrain can fail silently; verify and retry briefly.
                 for _ in 0..<4 {
                     if CGDisplayCopyDisplayMode(backID)?.ioDisplayModeID == target.ioDisplayModeID { break }
                     _ = await ResolutionService.applyModeSync(target, on: backID)
@@ -607,16 +459,14 @@ final class PhysicalDisplayToggleService: ObservableObject {
         return true
     }
 
-    /// Runs SLSConfigureDisplayEnabled inside a CG configuration transaction.
-    /// `.permanently` is the flag the proven implementations (Lunar BlackOut, screen_tune,
-    /// BetterDisplay) use, it commits the change so the disconnect actually takes effect.
+    /// Runs SLSConfigureDisplayEnabled inside a CG transaction with `.permanently` (matching
+    /// Lunar BlackOut, screen_tune, BetterDisplay), which is what makes the disconnect stick.
     private func setEnabled(_ enabled: Bool, displayID: CGDirectDisplayID) async -> Result<Void, ToggleError> {
         let action = enabled ? "enable" : "disable"
         let waited = DispatchTime.now()
-        // No DDC traffic while the transaction runs. WindowServer's enable waits behind an
-        // in-flight I2C read on the DCP and the whole machine freezes with it: a 6 s volume
-        // read on the display Crisp had just disconnected gave a 6 s freeze on its reconnect,
-        // the commit completing within 60 ms of the read giving up, three times in a row.
+        // No DDC traffic while this transaction runs: WindowServer's enable can wait behind an
+        // in-flight I2C read and freeze the whole machine with it (issue #33).
+        // See docs/display-notes.md (PhysicalDisplayToggleService).
         let releaseDDC = await DDCService.shared.hold()
         defer { releaseDDC() }
         let heldMs = Self.millisSince(waited)
@@ -637,12 +487,9 @@ final class PhysicalDisplayToggleService: ObservableObject {
                 Self.log.error("\(action, privacy: .public) \(displayID, privacy: .public): SLSConfigureDisplayEnabled failed \(setErr.rawValue, privacy: .public)")
                 return .failure(.configurationFailed(setErr))
             }
-            // The commit, and the call that can block. It runs on a background queue and
-            // keeps running after the 10 s wrapper above gives up, because the wrapper only
-            // stops waiting, it cannot cancel this. While WindowServer holds it the whole
-            // machine can stall rather than just Crisp, which is what issue #33 reports.
-            // Timed unconditionally so a capture states the real duration instead of
-            // leaving a silence to be guessed at.
+            // The call that can block: keeps running after the 10s wrapper gives up (it can
+            // only stop waiting, not cancel), and WindowServer holding it can stall the whole
+            // machine, not just Crisp (issue #33). Timed unconditionally for captures.
             let committing = DispatchTime.now()
             let complete = CGCompleteDisplayConfiguration(cfg, .permanently)
             let commitMs = Self.millisSince(committing)
@@ -656,8 +503,8 @@ final class PhysicalDisplayToggleService: ObservableObject {
             }
             return .success(())
         }
-        // What Crisp actually acted on, which is not the same thing: on a wrapper timeout
-        // this reports a failure at ~10000 ms while the commit above is still running.
+        // Not the same as what WindowServer will actually do: on a wrapper timeout this
+        // reports failure at ~10000ms while the commit keeps running.
         let waitedMs = Self.millisSince(waited)
         if case .failure = result {
             Self.log.notice("\(action, privacy: .public) \(displayID, privacy: .public): reported failure after \(Int(waitedMs), privacy: .public) ms")
@@ -668,18 +515,15 @@ final class PhysicalDisplayToggleService: ObservableObject {
     }
 
     /// Safety net for softReconnect's re-enable retries all failing: sweeps every SLS-disabled
-    /// display that isn't one we disconnected on purpose (`disconnected`), so a transient
-    /// re-enable failure can never leave a screen stuck black. Other apps (Lunar and friends)
-    /// disable displays intentionally; those are left alone.
+    /// display Crisp didn't disconnect on purpose, so a transient failure can't leave a screen
+    /// stuck black. Leaves other apps' intentional disables alone.
     private func reenableUnintentionallyDisabled() async {
         let onlineSet = onlineDisplayIDs()
         let intentionalUUIDs = Set(disconnected.map { $0.uuid })
         for id in allDisplaysIncludingDisabled() where !onlineSet.contains(id) {
             let displayUUID = uuid(for: id)
             guard !intentionalUUIDs.contains(displayUUID) else { continue }
-            // A display mid-blink in a live softReconnect is off on purpose for ~1s; its own
-            // retry loop owns bringing it back, and racing it here would reintroduce the
-            // recovery-vs-toggle conflict this file just fixed, one display over.
+            // A display mid-blink is off on purpose; racing it here would fight its own retry loop.
             guard !softReconnectInFlight.contains(displayUUID) else { continue }
             _ = await setEnabled(true, displayID: id)
         }
@@ -695,10 +539,9 @@ final class PhysicalDisplayToggleService: ObservableObject {
         return Set(ids.prefix(Int(count)))
     }
 
-    /// True once the display with this UUID is back in the online list, polling up to
-    /// `timeout` seconds. A successful SLSConfigureDisplayEnabled transaction is NOT proof
-    /// of recovery: around sleep transitions it reports success while the display stays
-    /// disabled (verified live in clamshell). Only enumeration counts.
+    /// True once the display is back in the online list. A successful setEnabled transaction
+    /// is NOT proof: around sleep transitions it reports success while still disabled
+    /// (verified live). Only enumeration counts.
     private func verifyBackOnline(uuid displayUUID: String, timeout: TimeInterval = 1.0) async -> Bool {
         for _ in 0..<max(Int(timeout * 10), 1) {
             if let id = allDisplaysIncludingDisabled().first(where: { uuid(for: $0) == displayUUID }),
@@ -708,9 +551,8 @@ final class PhysicalDisplayToggleService: ObservableObject {
         return false
     }
 
-    /// True once this display has left the online list, polling up to `timeout` seconds.
-    /// The disable half of verifyBackOnline, untrustworthy in the same way for the same
-    /// reason: the transaction reports what was asked, not what took.
+    /// The disable half of verifyBackOnline, untrustworthy the same way: the transaction
+    /// reports what was asked, not what took.
     private func verifyOffline(displayID: CGDirectDisplayID, timeout: TimeInterval) async -> Bool {
         for _ in 0..<max(Int(timeout * 10), 1) {
             if !onlineDisplayIDs().contains(displayID) { return true }
@@ -719,9 +561,8 @@ final class PhysicalDisplayToggleService: ObservableObject {
         return false
     }
 
-    /// Portables enforce Clamshell Sleep the moment no display is active; desktops don't.
-    /// Battery presence is the lid-independent laptop test (the built-in panel can vanish
-    /// from the display lists entirely while the lid is closed, so it can't be the signal).
+    /// Battery presence is the lid-independent laptop test for Clamshell Sleep: the built-in
+    /// panel can vanish from the display list entirely while the lid is closed.
     private static let hasBattery: Bool = {
         let service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("AppleSmartBattery"))
         guard service != 0 else { return false }
@@ -729,14 +570,9 @@ final class PhysicalDisplayToggleService: ObservableObject {
         return true
     }()
 
-    /// Throwaway virtual display held while blinking a portable's sole active display, so
-    /// Clamshell Sleep never sees a zero-display moment (see softReconnect). Registered but
-    /// deliberately minimal: 1080p, no HiDPI ladder. Stamped with the shared virtual vendor
-    /// ID so DisplayManager filters it from the UI like any managed virtual display, and
-    /// with a FIXED product/serial so macOS keys its per-display settings (including the
-    /// "what to show" choice) on a stable identity instead of re-prompting every blink.
-    /// Returns nil unless the display verifiably comes online; a registered-but-offline
-    /// guard protects nothing.
+    /// Throwaway virtual display held while blinking a portable's sole active display, to
+    /// block Clamshell Sleep (see softReconnect). Fixed product/serial so macOS doesn't
+    /// re-prompt "what to show" on every blink. nil unless it verifiably comes online.
     private func makeBlinkSleepGuard() async -> CGVirtualDisplay? {
         let w = 1920, h = 1080
         let ppi = 110.0
@@ -768,49 +604,27 @@ final class PhysicalDisplayToggleService: ObservableObject {
 
     // MARK: - Reconcile / Wake restore
 
-    /// Re-applies the disconnect for records whose display is back online (a reboot, a
-    /// relaunch, a replug, or macOS re-enabling it), and drops the record when that does not
-    /// take. Called from DisplayManager.refreshDisplays.
-    ///
-    /// A disconnect is a choice about one specific display, already stored by UUID, and it
-    /// used to last only until that display next showed up. A monitor kept switched off but
-    /// still cabled enumerates as an ordinary display at every boot, so the same disconnect
-    /// had to be redone by hand every time (issue #93); re-applying it here is what makes
-    /// the choice stick. It only ever touches displays the user disconnected themselves, and
-    /// only while it is safe to: `wouldLeaveNoActiveDisplay` refuses to take the last screen
-    /// and `restoreIfNoActiveDisplay` stays underneath as the backstop. A display still lit
-    /// after the attempt drops its record exactly as before, so the list never claims a
-    /// display is disconnected while it is on screen.
-    ///
-    /// That invariant is chosen over the memory, deliberately, and it has a cost worth
-    /// stating: boot with the remembered display as the only screen attached and the refusal
-    /// is what happens, so the choice is forgotten by a single boot in that configuration,
-    /// the complaint #93 opened with, in the one arrangement where honouring it would mean
-    /// booting to a black machine. A list that can name a display the user is looking at is
-    /// the worse failure, so the trade stands rather than being an oversight.
-    ///
-    /// A pass with nothing to re-apply is not wasted: it is where the modes the restore aims
-    /// at are taken from, while the remembered displays are still off (see baselineModes).
+    /// Re-applies a remembered disconnect once its display is back online (reboot, replug, or
+    /// macOS re-enabling it) so it doesn't have to be redone by hand every boot (issue #93);
+    /// drops the record if it can't take, so the list never claims a lit display is
+    /// disconnected. See docs/display-notes.md (reconcile).
     func reconcile() {
         guard !disconnected.isEmpty else { return }
         let onlineIDs = onlineDisplayIDs()
         let onlineUUIDs = Set(onlineIDs.map { uuid(for: $0) })
         let resurfaced = disconnected.filter { onlineUUIDs.contains($0.uuid) }
         guard !resurfaced.isEmpty else {
-            // Every refresh with the remembered displays still off is a baseline: a
-            // resolution the user picks in between is then what goes back, not a stale one.
+            // Baseline for restoreStates: a resolution picked in between is what goes back, not a stale one.
             baselineModes = currentStates()
             return
         }
-        // Intel has no working disconnect to re-apply, so there the old behaviour is all
-        // that is available: forget the record and keep the UI honest.
+        // Intel has no working disconnect to re-apply; forget the record and keep the UI honest.
         guard isSupported else {
             disconnected.removeAll { onlineUUIDs.contains($0.uuid) }
             saveDesired()
             return
         }
-        // A blink (softReconnect) puts its own display back online on purpose, and a
-        // reconnect in flight is the user (or the restore path) asking for exactly that.
+        // A live blink or reconnect is already putting this display back online on purpose.
         let pending = resurfaced.filter {
             !reapplyInFlight.contains($0.uuid)
                 && !softReconnectInFlight.contains($0.uuid)
@@ -833,34 +647,22 @@ final class PhysicalDisplayToggleService: ObservableObject {
         }
     }
 
-    /// Displays whose remembered disconnect is being re-applied right now. A reconfiguration
-    /// burst refreshes the display list several times over, and each refresh must not stack
-    /// another attempt on the same display.
+    /// Displays whose remembered disconnect is mid-reapply, so a reconfiguration burst can't
+    /// stack a second attempt on the same display.
     private var reapplyInFlight: Set<String> = []
 
-    /// The other displays' modes as of the last refresh where no remembered display was
-    /// online, which is the arrangement the user is actually in and the one WindowServer puts
-    /// back by itself once the remembered display goes off again.
-    ///
-    /// Taking the snapshot live inside the re-apply is too late, and that is measured rather
-    /// than reasoned (#101): the enable that brings the remembered display back
-    /// has already moved the others to WindowServer's stored arrangement for the larger set
-    /// before the re-apply runs, so a live snapshot captures the moved state, and the restore
-    /// then pins it and undoes WindowServer's own correction: the built-in went 1352x878 ->
-    /// 1512x982 on the enable, was put back to 1352x878 when the display went off, and the
-    /// restore pushed it to 1512x982 again. Empty only at launch, where there is no earlier
-    /// refresh and the live snapshot is all there is.
+    /// The other displays' modes as of the last refresh with no remembered display online:
+    /// the arrangement WindowServer puts back once the remembered display goes off again.
+    /// Must be captured before the reapply, not live inside it (measured, not reasoned: #101).
+    /// See docs/display-notes.md (restoreStates).
     private var baselineModes: [DisplayState] = []
 
-    /// The snapshot this reconcile pass restores to, taken once and consumed by whichever
-    /// record's disable lands first. One restore per pass, not one per record: two records
-    /// each took their own snapshot and each ran restoreModes, landing the same restore twice
-    /// 19 ms apart.
+    /// One restore snapshot per reconcile pass, not one per record (two records each taking
+    /// their own landed the same restore twice, 19ms apart).
     private var pendingPassModes: [DisplayState]?
 
-    /// Starts this pass's single restore, if it has not been started already. Called once a
-    /// disable has been issued, since that is what moves the other displays; before it there
-    /// is nothing to poll for, and restoreModes' window is finite.
+    /// Starts this pass's one restore, once a disable has actually moved things (restoreStates'
+    /// window is finite).
     private func startPassRestoreIfNeeded() {
         guard let states = pendingPassModes else { return }
         pendingPassModes = nil
@@ -877,58 +679,34 @@ final class PhysicalDisplayToggleService: ObservableObject {
         var stillOnline = true
         var timedOut = false
         if !refused {
-            // Same as disconnect(): WindowServer applies its stored arrangement for the smaller
-            // display set the moment this one goes off, which moves the others (#108). A
-            // re-applied disconnect goes through the same drop, at boot every time, so it needs
-            // the same restore, but to the modes from before the display resurfaced, not to
-            // the ones its own enable produced (see baselineModes).
+            // Same arrangement-move risk as disconnect() (#108); restore targets the modes
+            // from before the display resurfaced (baselineModes), not the ones its own enable produced.
             if case .failure(.timedOut) = await setEnabled(false, displayID: liveID) {
                 timedOut = true
             }
-            // Started here rather than after the verify below, for the reason restoreModes
-            // polls instead of sleeping: the flip the user sees should be as short as it can
-            // be, and the verify can hold this for seconds. It only acts on a display that
-            // actually moved, so an attempt that did not take costs nothing.
+            // Started before the verify below (which can hold for seconds) so the visible flip
+            // stays short; a no-op if nothing actually moved.
             startPassRestoreIfNeeded()
-            // The API's own answer is not proof, in either direction (see verifyBackOnline),
-            // so the record's fate is settled by enumeration below, not by the result. The
-            // window matches softReconnect's for the same reason it uses 4s there: a display
-            // link handshake runs 2-4s, and a second is most of one healthy transaction on
-            // its own (a disable here reported success after 628ms on direct-attached
-            // hardware). A short look calls slow hardware "still lit", which is the branch
-            // that forgets the record.
+            // Settled by enumeration, not the transaction's result (see verifyBackOnline). 4s
+            // window matches softReconnect's, for the same display-link-handshake reason.
             stillOnline = !(await verifyOffline(displayID: liveID, timeout: 4.0))
             if stillOnline {
-                // Confirm before acting on it, because this is the branch that lets the
-                // record go. setEnabled's wrapper stops waiting at 10s but cannot cancel the
-                // commit underneath it, and #33 has WindowServer holding one for 29.5s: a
-                // disable can report failure and still be on its way. Forgetting the record
-                // on the first look hands that commit a display with nothing left to name it.
+                // Confirmed with a second, longer look before letting the record go: #33 had
+                // WindowServer hold a commit for 29.5s after a reported failure.
                 stillOnline = !(await verifyOffline(displayID: liveID, timeout: 2.0))
             }
         }
         guard let idx = disconnected.firstIndex(where: { $0.uuid == recordUUID }) else { return }
         if stillOnline, !timedOut, onlineDisplayIDs().contains(liveID) {
-            // Still lit and we could not take it off, a refusal included: forget it, so the
-            // list never claims a display is disconnected while the user is looking at it.
-            //
-            // Except after a timeout, the one failure that is not evidence: the wrapper stopped
-            // waiting, but the commit is still in the window server's hands, and #33 has one
-            // held for 29.5s. Dropping the record there hands that commit a display with
-            // nothing left to name it. So the record stays and the next refresh decides, which
-            // lets the list name a lit display for one refresh, a bounded cost, against a
-            // stranding no refresh undoes. A disable that genuinely fails still drops it, so a
-            // display that cannot be switched off cannot pull a fresh transaction out of every
-            // refresh.
+            // Still lit: forget the record, so the list never claims a display is disconnected
+            // while the user is looking at it. Exception: after a timeout (not evidence the
+            // change failed, see ToggleError.timedOut) the record stays for the next refresh to
+            // decide, since #33 shows a commit can still land 29.5s later.
             Self.log.notice("record dropped for \(recordUUID, privacy: .public) id \(liveID, privacy: .public): still lit")
             disconnected.remove(at: idx)
         } else {
-            // Off, whether or not the transaction said so, and that difference is the whole
-            // reason this is decided by enumeration. A disable that reports an error and takes
-            // anyway leaves the display switched off at the window server, where the record is
-            // the only handle the Reconnect row has on it. Dropping it there strands the
-            // display with no way back through the UI, and replugging cannot undo it because
-            // the window server holds the state, not the cable.
+            // Off (regardless of what the transaction reported) is decided the same way:
+            // dropping the record here would strand the display with no way back through the UI.
             disconnected[idx].displayID = liveID
         }
         saveDesired()
@@ -938,41 +716,27 @@ final class PhysicalDisplayToggleService: ObservableObject {
     /// as restoreInFlight below for restoreIfNoActiveDisplay.
     private var strandedRecoveryInFlight = false
 
-    /// Sleep guard parked by a softReconnect whose display never verifiably returned (see
-    /// its retry-exhausted path): holding it keeps a lid-closed portable awake so the
-    /// marker/recovery cadence can keep retrying instead of the machine sleeping on a
-    /// stranded display. Released by recovery once every marked display is resolved, or
-    /// adopted by the next blink (the fixed identity can't be created twice).
+    /// Sleep guard parked by a softReconnect whose display never verifiably returned, keeping a
+    /// lid-closed portable awake so recovery can keep retrying. Released once every marked
+    /// display resolves, or adopted by the next blink.
     private var lingeringSleepGuard: CGVirtualDisplay?
 
-    /// Recovery for softReconnects that never finished: if the app died (crash, force-quit)
-    /// between disabling a display and a successful re-enable, the markers softReconnect
-    /// left behind name exactly the stranded displays. Called from
-    /// DisplayManager.refreshDisplays; a cheap no-op unless a marker is set. Displays whose
-    /// softReconnect is live right now are skipped per-UUID (their reconfig events fire
-    /// refreshDisplays before the toggle finishes, and their retry loops must not be raced).
-    /// Mirrors softReconnect's recovery ladder (3 re-enable tries, then the sweep), and
-    /// clears each marker only once its display is verifiably back online or gone entirely,
-    /// so a transient failure here leaves it set for the next refresh or launch to try
-    /// again. Only ever re-enables marked displays directly, never any other disabled one
-    /// (another app may have disabled those on purpose); the sweep it shares with
-    /// softReconnect stays scoped to displays outside the intentional `disconnected` set
-    /// and outside any live blink.
+    /// Recovery for a softReconnect the app died mid-toggle on (crash, force-quit): the
+    /// dead-man markers name exactly the stranded displays. Cheap no-op unless a marker is
+    /// set; skips any display whose blink is live right now. See docs/display-notes.md
+    /// (softReconnect).
     func recoverStrandedSoftReconnect() async {
-        // Also runs while only a parked guard is left (markers resolved by another path,
-        // e.g. a later lid-open blink): the release at the bottom is its only way out.
+        // Also runs with only a parked guard left; the release at the bottom is its only way out.
         guard isSupported, !strandedRecoveryInFlight,
               !pendingSoftReconnectUUIDs().isEmpty || lingeringSleepGuard != nil
         else { return }
         strandedRecoveryInFlight = true
         defer { strandedRecoveryInFlight = false }
         for markedUUID in pendingSoftReconnectUUIDs() {
-            // Re-checked per iteration: a blink can start for a marked display while an
-            // earlier iteration was awaiting.
+            // Re-checked per iteration: a blink can start for this display while we're awaiting.
             guard !softReconnectInFlight.contains(markedUUID) else { continue }
             guard let targetID = allDisplaysIncludingDisabled().first(where: { uuid(for: $0) == markedUUID }) else {
-                // Display gone entirely (unplugged while stranded): a physical replug brings
-                // it back online by itself, so the marker has nothing left to do.
+                // Gone entirely: a physical replug brings it back on its own.
                 removePendingSoftReconnect(markedUUID)
                 continue
             }
@@ -983,9 +747,8 @@ final class PhysicalDisplayToggleService: ObservableObject {
             }
             var recovered = false
             for _ in 0..<3 {
-                // The API result alone is never trusted (see verifyBackOnline): a lying
-                // "success" here is exactly how a clamshell-sleep interruption erased the
-                // marker while the display stayed disabled.
+                // Never trust the API result alone (see verifyBackOnline): a lying "success" is
+                // exactly how a clamshell-sleep interruption erased a marker while still disabled.
                 if case .success = await setEnabled(true, displayID: targetID),
                    await verifyBackOnline(uuid: markedUUID) {
                     recovered = true
@@ -994,53 +757,35 @@ final class PhysicalDisplayToggleService: ObservableObject {
                 try? await Task.sleep(nanoseconds: 300_000_000)
             }
             if !recovered { await reenableUnintentionallyDisabled() }
-            // Clear only if the display verifiably came back; otherwise the marker stays set
-            // and the addFlag/refresh cadence (or the next launch) retries.
+            // Cleared only if verifiably back; otherwise the marker stays for the next retry.
             if recovered || onlineDisplayIDs().contains(targetID) {
                 removePendingSoftReconnect(markedUUID)
             }
         }
-        // A parked sleep guard has served its purpose once no marker remains unresolved:
-        // every marked display is back online or gone. Until then it stays, keeping a
-        // lid-closed portable awake for the next retry.
+        // Released once no marker remains: every marked display is back online or gone.
         if lingeringSleepGuard != nil, pendingSoftReconnectUUIDs().isEmpty {
             lingeringSleepGuard = nil
         }
     }
 
-    /// How many times the settle check re-reads the count before committing to a restore,
-    /// and how long it waits between reads. The count is per-process and refreshed by
-    /// reconfiguration callback delivery, so the read taken the instant the timer expires
-    /// can trail the truth (issue #117). Ten reads at 100 ms covers the margins measured
-    /// there without becoming a standing watch -- see the comment in the settle Task for
-    /// why the bound matters.
+    /// Re-poll count/interval before committing to a restore: the count is per-process and can
+    /// trail reality by up to ~150ms (issue #117), so a single sample is unreliable.
+    /// See docs/display-notes.md (restoreIfNoActiveDisplay).
     private static let settleRepolls = 10
     private static let settleRepollInterval: UInt64 = 100_000_000
 
     /// Guards against overlapping restore attempts from reconfiguration-callback bursts.
     private var restoreInFlight = false
 
-    /// Called on every display-list refresh. The guard in disconnect() can't stop a physical
-    /// unplug: with the internal disabled via Crisp and the external cable pulled, zero active
-    /// displays remain and macOS does NOT re-enable the disabled one, every screen stays black.
-    /// Re-enable a still-attached disconnected display (built-in first) so the machine always
-    /// has a live screen. The settle delay rides out transient empty display lists during
-    /// wake/replug storms, so a monitor that comes right back keeps the disconnect intact.
-    ///
-    /// The contract, written down after the rescue had grown a layer per desk shape (#91,
-    /// #99, #106, #117, #112): it exists to bring back a screen that Crisp itself turned
-    /// off when nothing viewable is left. It reads CoreGraphics and, for the undock case,
-    /// the port transport nodes; nothing else in Crisp reads the ports. A display that is
-    /// not on a port is never doubted: the built-in, and an external that keeps its
-    /// product name with no port carrying it (a DisplayLink display). It accepts about
-    /// three seconds of dark. This is the last layer: a desk shape it does not cover
-    /// waits for a report from a release build, not for a new predicate.
+    /// The blackout rescue: a physical unplug bypasses disconnect()'s last-screen guard
+    /// entirely (built-in disabled via Crisp + cable pulled = zero active, and macOS won't
+    /// re-enable it), so this brings back a still-attached disconnected display, built-in
+    /// first. Grew a layer per desk shape (#91, #99, #106, #117, #112).
+    /// See docs/display-notes.md (restoreIfNoActiveDisplay).
     func restoreIfNoActiveDisplay() {
         guard isSupported, !disconnected.isEmpty else { return }
-        // With records to act on, every stand-down is worth a line: a capture of a dark
-        // desk otherwise cannot tell "never asked" from "asked and refused", and which guard
-        // refused (issue #92: a dock pulled during sleep can keep its displays in the online
-        // list until the link times out, and those count as active).
+        // Every stand-down is logged: a dark-desk capture otherwise can't tell "never asked"
+        // from "asked and refused" (issue #92).
         let active = phantomAwareActiveDisplayCount()
         guard !restoreInFlight, active == 0 else {
             Self.log.notice("restore asked with \(self.disconnected.count, privacy: .public) record(s): \(active, privacy: .public) active display(s), in flight \(self.restoreInFlight, privacy: .public), standing down")
@@ -1051,25 +796,9 @@ final class PhysicalDisplayToggleService: ObservableObject {
             try? await Task.sleep(nanoseconds: 2_000_000_000)
             guard let self else { return }
             defer { self.restoreInFlight = false }
-            // One sample here is not enough. The count comes from this process's own copy
-            // of the display configuration, and that copy is only as fresh as the last
-            // reconfiguration callback delivered to it: on #117 the external was back in
-            // the active list for 284 ms, visible to any other process, while this read
-            // still returned 0 and the callback that would have said so arrived 37 ms
-            // after the decision. Measured three times on two builds, the margins were
-            // 37 ms, 37 ms and 158 ms, so a few hundred milliseconds of re-reading covers
-            // it where a longer sleep does not -- a single sample is stale whenever it
-            // lands, and Task.sleep above already overruns by 418-1254 ms on a wake.
-            //
-            // Bounded to settleRepolls deliberately, rather than made a watch. The
-            // margins being answered are 37-158 ms, so ten reads already carry an order
-            // of magnitude of headroom, and what the count does during a display sleep is
-            // not something to lean on: measured on this desk it stayed at 1 through a
-            // 35 s sleep with Crisp running, and read 0 for 2 min 57 s on the same desk
-            // with Crisp quit. A poll outliving the settle window could therefore sit on
-            // a zero-count desk that is only asleep. What keeps this guard clear of that
-            // state is that it runs from reconfiguration callbacks, and none arrive while
-            // the displays are down.
+            // One sample isn't enough: the count can trail reality by up to ~150ms (issue #117).
+            // Re-polled (not watched) since the count during a display sleep isn't reliable
+            // either. See docs/display-notes.md (restoreIfNoActiveDisplay).
             var settled = self.phantomAwareActiveDisplayCount()
             var repolls = 0
             while settled == 0, repolls < Self.settleRepolls {
@@ -1082,30 +811,22 @@ final class PhysicalDisplayToggleService: ObservableObject {
                 Self.log.notice("restore settled: \(settled, privacy: .public) active display(s) after 2 s and \(repolls, privacy: .public) re-poll(s), standing down")
                 return
             }
-            // This path acts with every screen black, so without a line here a capture
-            // cannot tell a Crisp restore from macOS re-probing on its own (noted from
-            // the outside in #91).
+            // Logged because every screen is black here: distinguishes a Crisp restore from
+            // macOS re-probing on its own (#91).
             Self.log.notice("no active display, restoring from \(self.disconnected.count, privacy: .public) record(s)")
-            // In the placeholder-display state SLSGetDisplayList shrinks to just
-            // the placeholder (verified live), so records that fail to resolve
-            // must fall back to their last-known ID rather than being dropped:
-            // SLSConfigureDisplayEnabled still honors a stale ID for attached
-            // hardware, while detached hardware fails at
-            // CGCompleteDisplayConfiguration (error 1001) and the loop moves on.
-            // Prefer the built-in panel, from the flag captured at disconnect time
-            // (see wasBuiltin): the IDs here are stale, so a live query is unreliable.
+            // Records that fail to re-resolve fall back to their last-known ID rather than
+            // being dropped: SLSConfigureDisplayEnabled still honors a stale ID for attached
+            // hardware in this state. Built-in tried first (flag from disconnect time; a live
+            // query is unreliable here).
             let candidates = self.disconnected
                 .map { record in (record, self.resolveCurrentID(for: record) ?? record.displayID) }
                 .sorted { self.wasBuiltin($0.0, id: $0.1) && !self.wasBuiltin($1.0, id: $1.1) }
             for (record, _) in candidates {
-                // macOS re-probes displays by itself in this state and often wins the race;
-                // stop as soon as anything viewable is back, whoever brought it back.
+                // macOS re-probes on its own and often wins the race; stop as soon as anything's back.
                 guard self.phantomAwareActiveDisplayCount() == 0 else { return }
                 guard case .success = await self.reconnect(uuid: record.uuid) else { continue }
-                // A successful transaction is NOT proof of recovery (see verifyBackOnline):
-                // around sleep transitions it reports success while the display stays
-                // disabled, and that lie used to end the restore with every screen still
-                // black. Only enumeration ends it; otherwise move on to the next record.
+                // Not proof of recovery (see verifyBackOnline): only enumeration ends the
+                // restore; otherwise move to the next record.
                 for _ in 0..<20 {
                     if self.phantomAwareActiveDisplayCount() > 0 { return }
                     try? await Task.sleep(nanoseconds: 100_000_000)
@@ -1126,10 +847,7 @@ final class PhysicalDisplayToggleService: ObservableObject {
               let decoded = try? JSONDecoder().decode([DisconnectedDisplay].self, from: data)
         else { return }
         disconnected = decoded
-        // Nothing is disconnected from here: the loaded list only populates the
-        // "Disconnected" UI. The first display-list refresh after launch re-applies it
-        // through reconcile(), which is where the safety rails are (it never takes the last
-        // screen, and forgets any record it cannot honour). Wake goes through the same
-        // path: the wake chain's refresh runs reconcile like any other.
+        // Nothing is disconnected yet; this only seeds the "Disconnected" UI. The first
+        // refresh after launch re-applies it through reconcile(), where the safety rails are.
     }
 }

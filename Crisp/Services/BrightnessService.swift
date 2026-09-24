@@ -9,9 +9,9 @@ import os.log
 @_silgen_name("CGDisplayIOServicePort")
 private func CGDisplayIOServicePort(_ display: CGDirectDisplayID) -> io_service_t
 
-// DisplayServices private framework, built-in panel brightness on Apple Silicon,
-// where IODisplayConnect no longer exists (CoreDisplay_Display_SetUserBrightness
-// is also a no-op there). Loaded via dlsym, same pattern as AutoBrightnessService.
+// DisplayServices private framework: built-in panel brightness on Apple
+// Silicon, where IODisplayConnect no longer exists. Loaded via dlsym, same
+// pattern as AutoBrightnessService.
 private let _DSSetBrightness: (@convention(c) (CGDirectDisplayID, Float) -> Int32)? = {
     guard let h = dlopen("/System/Library/PrivateFrameworks/DisplayServices.framework/DisplayServices", RTLD_LAZY),
           let sym = dlsym(h, "DisplayServicesSetBrightness") else { return nil }
@@ -38,12 +38,11 @@ private let _DSCanChangeBrightness: (@convention(c) (CGDirectDisplayID) -> Bool)
     return unsafeBitCast(sym, to: (@convention(c) (CGDirectDisplayID) -> Bool).self)
 }()
 
-// DisplayServices brightness-change notifications: push updates so the UI tracks the
-// built-in panel and Apple displays live (native keys, auto-brightness, Night Shift/TrueTone) instead of
-// only refreshing on panel-open/wake/reconfigure. Signatures verified against SketchyBar
-// (src/misc/extern.h + src/display.c): register(did, passthrough, callback) plus a 5-arg
-// callback (passthrough, did, name, sender, info); brightness is not passed, it's read
-// back via DisplayServicesGetBrightness.
+// DisplayServices brightness-change notifications: push updates so the UI
+// tracks the built-in panel and Apple displays live instead of only
+// refreshing on panel-open/wake/reconfigure. register(did, passthrough,
+// callback) plus a 5-arg callback; brightness is not passed, it's read back
+// via DisplayServicesGetBrightness.
 private typealias DSBrightnessChangeHandler = @convention(c) (
     UnsafeMutableRawPointer?, CGDirectDisplayID,
     UnsafeMutableRawPointer?, UnsafeRawPointer?, UnsafeRawPointer?
@@ -60,10 +59,9 @@ private let _DSUnregisterBrightnessChange: (@convention(c) (CGDirectDisplayID, U
     return unsafeBitCast(sym, to: (@convention(c) (CGDirectDisplayID, UInt32) -> Int32).self)
 }()
 
-/// C callback fired when a display's brightness changes from any source. Brightness is
-/// not a parameter (per the reverse-engineered API), so we read it back and push it onto
-/// the matching DisplayInfo on the main actor. Must be a capture-free top-level function
-/// to be usable as a @convention(c) pointer.
+/// C callback fired when a display's brightness changes from any source: reads the new
+/// value back (see above) and pushes it onto the matching DisplayInfo on the main actor.
+/// Must be a capture-free top-level function to be usable as a @convention(c) pointer.
 private func _crispNativeBrightnessChanged(
     _ passthrough: UnsafeMutableRawPointer?,
     _ did: CGDirectDisplayID,
@@ -82,9 +80,8 @@ private func _crispNativeBrightnessChanged(
         // Skip sub-0.5% jitter to avoid redundant @Published churn.
         guard abs(display.brightness - value) >= 0.5 else { return }
         display.brightness = value
-        // Drive auto-brightness off this live change so external displays follow the
-        // built-in immediately instead of trailing its 2s poll. (issue #12 follow-up)
-        // An Apple external moving is not that signal.
+        // Drive auto-brightness off this live change so externals follow the
+        // built-in immediately instead of trailing its poll (issue #12).
         guard display.isBuiltin else { return }
         NotificationCenter.default.post(name: .crispBuiltinBrightnessDidChange, object: nil)
     }
@@ -114,19 +111,16 @@ final class BrightnessAnimator: @unchecked Sendable {
     private var targetValue: Double = 0
     private var stepHandler: ((Double, Bool) -> Void)?
 
-    /// Cancel any running animation immediately.
     func cancel() {
         timer?.invalidate()
         timer = nil
     }
 
-    /// The value a running fade is heading for, nil while idle. A key repeat has
-    /// to step from this and not from the value mid-fade: the fade crosses the
-    /// stop it is going to, so a press part way through computes the same stop
-    /// again and the level only creeps toward it. See BrightnessKeyService.
+    /// The value a running fade is heading for, nil while idle. A key repeat
+    /// must step from this, not the value mid-fade, or a press partway
+    /// through computes the same stop again. See BrightnessKeyService.
     var pendingTarget: Double? { timer == nil ? nil : targetValue }
 
-    /// Animate from `from` to `to` over `duration` seconds using `steps` discrete steps.
     /// `handler(value, isLast)` is called once per step on the main thread.
     /// Calling this cancels any previously running animation.
     func animate(
@@ -202,9 +196,7 @@ final class BrightnessService: @unchecked Sendable {
         animators[displayID]?.cancel()
     }
 
-    /// The brightness a display is fading toward, nil when no fade is running.
-    /// The brightness keys step from this so a repeat lands on the next stop
-    /// instead of re-aiming at the one the fade has not reached yet.
+    /// Wraps BrightnessAnimator.pendingTarget (see its doc) for the given display.
     @MainActor
     func inFlightTarget(for displayID: CGDirectDisplayID) -> Double? {
         animators[displayID]?.pendingTarget
@@ -223,9 +215,8 @@ final class BrightnessService: @unchecked Sendable {
     private var softwareBrightnessFactors: [CGDirectDisplayID: Double] = [:]
     private let softwareBrightnessLock = NSLock()
 
-    /// UUID-keyed like GammaPersistenceKey (issue #32): displayIDs are reused
-    /// across reconnects and reboots, so the old raw-ID key could hand this
-    /// display's dimming factor to a different physical display later.
+    /// UUID-keyed like GammaPersistenceKey (issue #32): a raw-ID key could
+    /// hand this display's dimming factor to a different physical display.
     private func softBrightnessKey(for displayID: CGDirectDisplayID) -> String {
         if let uuid = Self.displayUUIDString(for: displayID) {
             return "crisp.softBrightness.uuid.\(uuid)"
@@ -245,12 +236,10 @@ final class BrightnessService: @unchecked Sendable {
         return CFUUIDCreateString(nil, cfUUID.takeRetainedValue()) as String?
     }
 
-    /// Moves any legacy, displayID-keyed software-brightness factor onto the
-    /// stable UUID key, for every display currently online. Same rules as
-    /// GammaService.migrateLegacyStateIfNeeded: repeated calls are no-ops, an
-    /// existing UUID entry is never overwritten, and a legacy key with no live
-    /// display is left alone (guessing which physical display it belonged to
-    /// is exactly the bug being fixed).
+    /// Moves any legacy displayID-keyed factor onto the stable UUID key, for
+    /// every online display. Same rules as GammaService.migrateLegacyStateIfNeeded:
+    /// idempotent, never overwrites an existing UUID entry, leaves a legacy
+    /// key with no live display alone.
     @MainActor
     func migrateLegacySoftBrightnessIfNeeded(for displays: [DisplayInfo]) {
         let defaults = UserDefaults.standard
@@ -275,7 +264,6 @@ final class BrightnessService: @unchecked Sendable {
         return UserDefaults.standard.double(forKey: key)
     }
 
-    /// Returns the current software brightness factor for a display, or nil if not set.
     func currentSoftwareBrightness(for displayID: CGDirectDisplayID) -> Double? {
         softwareBrightnessLock.withLock { softwareBrightnessFactors[displayID] }
     }
@@ -297,10 +285,9 @@ final class BrightnessService: @unchecked Sendable {
 
     // MARK: - Public API
 
-    /// Whether the built-in panel can be driven in linear luminance. Both private
-    /// DisplayServices symbols have to resolve; otherwise the combined control keeps
-    /// its proportional mapping for the built-in, since a linear value fed to the
-    /// native percent API lands visibly wrong.
+    /// Whether the built-in panel can be driven in linear luminance. Both
+    /// private DisplayServices symbols must resolve; otherwise a linear value
+    /// fed to the native percent API lands visibly wrong.
     static let supportsLinearBrightness = _DSSetLinearBrightness != nil && _DSGetLinearBrightness != nil
 
     /// Native panel brightness in a linear luminance domain. Multiplying this
@@ -312,15 +299,14 @@ final class BrightnessService: @unchecked Sendable {
         return min(1.0, max(0.0, Double(value)))
     }
 
-    /// `animated: true` glides the built-in slider to the freshly-read value
-    /// instead of snapping, used by the ~1s poll so an ambient-sensor auto-adjust
-    /// reads as smooth motion. Instant (default) on load/wake where the slider
-    /// should show the real value immediately.
+    /// `animated: true` glides the slider to the freshly-read value instead of
+    /// snapping (used by the poll, so ambient auto-adjust reads as motion).
+    /// Instant (default) on load/wake, where the slider should show the real
+    /// value immediately.
     @MainActor
     func refreshBrightness(for display: DisplayInfo, animated: Bool = false) async {
-        // While boosted above 100 the hardware pins at max and reads back ~100;
-        // adopting that would snap the slider out of the boost region. Crisp
-        // owns the value while Extra Brightness is engaged.
+        // While boosted above 100 the hardware reads back ~100; adopting that
+        // would snap the slider out of the boost region.
         if display.brightness > 100.0 { return }
         let displayID = display.displayID
 
@@ -331,10 +317,9 @@ final class BrightnessService: @unchecked Sendable {
                 }
             }
             if let b = brightness {
-                // macOS already moved the backlight; only the displayed value needs
-                // to catch up. Glide it (no hardware write) so the knob doesn't jump
-                // between polls. Deadband avoids a perpetual timer on sensor
-                // jitter; sub-0.5% moves are imperceptible, so just set them.
+                // macOS already moved the backlight; only the displayed value
+                // needs to catch up. Glide it (no hardware write) so the knob
+                // doesn't jump; sub-0.5% moves are imperceptible, just set them.
                 if animated, abs(b - display.brightness) >= 0.5 {
                     animator(for: displayID).animate(
                         from: display.brightness, to: b,
@@ -350,13 +335,12 @@ final class BrightnessService: @unchecked Sendable {
             let readToken = ddcPumpLock.withLock {
                 ddcOperationGeneration.currentToken(for: displayID)
             }
-            // First check if DDC is already known to be unavailable; if so skip the
-            // async DDC call and just read the current gamma-derived brightness.
+            // DDC already known unavailable: nothing to read back from gamma
+            // tables, so leave the value as-is.
             let knownUnavailable: Bool = ddcAvailableLock.withLock {
                 ddcAvailable[displayID] == false
             }
             if knownUnavailable {
-                // Can't read brightness from gamma tables meaningfully; leave value as-is
                 return
             }
 
@@ -383,11 +367,9 @@ final class BrightnessService: @unchecked Sendable {
                         Self.log.notice("display \(displayID, privacy: .public): DDC brightness read ok \(result.current, privacy: .public)/\(result.max, privacy: .public), brightness over DDC")
                     }
                     Task { @MainActor in
-                        // DDC reads quantize (many panels expose a coarser internal
-                        // scale than they accept), so a value we just set can read back
-                        // 1-2% off and twitch the slider on every open. Adopt the read
-                        // only on the first seed, or when it differs enough to be a real
-                        // external change (the monitor's own buttons), not read noise.
+                        // DDC reads quantize, so a value we just set can read
+                        // back slightly off. Adopt the read only on first seed
+                        // or a large enough change to be a real external move.
                         self.ddcPumpLock.withLock {
                             guard self.ddcOperationGeneration.isLatestRequest(
                                 readToken, for: displayID
@@ -398,12 +380,10 @@ final class BrightnessService: @unchecked Sendable {
                         }
                     }
                 }
-                // A failed/ignored read does NOT mean DDC is unavailable: many monitors
-                // accept brightness *writes* but never answer *reads* (they ack the I2C
-                // transaction with stale/null bytes, now rejected by DDCService). Leaving
-                // availability undetermined lets the write path decide, marking it false
-                // here would wrongly force the gamma/software fallback on a display whose
-                // hardware backlight control works fine, just showing a stale slider value.
+                // A failed/ignored read does NOT mean DDC is unavailable: many
+                // monitors accept writes but never answer reads. Leaving
+                // availability undetermined lets the write path decide instead
+                // of wrongly forcing the software fallback (see docs/ddc-notes.md).
             }
         }
     }
@@ -411,13 +391,10 @@ final class BrightnessService: @unchecked Sendable {
     /// The displays we currently observe for brightness changes.
     private var observedNativeIDs: Set<CGDirectDisplayID> = []
 
-    /// Subscribes to brightness-change notifications for every display macOS dims itself
-    /// (the built-in, Apple externals) so the slider tracks live (native keys, ambient
-    /// auto-brightness, Control Center) rather than only refreshing on panel-open/wake/
-    /// reconfigure, and a key press steps from the real level. Idempotent: registers new
-    /// displays, drops departed ones and no-ops when nothing changed, so it's safe to
-    /// call on every display reconfiguration. SketchyBar registers the same way, per
-    /// display, wherever DisplayServicesCanChangeBrightness holds.
+    /// Subscribes to brightness-change notifications for every display macOS
+    /// dims itself, so the slider tracks live instead of only refreshing on
+    /// panel-open/wake/reconfigure. Idempotent: registers new displays, drops
+    /// departed ones, safe to call on every reconfiguration.
     @MainActor
     func startObservingNativeBrightness(for displays: [DisplayInfo]) {
         guard let register = _DSRegisterBrightnessChange,
@@ -460,13 +437,10 @@ final class BrightnessService: @unchecked Sendable {
             }
         } else {
             display.brightness = clamped
-            // In the boost region the external's transfer table belongs to the
-            // boost sync below (factor > 1.0); writing the pinned-at-100 dim
-            // here too would race it with an identity table on every tick. The
-            // monitor is in HDR mode up there anyway, so there is no hardware
-            // write to make.
+            // Above 100 the transfer table belongs to the boost sync
+            // (BrightnessBoostService.syncOverlay below); writing here too
+            // would race it.
             if clamped <= 100 {
-                // Check current DDC availability status
                 let currentStatus: Bool? = ddcAvailableLock.withLock { ddcAvailable[displayID] }
 
                 if currentStatus == false {
@@ -577,24 +551,18 @@ final class BrightnessService: @unchecked Sendable {
     private var lastDDCWriteInstant: [CGDirectDisplayID: DispatchTime] = [:]
     private let ddcPumpLock = NSLock()
 
-    /// Minimum spacing between consecutive DDC brightness writes to one display.
-    /// The DDC/CI (MCCS) spec asks hosts to wait ~50ms after a "Set VCP Feature"
-    /// before the next message; writing faster (a fast slider drag fires ~60/sec)
-    /// floods the I2C bus and makes many panels visibly flicker. The coalescing
-    /// pump still applies the latest value, this just caps the cadence at ~20/sec.
+    /// Minimum spacing between DDC brightness writes to one display, per the
+    /// DDC/CI spec (see docs/ddc-notes.md); caps cadence at ~20/sec so a fast
+    /// slider drag can't flood the I2C bus.
     private let minDDCWriteInterval: TimeInterval = 0.05
 
-    /// DDC 0 on most monitors means "minimum backlight", which is still visibly bright.
-    /// Below this percent we layer gamma dimming on top of the hardware write so the
-    /// bottom of the slider actually reaches dark (gamma keeps its own 5% floor).
+    /// Below this percent, gamma dimming layers on top of the DDC write so
+    /// the slider bottom reaches dark (see docs/brightness-notes.md).
     private let gammaBlendThreshold = CombinedBrightnessMath.externalGammaBlendThreshold
 
-    /// Externals currently in HDR mode. A DisplayHDR monitor manages its own
-    /// luminance and silently discards DDC brightness writes (they still ack,
-    /// so failure detection never fires), leaving 15-100% of the slider dead.
-    /// While a display is in this set its whole 0-100 range dims in software
-    /// instead. Maintained by BrightnessBoostService (HDR toggle, boost's
-    /// auto-switch, and reconfiguration sync). Guarded by ddcAvailableLock.
+    /// Externals currently in HDR mode, whose whole 0-100 range dims in
+    /// software instead of DDC (see docs/brightness-notes.md). Maintained by
+    /// BrightnessBoostService. Guarded by ddcAvailableLock.
     private var hdrDimmedDisplays: Set<CGDirectDisplayID> = []
 
     private func applyLatestSoftwareBrightness(_ percent: Double, for displayID: CGDirectDisplayID) {
@@ -621,11 +589,9 @@ final class BrightnessService: @unchecked Sendable {
     }
 
     private func writeDDCBrightnessCoalesced(percent: Double, for displayID: CGDirectDisplayID) {
-        // Single choke point for every DDC brightness write (direct sets and
-        // glide ticks both land here), so this one check routes the full
-        // range to gamma while the monitor is in HDR mode. DDC control
-        // resumes automatically when HDR goes off: the first hardware write's
-        // gamma reset below clears the leftover software dim.
+        // Single choke point for every DDC brightness write: routes the full
+        // range to gamma while the monitor is in HDR mode. DDC resumes
+        // automatically when HDR goes off.
         let hdrDimmed = ddcAvailableLock.withLock { hdrDimmedDisplays.contains(displayID) }
         if hdrDimmed {
             applyLatestSoftwareBrightness(percent, for: displayID)
@@ -737,9 +703,9 @@ final class BrightnessService: @unchecked Sendable {
         ddcPumpLock.unlock()
     }
 
-    /// The write landed: the display is on DDC, so settle the software preview this
-    /// target left behind (a stale gamma dim would stack on the hardware value) and
-    /// hand the pump the next target.
+    /// The write landed: settle the software preview this target left behind
+    /// (a stale gamma dim would stack on the hardware value) and hand the
+    /// pump the next target.
     private func ddcWriteSucceeded(_ target: PendingDDCTarget, for displayID: CGDirectDisplayID) {
         let settled: (firstSuccess: Bool, hasNewerTarget: Bool)? = ddcPumpLock.withLock {
             guard ddcOperationGeneration.isCurrentTopology(target.token, for: displayID) else {
@@ -779,10 +745,8 @@ final class BrightnessService: @unchecked Sendable {
         }
     }
 
-    /// The write failed. A single flaky I2C write must not flip the display into gamma
-    /// mode mid-drag (DDC and gamma dimming stack up and later "reset" visibly), and the
-    /// monitors that need this drop about half their commands at random, so the route
-    /// only latches to software after three consecutive failures.
+    /// The write failed. Latches to software only after three consecutive
+    /// failures, not one: see docs/ddc-notes.md for why.
     private func ddcWriteFailed(_ target: PendingDDCTarget, for displayID: CGDirectDisplayID) {
         let outcome: (streak: Int, fallback: PendingDDCTarget?)? = ddcPumpLock.withLock {
             guard ddcOperationGeneration.isCurrentTopology(target.token, for: displayID) else {
@@ -798,8 +762,8 @@ final class BrightnessService: @unchecked Sendable {
         }
         guard let outcome else { return }
         guard let fallback = outcome.fallback else {
-            // Still inside the grace window: keep DDC and let the pump take the next
-            // target (or stand down if there is none).
+            // Still inside the grace window: keep DDC, let the pump take the
+            // next target (or stand down if there is none).
             pumpDDCWrite(for: displayID, topology: target.token)
             return
         }
@@ -817,17 +781,10 @@ final class BrightnessService: @unchecked Sendable {
 
     // MARK: - Smooth Brightness Transitions
 
-    /// Animate brightness from the display's current value to `targetBrightness` smoothly.
-    ///
-    /// - For DDC displays: sends 5 DDC commands spaced ~40ms apart (200ms total).
-    ///   DDC I2C commands are inherently slow (~40–50ms each), so 5 steps at 40ms intervals
-    ///   fills the 200ms window without flooding the bus.
-    /// - For software (gamma) brightness: 8 gamma table updates over 200ms give a visibly
-    ///   smooth fade without perceptible frame drops.
-    /// - For built-in displays: 8 IOKit writes over 200ms mirror the software path.
-    ///
-    /// Cancels any previously running animation for the same display, so rapid key presses
-    /// always feel responsive, the animation re-targets from wherever it currently is.
+    /// Animates brightness to `targetBrightness`. DDC writes go through the
+    /// coalescing pump (drops steps the I2C bus can't take); gamma and IOKit
+    /// writes are cheap enough to take every step directly. Cancels any
+    /// previous animation for the display and re-targets from wherever it is.
     @MainActor
     func setBrightnessSmooth(
         _ targetBrightness: Double,
@@ -849,12 +806,8 @@ final class BrightnessService: @unchecked Sendable {
 
         let anim = animator(for: displayID)
 
-        // Step at ~125Hz (matches the 120Hz built-in panel) on every path:
-        // display.brightness drives the UI slider, and NSSlider renders value
-        // changes discretely (no interpolation), so the step rate IS the
-        // knob's frame rate. Hardware paces itself: gamma and IOKit writes are
-        // cheap; DDC goes through the coalescing writer, which drops steps the
-        // ~45ms-per-write I2C bus can't take.
+        // Step at ~125Hz: NSSlider renders value changes discretely, so the
+        // step rate is the knob's visible frame rate. Hardware paces itself.
         let smoothSteps = max(8, Int(duration / 0.008))
 
         if display.hasNativeBrightness {
@@ -870,9 +823,8 @@ final class BrightnessService: @unchecked Sendable {
 
             if currentStatus == false {
                 // Software (gamma) path. The transfer-table write is a
-                // synchronous WindowServer call, so it goes to the background
-                // queue like the built-in path's IOKit write; at 125 steps/s
-                // it would otherwise stall the main thread mid-glide.
+                // synchronous WindowServer call, so it runs off the main
+                // thread or it would stall mid-glide at 125 steps/s.
                 anim.animate(from: fromBrightness, to: clamped,
                              steps: smoothSteps, duration: duration) { [weak self, weak display] value, _ in
                     guard let self, let display else { return }
@@ -902,20 +854,17 @@ final class BrightnessService: @unchecked Sendable {
 
     // MARK: - Software Brightness (Gamma Table Fallback)
 
-    /// Applies brightness via gamma table manipulation for displays where DDC is unavailable.
-    /// Uses a linear ramp from 0 to `factor` so white level is dimmed while black stays black.
-    /// brightness: 0–100 (percentage); never goes fully to 0 to avoid a completely black screen.
-    /// Above 100 (external boost region, monitor in HDR mode) the same ramp scales past 1.0,
-    /// pushing SDR content into the HDR wire range; the monitor tone-maps the result.
-    ///
-    /// If GammaService has an active adjustment for this display, it delegates to GammaService
-    /// so the two do not overwrite each other's CGSetDisplayTransfer* call.
+    /// Applies brightness via gamma table for displays where DDC is unavailable:
+    /// a linear ramp from 0 to `factor` (5% floor, never fully black), scaled
+    /// past 1.0 above 100% for the external boost region. See
+    /// docs/brightness-notes.md (gamma and software brightness). Delegates to
+    /// GammaService when it has an active adjustment, so the two don't
+    /// overwrite each other's transfer table.
     func setSoftwareBrightness(_ brightness: Double, for displayID: CGDirectDisplayID) {
         let factor = max(0.05, brightness / 100.0)
         softwareBrightnessLock.withLock { softwareBrightnessFactors[displayID] = factor }
         saveSoftwareBrightness(factor: factor, for: displayID)
 
-        // If GammaService has an active adjustment, let it re-apply (it will incorporate the factor).
         if GammaService.shared.hasActiveAdjustment(for: displayID) {
             GammaService.shared.reapply(for: displayID)
             return
@@ -945,7 +894,6 @@ final class BrightnessService: @unchecked Sendable {
         applyLatestSoftwareBrightness(factor * 100.0, for: displayID)
     }
 
-    /// Resets the gamma table for a display back to the identity curve.
     func resetSoftwareBrightness(for displayID: CGDirectDisplayID) {
         let size = 256
         let values = (0..<size).map { CGGammaValue($0) / CGGammaValue(size - 1) }
@@ -955,8 +903,7 @@ final class BrightnessService: @unchecked Sendable {
         CGSetDisplayTransferByTable(displayID, UInt32(size), &red, &green, &blue)
     }
 
-    /// Returns whether DDC is available for the given display.
-    /// nil means not yet determined (first use).
+    /// See ddcAvailable for what nil/true/false mean.
     func isDDCAvailable(for displayID: CGDirectDisplayID) -> Bool? {
         ddcAvailableLock.withLock { ddcAvailable[displayID] }
     }
@@ -976,9 +923,9 @@ final class BrightnessService: @unchecked Sendable {
         )
     }
 
-    /// Invalidates transport state without discarding the display's saved software settings.
-    /// Called for every online external ID when macOS reports a topology change because IDs
-    /// can swap physical panels without ever leaving the online display list.
+    /// Invalidates transport state without discarding saved software settings.
+    /// Called for every online external ID on a topology change, since IDs
+    /// can swap physical panels without leaving the online display list.
     @MainActor
     func invalidateDDCTopology(for displayIDs: Set<CGDirectDisplayID>) {
         for displayID in displayIDs {
@@ -1007,26 +954,24 @@ final class BrightnessService: @unchecked Sendable {
     func invalidateDDCState(for displayID: CGDirectDisplayID) {
         invalidateDDCTopology(for: [displayID])
         ddcAvailableLock.withLock {
-            // Display IDs are reused: without this, a disconnected HDR
-            // display's software-dimming routing would stick to whatever
-            // display inherits its ID next.
+            // Display IDs are reused: without this, HDR software-dimming
+            // routing would stick to whatever display inherits the ID next.
             _ = hdrDimmedDisplays.remove(displayID)
         }
-        // Same ID-reuse hazard for the rest: reapplySoftwareBrightnessIfNeeded
-        // reads the in-memory factor first, so a display inheriting this ID
-        // would silently get the departed display's dimming factor.
+        // Same ID-reuse hazard: reapplySoftwareBrightnessIfNeeded reads the
+        // in-memory factor first.
         animators.removeValue(forKey: displayID)
         softwareBrightnessLock.withLock {
             _ = softwareBrightnessFactors.removeValue(forKey: displayID)
         }
     }
 
-    /// Re-applies the software brightness for a display after wake from sleep or hot-plug.
-    /// Checks in-memory factor first; falls back to UserDefaults so restart is handled too.
-    /// No-op if no saved factor < 1.0 exists.
+    /// Re-applies the software brightness for a display after wake or hot-plug.
+    /// Checks in-memory factor first, falls back to UserDefaults. No-op if no
+    /// saved factor < 1.0 exists.
     func reapplySoftwareBrightnessIfNeeded(for display: DisplayInfo) {
-        // Before #169 an Apple external fell back to gamma and may have a dim factor
-        // saved; reapplying it would stack on the real backlight with nothing to clear it.
+        // Skip Apple externals (issue #169): a saved gamma dim factor from a
+        // past fallback would stack on the real backlight with nothing to clear it.
         guard !display.hasNativeBrightness else { return }
         let displayID = display.displayID
         let inMemory = softwareBrightnessLock.withLock { softwareBrightnessFactors[displayID] }
@@ -1043,11 +988,9 @@ final class BrightnessService: @unchecked Sendable {
 
     private static nonisolated(unsafe) let ioDisplayBrightnessKey = "brightness" as CFString
 
-    /// Returns the io_service_t for the built-in display using CGDisplayIOServicePort.
-    /// Falls back to iterating IODisplayConnect services if CGDisplayIOServicePort returns null.
-    /// Caller does NOT need to release, CGDisplayIOServicePort returns a non-retained port.
+    /// The built-in's io_service_t via CGDisplayIOServicePort. Caller does NOT
+    /// need to release; the port is non-retained.
     private func builtinIOService() -> io_service_t? {
-        // Find the built-in CGDirectDisplayID
         var displayCount: UInt32 = 0
         CGGetOnlineDisplayList(0, nil, &displayCount)
         var displayIDs = [CGDirectDisplayID](repeating: 0, count: Int(displayCount))
@@ -1059,7 +1002,6 @@ final class BrightnessService: @unchecked Sendable {
             return nil
         }
 
-        // CGDisplayIOServicePort returns a non-retained service port (do not release)
         let servicePort = CGDisplayIOServicePort(builtinID)
         if servicePort != MACH_PORT_NULL && servicePort != 0 {
             return servicePort
@@ -1068,7 +1010,6 @@ final class BrightnessService: @unchecked Sendable {
         return nil
     }
 
-    /// Returns the CGDirectDisplayID of the built-in display, if any.
     private func builtinDisplayID() -> CGDirectDisplayID? {
         var displayCount: UInt32 = 0
         CGGetOnlineDisplayList(0, nil, &displayCount)
@@ -1096,9 +1037,7 @@ final class BrightnessService: @unchecked Sendable {
             }
         }
 
-        // Fallback: iterate IODisplayConnect but only accept services that
-        // correspond to a built-in display (matched via CGDisplayIOServicePort cross-check).
-        // Build set of known external service ports to exclude them.
+        // Fallback: iterate IODisplayConnect, excluding known external ports.
         var displayCount: UInt32 = 0
         CGGetOnlineDisplayList(0, nil, &displayCount)
         var displayIDs = [CGDirectDisplayID](repeating: 0, count: Int(displayCount))
@@ -1126,7 +1065,6 @@ final class BrightnessService: @unchecked Sendable {
         var service = IOIteratorNext(iter)
         while service != 0 {
             defer { IOObjectRelease(service); service = IOIteratorNext(iter) }
-            // Skip services that are known external display ports
             guard !externalPorts.contains(service) else { continue }
             var value: Float = 0
             if IODisplayGetFloatParameter(
@@ -1201,11 +1139,10 @@ extension BrightnessService {
     /// Apple's EDID vendor ID ("APP"), which the built-in panel reports too.
     private static let appleVendorID: UInt32 = 0x0610
 
-    /// Whether macOS sets this display's backlight itself: the built-in panel, and
-    /// Apple externals such as Studio Display and Pro Display XDR, whose brightness
-    /// System Settings changes but Crisp's DDC route did not (#169). The vendor check
-    /// keeps every other monitor on DDC even if DisplayServices ever claims one
-    /// (MonitorControl keeps non-Apple HDR externals out of the same test on macOS 15+).
+    /// Whether macOS sets this display's backlight itself: the built-in, and
+    /// Apple externals like Studio Display and Pro Display XDR, whose
+    /// brightness System Settings changed but Crisp's DDC route did not
+    /// (#169). The vendor check keeps every other monitor on DDC.
     static func hasNativeBrightness(_ displayID: CGDirectDisplayID) -> Bool {
         if CGDisplayIsBuiltin(displayID) != 0 { return true }
         guard CGDisplayVendorNumber(displayID) == appleVendorID,

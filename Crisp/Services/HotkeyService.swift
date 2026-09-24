@@ -26,12 +26,9 @@ final class HotkeyService {
     /// Monotonic id source for EventHotKeyID.id; presses look the id up in
     /// `registrations`, so stale ids from a previous sync simply miss.
     private var nextID: UInt32 = 1
-    /// Number of recorders currently suspending registration; while nonzero,
-    /// syncRegistrations() registers nothing, so a recorder can capture any
-    /// combo, including ones currently bound. A count, not a Bool: two recorder
-    /// rows can briefly overlap during a takeover, and SwiftUI may deliver one
-    /// row's stop after the other row's start, so a Bool would re-arm every
-    /// hotkey while the second row still records.
+    /// While nonzero, syncRegistrations() registers nothing, so a recorder
+    /// can capture any combo. A count, not a Bool: two recorder rows can
+    /// briefly overlap, and a Bool would re-arm while one still records.
     private var suspensions = 0
 
     /// Held-down repeat for the brightness shortcuts. Carbon hotkeys fire once per
@@ -181,9 +178,8 @@ final class HotkeyService {
     // MARK: - Action
 
     /// Flips the display under the pointer between the HiDPI and low-resolution
-    /// variant of its current logical size: an instant mode switch, same as picking
-    /// the twin row in the Resolution list (no override plist, no reconnect).
-    /// Under-cursor targeting matches the brightness keys (BrightnessKeyService).
+    /// variant of its current size: an instant mode switch, same as picking
+    /// the twin row in the Resolution list.
     func toggleHiDPIUnderCursor() {
         let mouse = NSEvent.mouseLocation
         guard let screen = NSScreen.screens.first(where: { NSMouseInRect(mouse, $0.frame, false) }),

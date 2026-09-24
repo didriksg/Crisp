@@ -4,12 +4,11 @@ import os.log
 /// Same category as HotkeyService so one log stream shows the whole chain.
 private let recorderLog = Logger(subsystem: "com.crisp.app", category: "hotkey")
 
-/// One record-in-place shortcut row, shared by the Settings > Shortcuts section
-/// and the preset form (issue #61): action label leading, then the combo glyphs
-/// (or "Record Shortcut"), with an × to clear. Tapping toggles recording; a local
-/// keyDown monitor captures the next valid combo, Esc cancels. All registered
-/// hotkeys are suspended while recording so bound combos can be re-captured.
-/// Commit semantics live in the binding: Settings commits immediately, the preset
+/// One record-in-place shortcut row, shared by Settings > Shortcuts and the
+/// preset form (issue #61). Tapping toggles recording; a local keyDown
+/// monitor captures the next valid combo, Esc cancels. All registered hotkeys
+/// are suspended while recording so bound combos can be re-captured. Commit
+/// semantics live in the binding: Settings commits immediately, the preset
 /// form holds the value in @State until Save.
 struct ShortcutRecorderRow: View {
     let label: String
@@ -68,9 +67,8 @@ struct ShortcutRecorderRow: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .crispStopShortcutRecording)) { note in
             // The preset form is committing/closing (nil object), or another row
-            // is taking over recording. Skip our own takeover post: SwiftUI can
-            // deliver it back to us after startRecording installed the monitor,
-            // and reacting would stop the recording we just started.
+            // is taking over. Skip our own takeover post (see startRecording):
+            // SwiftUI can deliver it back to us after the monitor is installed.
             if note.object as? UUID != rowID { stopRecording() }
         }
         // The preset form unmounts on Save/Cancel; don't leak the monitor.
@@ -79,12 +77,9 @@ struct ShortcutRecorderRow: View {
 
     private func startRecording() {
         guard monitor == nil else { return }
-        // Only one recording at a time: the form row and the Settings row can both
-        // be on screen, so whichever other row is mid-recording must stop first.
-        // Tagged with our identity because SwiftUI may deliver this back to us
-        // only after this function returns (unlike a bare NSHostingView, where
-        // delivery is inline); without the tag the
-        // deferred self-delivery stopped the recording it just started.
+        // Only one recording at a time: stop any other mid-recording row first.
+        // Tagged with our own id, or SwiftUI delivering it back to us after this
+        // function returns would cancel the recording we just started.
         NotificationCenter.default.post(name: .crispStopShortcutRecording, object: rowID)
         isRecording = true
         // Free every bound combo so any of them can be re-recorded here.

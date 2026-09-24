@@ -104,6 +104,21 @@ private func bundledVersion() -> String {
     }
     return version
 }
+/// Writes the skill where the agent reads it and prints the path. Overwrites an
+/// older copy, so running it again after an update refreshes it.
+private func installSkill(for agent: String) -> Never {
+    let file = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent(CrispControlCLIModel.skillFolders[agent] ?? "")
+        .appendingPathComponent("crispctl/SKILL.md")
+    do {
+        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(CrispControlSkill.text.utf8).write(to: file, options: .atomic)
+    } catch {
+        fail("could not write \(file.path): \(error.localizedDescription)", code: 1)
+    }
+    print("Installed \(file.path)")
+    Darwin.exit(EXIT_SUCCESS)
+}
 let request: CrispControlRequest
 switch CrispControlCLIModel.parse(arguments: Array(CommandLine.arguments.dropFirst())) {
 case let .request(value): request = value
@@ -117,6 +132,11 @@ case let .help(topic):
 case .version:
     print("crispctl \(bundledVersion())")
     Darwin.exit(EXIT_SUCCESS)
+case .showSkill:
+    print(CrispControlSkill.text, terminator: "")
+    Darwin.exit(EXIT_SUCCESS)
+case let .installSkill(agent):
+    installSkill(for: agent)
 case let .failure(message): fail(message, code: 2)
 }
 do {

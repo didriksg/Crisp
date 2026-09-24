@@ -27,7 +27,8 @@ private let coreDisplayCreateInfoDictionary:
 /// Supports two hardware paths:
 ///   - ARM64 (Apple Silicon): IOAVService via DCPAVServiceProxy
 ///   - x86_64 (Intel):        IOFramebuffer I2C via IOFBCopyI2CInterfaceForBus
-/// All I2C operations run on a private background queue to avoid blocking UI.
+/// Each display's I2C operations run on their own private background queue, so
+/// one blocked channel cannot stall another (see docs/ddc-notes.md).
 final class DDCService: ObservableObject, @unchecked Sendable {
     static let shared = DDCService()
 
@@ -36,13 +37,9 @@ final class DDCService: ObservableObject, @unchecked Sendable {
     static let contrastVCP: UInt8   = 0x12
     static let volumeVCP: UInt8     = 0x62
 
-    /// Diagnostics for support threads. Transitions and failures go out at
-    /// notice/error (persisted; reporters run `log show --predicate
-    /// 'subsystem == "com.crisp.app"'`), per-write chatter at debug (memory
-    /// only). Display IDs and vendor/product pair with the pairing lines;
-    /// serials never appear.
+    /// See docs/ddc-notes.md for log categories. Serials never appear in logs.
     private static let log = Logger(subsystem: "com.crisp.app", category: "ddc")
-    /// A single I2C op slower than this is logged at notice (issue #72: 12 s reads).
+    /// Logged at notice above this threshold (issue #72). See docs/ddc-notes.md.
     private static let slowOpThresholdMs = 500.0
 
     private static func millisSince(_ start: DispatchTime) -> Double {
@@ -72,14 +69,9 @@ final class DDCService: ObservableObject, @unchecked Sendable {
 
 #if arch(arm64)
     private var avServiceCache: [CGDirectDisplayID: IOAVServiceRef] = [:]
-    /// When the last registry walk found no channel for a display. A walk test-reads every
-    /// DCPAVServiceProxy, and one whose display is off or wedged holds the DCP's I2C engine
-    /// for about six seconds before it fails, so re-walking on every op for an unpaired
-    /// display kept that engine busy for most of a refresh. WindowServer's enable of a
-    /// display waits behind an I2C transaction on that engine, and the whole machine waits
-    /// with it (issue #33's shape; measured here as a 6 s freeze on a reconnect that landed
-    /// inside a 6 s volume read). Remembering the miss briefly turns six walks per refresh
-    /// into one and still lets a monitor that answers late get picked up. Under avServiceLock.
+    /// Caches a recent "no channel" miss so a slow/wedged display isn't re-probed on every
+    /// op (issue #33). See docs/ddc-notes.md (the hold around enable and disable).
+    /// Under avServiceLock.
     private var noChannelSince: [CGDirectDisplayID: Date] = [:]
     private let noChannelRetryInterval: TimeInterval = 20
     private let avServiceLock = NSLock()
@@ -91,10 +83,8 @@ final class DDCService: ObservableObject, @unchecked Sendable {
 
     private init() {}
 
-    /// Stable location of the physical channel behind a display ID, or nil when
-    /// CoreDisplay reports none. It survives an ID reshuffle, so a caller can tell a
-    /// reconfiguration that only renumbered displays from one that moved a panel to
-    /// another port.
+    /// Stable physical-channel location for a display, or nil if CoreDisplay reports none.
+    /// Survives an ID reshuffle, so callers can tell a pure renumber from a moved panel.
     func channelLocation(for displayID: CGDirectDisplayID) -> String? {
         guard let dictionary = coreDisplayCreateInfoDictionary?(displayID)?.takeRetainedValue()
                 as NSDictionary? else { return nil }
@@ -110,29 +100,10 @@ final class DDCService: ObservableObject, @unchecked Sendable {
     /// and we fall back to traversal-order AVService assignment.
     @Published var mappingWarning: String? = nil
 
-    /// Builds a display→AVService map by walking the IOService registry depth-first.
-    ///
-    /// On Apple Silicon the DDC channel (DCPAVServiceProxy) and the display's identity
-    /// (DisplayAttributes → ProductAttributes) live in *sibling* subtrees under the same
-    /// dispextN node, the identity is NOT an ancestor of the AVService, so an upward
-    /// parent-chain walk never finds it (the old approach always fell through to a
-    /// sorted-CGDirectDisplayID index, which mis-pairs channels and drives the wrong
-    /// monitor). A depth-first traversal instead visits each display's framebuffer
-    /// identity immediately before that same display's DCPAVServiceProxy, so every
-    /// AVService can be associated with the most recently seen identity. This is the
-    /// same proximity strategy MonitorControl uses.
-    ///
-    /// Matching order:
-    ///   1. Stable CoreDisplay/IORegistry location.
-    ///   2. Identity: vendor+product+non-zero serial, then vendor+product.
-    ///   3. Traversal-order fallback for anything identity matching missed (e.g. two
-    ///      identical monitors that share vendor/product/serial). This preserves correct
-    ///      pairing far better than the old sorted-index because the AVService order
-    ///      follows the framebuffer order within the same subtree.
-    ///
+    /// Builds a display->AVService map by walking the IOService registry depth-first.
+    /// See docs/ddc-notes.md (AVService pairing) for why and the matching order.
     /// Returns the map plus the external AVServices in traversal order.
     private func buildAVServiceMapByProximity() -> (map: [CGDirectDisplayID: IOAVServiceRef], ordered: [IOAVServiceRef]) {
-        // External CG displays we need to map.
         var displayCount: UInt32 = 0
         CGGetOnlineDisplayList(0, nil, &displayCount)
         var displayIDs = [CGDirectDisplayID](repeating: 0, count: Int(displayCount))
@@ -168,8 +139,7 @@ final class DDCService: ObservableObject, @unchecked Sendable {
                 lastIdentity = id
             }
 
-            // Enumerate external channels without probing them. Some monitors block an
-            // unsolicited read for seconds; real VCP operations decide capability.
+            // Enumerate channels only; probing here can block on some monitors for seconds.
             if ioClassName(entry) == "DCPAVServiceProxy" {
                 let location = IORegistryEntryCreateCFProperty(
                     entry, "Location" as CFString, kCFAllocatorDefault, 0
@@ -186,11 +156,8 @@ final class DDCService: ObservableObject, @unchecked Sendable {
             entry = IOIteratorNext(iterator)
         }
 
-        // Strategy 1 + Strategy 2 + the ambiguity flag live in the pure, headless-testable
-        // `DDCServiceMatcher` (Crisp/Models/DDCServiceMatcher.swift). Its inputs are the
-        // IORegistry identities collected above (already `DDCServiceMatcher.Identity`) and
-        // the CoreGraphics display list; the matching semantics are byte-for-byte those the
-        // inline code used previously.
+        // Matching itself lives in `DDCServiceMatcher` (Crisp/Models/DDCServiceMatcher.swift),
+        // a pure, headless-testable function of the identities above and the CG display list.
         let displays: [(id: CGDirectDisplayID, identity: DDCServiceMatcher.Identity)] = externalIDs.map {
             (id: $0, identity: DDCServiceMatcher.Identity(
                 vendor: CGDisplayVendorNumber($0),
@@ -200,8 +167,7 @@ final class DDCService: ObservableObject, @unchecked Sendable {
         }
         let result = DDCServiceMatcher.match(services: identities, displays: displays)
 
-        // Log the pairing once per outcome: with no channel at all the walk
-        // re-runs on every DDC op, and six identical lines per probe help nobody.
+        // Log each pairing outcome once; a no-channel walk reruns every op and would spam.
         var lines: [(error: Bool, text: String)] = []
         for display in displays {
             let vendorProduct = String(format: "vendor 0x%04X product 0x%04X",
@@ -231,8 +197,8 @@ final class DDCService: ObservableObject, @unchecked Sendable {
         }
 
         var map: [CGDirectDisplayID: IOAVServiceRef] = [:]
-        // Safe: each CGDirectDisplayID key is assigned exactly once, so the unspecified
-        // Dictionary iteration order cannot drop or overwrite an entry.
+        // Safe: each display ID is assigned exactly once, so Dictionary's iteration order
+        // can't drop or overwrite an entry.
         for (displayID, serviceIndex) in result.byDisplayID {
             map[displayID] = ordered[serviceIndex]
         }
@@ -255,7 +221,6 @@ final class DDCService: ObservableObject, @unchecked Sendable {
         return String(cString: path)
     }
 
-    /// Returns the IOKit class name of a registry entry.
     private func ioClassName(_ entry: io_service_t) -> String? {
         let buf = UnsafeMutablePointer<CChar>.allocate(capacity: 128)
         defer { buf.deallocate() }
@@ -263,14 +228,8 @@ final class DDCService: ObservableObject, @unchecked Sendable {
         return String(cString: buf)
     }
 
-    /// Finds the IOAVService for the given display. Caches the result per display.
-    /// Returns nil if no AVService is found (built-in displays, or displays
-    /// that don't support DDC over the Apple Silicon AV path).
-    ///
-    /// Matching strategy: depth-first IOService traversal that pairs each DDC channel
-    /// with the display identity seen closest to it in the registry (see
-    /// buildAVServiceMapByProximity), then vendor/product/serial matching against the
-    /// CoreGraphics display list, with a traversal-order fallback.
+    /// Finds and caches the IOAVService for a display; nil for built-ins or displays
+    /// with no AV path. Matching strategy: see buildAVServiceMapByProximity.
     private func findAVService(for displayID: CGDirectDisplayID) -> IOAVServiceRef? {
         // Fast path: return cached service if present, or a recent miss as nil.
         avServiceLock.lock()
@@ -296,8 +255,7 @@ final class DDCService: ObservableObject, @unchecked Sendable {
         let topology = avServiceTopology
         avServiceLock.unlock()
 
-        // Slow path: enumerate the IOService registry depth-first, pairing each external
-        // DDC channel with the nearest preceding display identity.
+        // Slow path: rebuild the channel map.
         let (serviceMap, ordered) = buildAVServiceMapByProximity()
 
         guard !ordered.isEmpty else {
@@ -329,10 +287,9 @@ final class DDCService: ObservableObject, @unchecked Sendable {
         avServiceLock.unlock()
     }
 
-    /// ARM64 DDC write: send a Set VCP command via IOAVService.
-    /// Buffer layout (bytes sent after the device address / offset arguments):
-    ///   [0x84, 0x03, vcpCode, valueHigh, valueLow, checksum]
-    /// Checksum = XOR of 0x50 (0x51 XOR 0x01) with all preceding buffer bytes.
+    /// ARM64 DDC write: Set VCP Feature over IOAVService.
+    /// Payload: [0x84, 0x03, vcpCode, valueHigh, valueLow, checksum], checksum XORed
+    /// from 0x50 (0x6E DDC dest ^ 0x51 sub-address) over the payload bytes.
     private func arm64Write(displayID: CGDirectDisplayID, command: UInt8, value: UInt16) -> Bool {
         guard let avService = findAVService(for: displayID) else {
             Self.log.debug("write \(Self.hex(command), privacy: .public) display \(displayID, privacy: .public): no DDC channel")
@@ -341,8 +298,6 @@ final class DDCService: ObservableObject, @unchecked Sendable {
 
         let valueHigh = UInt8((value >> 8) & 0xFF)
         let valueLow  = UInt8(value & 0xFF)
-        // Checksum seed: 0x50 = 0x6E (DDC destination) XOR 0x51 (sub-address used by IOAVServiceWriteI2C)
-        // then XOR with each byte in the payload.
         var checksum  = UInt8(0x6E ^ 0x51)
         let payload: [UInt8] = [0x84, 0x03, command, valueHigh, valueLow]
         for b in payload { checksum ^= b }
@@ -363,14 +318,12 @@ final class DDCService: ObservableObject, @unchecked Sendable {
             Self.log.debug("read \(Self.hex(command), privacy: .public) display \(displayID, privacy: .public): no DDC channel")
             return nil
         }
-        // Every failure class gets its own line: this is what a reporter's log
-        // capture answers instead of a round of questions (docs/ddc-notes.md).
+        // Each failure gets its own log line (see docs/ddc-notes.md: unified log).
         func fail(_ reason: String) -> (current: UInt16, max: UInt16)? {
             Self.log.notice("read \(Self.hex(command), privacy: .public) display \(displayID, privacy: .public): \(reason, privacy: .public)")
             return nil
         }
 
-        // Build and send the VCP Get Request packet
         var requestChecksum = UInt8(0x6E ^ 0x51)
         let requestPayload: [UInt8] = [0x82, 0x01, command]
         for b in requestPayload { requestChecksum ^= b }
@@ -384,33 +337,18 @@ final class DDCService: ObservableObject, @unchecked Sendable {
         // Wait for the display to prepare its DDC/CI reply (~40ms per spec)
         Thread.sleep(forTimeInterval: 0.04)
 
-        // Read the VCP reply
         var replyBuf = [UInt8](repeating: 0, count: 12)
         let readRet = IOAVServiceReadI2C(avService, 0x37, 0x51, &replyBuf, UInt32(replyBuf.count))
         guard readRet == kIOReturnSuccess else {
             return fail("reply read I2C error \(String(format: "0x%08X", readRet))")
         }
 
-        // DDC/CI VCP reply format (IOAVService variant):
-        //   replyBuf[0] = source address (0x6E)
-        //   replyBuf[1] = length byte (0x88 = 0x80 | 8)
-        //   replyBuf[2] = 0x02 (Get VCP Feature Reply opcode)
-        //   replyBuf[3] = result code (0x00 = no error)
-        //   replyBuf[4] = VCP opcode echo
-        //   replyBuf[5] = VCP type code
-        //   replyBuf[6] = max value high byte
-        //   replyBuf[7] = max value low byte
-        //   replyBuf[8] = current value high byte
-        //   replyBuf[9] = current value low byte
-        //  replyBuf[10] = checksum
+        // Reply: [source 0x6E, len 0x88, 0x02, result, VCP echo, type, maxHi, maxLo, curHi, curLo, chk]
         guard replyBuf.count >= 10 else { return nil }
 
-        // Validate the reply frame before trusting the payload. Many monitors ack the
-        // I2C read (readRet == success) but return stale EDID bytes or a null frame
-        // instead of a real VCP reply, especially over the Apple Silicon AV path.
-        // Reading bytes 6–9 from such garbage yields a bogus "max" (e.g. 8824 instead
-        // of 100), which then compresses the usable brightness range so the top of the
-        // slider does nothing. Require the DDC/CI reply signature and the VCP echo.
+        // A monitor can ack the I2C read yet return stale EDID bytes or a null frame
+        // instead of a real reply; require the DDC/CI signature and VCP echo before
+        // trusting bytes 6-9 (garbage there poisons the write scale; docs/ddc-notes.md).
         guard replyBuf[0] == 0x6E,      // source address
               replyBuf[2] == 0x02,      // Get VCP Feature Reply opcode
               replyBuf[3] == 0x00,      // result code: no error
@@ -420,11 +358,8 @@ final class DDCService: ObservableObject, @unchecked Sendable {
             return fail("bad reply header [\(head)] (null frame, echo, or stale EDID bytes)")
         }
 
-        // Header bytes alone are only 4 bytes of protection: a wedged DDC
-        // controller (seen on the AOC Q27G3XMN) streams noise that acks reads,
-        // and a lucky frame can pass the signature with garbage value bytes,
-        // poisoning the stored max. The DDC/CI checksum (0x50 seed XORed over
-        // bytes 0-9) must match byte 10 before the payload is trusted.
+        // Header alone is weak: a wedged controller (docs/ddc-notes.md) can pass it with
+        // garbage values. The checksum (0x50 seed over bytes 0-9) must match byte 10 too.
         var expectedChecksum = UInt8(0x50)
         for i in 0...9 { expectedChecksum ^= replyBuf[i] }
         guard expectedChecksum == replyBuf[10] else {
@@ -444,14 +379,10 @@ final class DDCService: ObservableObject, @unchecked Sendable {
 
     // MARK: - Intel (x86_64) IOFramebuffer Path
 
-    /// Finds the IOFramebuffer service for a given external display.
-    /// Returns a retained io_service_t, caller must IOObjectRelease.
-    /// Extracts vendor/product/serial from a ProductAttributes dictionary. The numeric
-    /// LegacyManufacturerID / ProductID / SerialNumber match CGDisplayVendorNumber /
-    /// CGDisplayModelNumber / CGDisplaySerialNumber for the same physical display.
-    /// Shared with DisplayLuminanceService, which reads the same nodes for their
-    /// luminance, so both walks parse identities the same way; note the negative Int
-    /// bit-patterns real monitors return.
+    /// Extracts vendor/product/serial from a ProductAttributes dictionary (matches
+    /// CGDisplayVendorNumber/ModelNumber/SerialNumber for the same display). Shared with
+    /// DisplayLuminanceService so both parse identities the same way; some monitors
+    /// report these as negative Int bit-patterns.
     nonisolated static func displayIdentity(
         from productAttributes: [String: Any],
         location: String? = nil
@@ -469,6 +400,8 @@ final class DDCService: ObservableObject, @unchecked Sendable {
                                           location: location)
     }
 
+    /// Finds the IOFramebuffer service for a given external display.
+    /// Returns a retained io_service_t, caller must IOObjectRelease.
     private func framebufferService(for displayID: CGDirectDisplayID) -> io_service_t? {
         // Strategy 1: Use CGDisplayIOServicePort (deprecated but functional on macOS 15)
         let servicePort = CGDisplayIOServicePort(displayID)
@@ -517,7 +450,6 @@ final class DDCService: ObservableObject, @unchecked Sendable {
             var parent: io_service_t = 0
             guard IORegistryEntryGetParentEntry(service, kIOServicePlane, &parent) == KERN_SUCCESS,
                   parent != 0 else { continue }
-            // Caller must release parent
             return parent
         }
         return nil
@@ -525,7 +457,6 @@ final class DDCService: ObservableObject, @unchecked Sendable {
 
     // MARK: - DDC Checksum (Intel path)
 
-    /// Computes DDC/CI checksum: XOR of destination address + all buffer bytes.
     private func ddcChecksum(destAddress: UInt8, bytes: [UInt8]) -> UInt8 {
         var cs: UInt8 = destAddress
         for b in bytes { cs ^= b }
@@ -545,30 +476,22 @@ final class DDCService: ObservableObject, @unchecked Sendable {
             }
         }
 #if arch(arm64)
-        // ARM64 primary path
         if arm64Write(displayID: displayID, command: command, value: value) {
             return true
         }
         return false
 #else
-        // Intel fallback path
         return intelWriteSynchronous(displayID: displayID, command: command, value: value)
 #endif
     }
 
-    /// Consecutive raw read failures per display. Past the threshold the
-    /// display's reads are quarantined (fail fast, no I2C traffic) until its
-    /// cache is cleared on reconnect. A wedged DDC controller (AOC Q27G3XMN)
-    /// streams garbage and degrades further under retry hammering, so backing
-    /// off protects both the monitor and the shared DCP I2C engine. Writes
-    /// are unaffected; they keep working on wedged controllers.
+    /// Past this many consecutive read failures, reads are quarantined (fail fast, no
+    /// I2C traffic); writes are unaffected. See docs/ddc-notes.md for why.
     private var readFailStreak: [CGDirectDisplayID: Int] = [:]
     private let readStateLock = NSLock()
     private let readQuarantineThreshold = 6
-    /// Quarantine expiry per display: after it passes, one fresh probe window
-    /// opens (streak resets); persistent failure re-quarantines. Without an
-    /// expiry, a transient failure burst on a static setup (no reconnects to
-    /// clear the cache) would kill reads for the rest of the session.
+    /// After expiry, one fresh probe window opens (streak resets); persistent failure
+    /// re-quarantines, so a transient burst can't kill reads for the rest of the session.
     private var readQuarantineUntil: [CGDirectDisplayID: Date] = [:]
     private let readQuarantineInterval: TimeInterval = 600
 
@@ -621,7 +544,7 @@ final class DDCService: ObservableObject, @unchecked Sendable {
         return result
     }
 
-    // MARK: - Intel Write/Read (renamed from original writeSynchronous/readSynchronous)
+    // MARK: - Intel Write/Read
 
     private func intelWriteSynchronous(displayID: CGDirectDisplayID, command: UInt8, value: UInt16) -> Bool {
         guard let fb = framebufferService(for: displayID) else {
@@ -723,15 +646,10 @@ final class DDCService: ObservableObject, @unchecked Sendable {
                     guard IOI2CSendRequest(conn, IOOptionBits(0), &req) == KERN_SUCCESS,
                           req.result == KERN_SUCCESS else { return }
 
-                    // DDC/CI VCP reply layout:
-                    // [0x6E, 0x88, 0x02, errCode, VCPcode, type, max_hi, max_lo, cur_hi, cur_lo, chk]
+                    // Reply: [0x6E, 0x88, 0x02, errCode, VCP echo, type, maxHi, maxLo, curHi, curLo, chk]
                     let rb = replyRaw.bindMemory(to: UInt8.self)
-                    // Validate the reply frame before trusting the payload (see arm64Read):
-                    // a monitor can ack the transaction yet return stale/null bytes, whose
-                    // bogus "max" would compress the usable brightness range.
+                    // Validate before trusting (see arm64Read): ack doesn't guarantee a real reply.
                     guard rb[0] == 0x6E, rb[2] == 0x02, rb[3] == 0x00, rb[4] == command else { return }
-                    // Header bytes are weak protection against a noise stream;
-                    // require the DDC/CI checksum too (see arm64Read).
                     guard self.ddcChecksum(destAddress: 0x50, bytes: Array(rb[0...9])) == rb[10] else { return }
                     let maxVal = (UInt16(rb[6]) << 8) | UInt16(rb[7])
                     let curVal = (UInt16(rb[8]) << 8) | UInt16(rb[9])
@@ -746,7 +664,6 @@ final class DDCService: ObservableObject, @unchecked Sendable {
 
     // MARK: - Cache Cleanup
 
-    /// Removes all cached VCP entries for a display that is no longer connected.
     func clearCache(for displayID: CGDirectDisplayID) {
         cacheLock.lock()
         vcpCache.removeValue(forKey: displayID)
@@ -760,13 +677,9 @@ final class DDCService: ObservableObject, @unchecked Sendable {
 #endif
     }
 
-    /// Drops every cached display-to-AVService pairing (and read quarantines)
-    /// so the next DDC operation re-walks the registry and re-matches by
-    /// identity. Called on any display reconfiguration: CGDisplay IDs get
-    /// reshuffled across reconnect storms on Apple Silicon, and two IDs that
-    /// both survive a storm can end up naming swapped physical panels. A
-    /// per-removed-ID cleanup never sees that, and the stale map then writes
-    /// one monitor's brightness into the other's channel.
+    /// Flushes every channel pairing and read quarantine so the next op re-walks and
+    /// re-matches by identity. Called on any reconfiguration: see docs/ddc-notes.md
+    /// (failure classes) for why a per-removed-ID cleanup isn't enough.
     func invalidateAllChannelMappings() {
         Self.log.notice("display reconfiguration: channel map flushed, pairing re-runs on the next DDC op")
         readStateLock.withLock {
@@ -784,13 +697,10 @@ final class DDCService: ObservableObject, @unchecked Sendable {
 #endif
     }
 
-    /// Keeps every display's DDC queue idle while the caller runs a display transaction:
-    /// resolves once every op queued before it has finished, and holds later ops until the
-    /// returned closure is called (or 15 s pass, so a lost release cannot wedge DDC for the
-    /// session). A display that gets its first op during the hold is held too.
-    /// WindowServer's enable of a display waits behind an in-flight I2C transaction on the
-    /// DCP, and the machine freezes with it, so PhysicalDisplayToggleService takes this
-    /// around every enable and disable.
+    /// Pauses every display's DDC queue until the returned closure is called (15 s safety
+    /// cap). Do not skip this around a display enable/disable: WindowServer's enable waits
+    /// behind an in-flight I2C transaction and freezes the whole Mac with it. See
+    /// docs/ddc-notes.md (the hold around enable and disable).
     func hold() async -> () -> Void {
         let idle = DispatchSemaphore(value: 0)
         let release = operationQueues.hold(timeout: 15) { idle.signal() }
@@ -904,8 +814,6 @@ final class DDCService: ObservableObject, @unchecked Sendable {
                 }
                 self.cacheLock.unlock()
 
-                // For each code with no fresh cache entry, perform a real I2C read.
-                // Every code ends up in result: success → .some(value), failure → .none.
                 for code in codes {
                     if cachedCodes.contains(code) { continue }
                     if let r = self.readSynchronous(displayID: displayID, command: code) {

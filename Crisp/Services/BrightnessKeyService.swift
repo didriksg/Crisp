@@ -37,10 +37,9 @@ final class BrightnessKeyService: @unchecked Sendable {
     private var runLoopSource: CFRunLoopSource?
     /// Retained Unmanaged reference passed into the C callback. Released in stop().
     private var selfRetained: Unmanaged<BrightnessKeyService>?
-    /// Monotonic time (systemUptime) of the last tap disable. retryUntilArmed waits a short
-    /// settle delay past this before re-arming, so a revoke (whose trust state briefly lags)
-    /// resolves before we put an active session tap back in the pipeline. Avoids the kome
-    /// input-freeze churn.
+    /// Monotonic time (systemUptime) of the last tap disable. retryUntilArmed
+    /// waits rearmSettleDelay past this before re-arming, to avoid the freeze
+    /// a re-arm during an unresolved revoke causes. (kome)
     private var disabledAt: TimeInterval = 0
 
     // MARK: - NX Media Key Constants
@@ -127,11 +126,9 @@ final class BrightnessKeyService: @unchecked Sendable {
     }
 
     // MARK: - Accessibility retry
-    // There is no system notification for Accessibility-trust changes, so we keep trying to
-    // arm the tap on two triggers until it takes: a slow recurring poll (reliable) and
-    // app-activation (fast path when the user returns from System Settings after granting).
-    // Whichever arms the tap calls stopRetrying(). This replaces the old bounded 30s give-up
-    // that left the feature dead until an app restart. (b00d.2)
+    // No system notification exists for Accessibility-trust changes, so this polls and also
+    // retries on app-activation. Do not bound it to a fixed timeout and give up: that leaves
+    // the feature dead until an app restart. (b00d.2)
 
     private var pollTimer: Timer?
     private var activationObserver: NSObjectProtocol?
@@ -158,15 +155,11 @@ final class BrightnessKeyService: @unchecked Sendable {
         }
     }
 
-    /// How long to wait after a tap disable before trying to re-arm, so an Accessibility revoke
-    /// has fully resolved before we put an active session tap back in the pipeline. Long enough
-    /// to outlast the AXIsProcessTrusted()/TCC lag that follows a revoke. (kome)
+    /// Long enough to outlast the AXIsProcessTrusted()/TCC lag that follows a
+    /// revoke; re-arming before that churns and freezes input. (kome)
     private static let rearmSettleDelay: TimeInterval = 3.0
 
-    /// Re-arm the tap, but not until any recent disable has had time to settle. Re-creating an
-    /// active session tap while a revoke is still propagating is exactly what churns and freezes
-    /// input; once settled, tapCreate cleanly succeeds (still granted) or fails (revoked). On the
-    /// initial grant flow disabledAt is 0, so this arms immediately with no delay.
+    /// disabledAt is 0 on the initial grant flow, so this arms immediately then.
     private func armIfSettled() {
         guard ProcessInfo.processInfo.systemUptime - disabledAt >= Self.rearmSettleDelay else { return }
         start()
@@ -182,11 +175,9 @@ final class BrightnessKeyService: @unchecked Sendable {
     }
 
     // MARK: - Trust watchdog
-    // The freeze on an Accessibility revoke is the WindowServer holding the event stream for
-    // ~1s while it force-times-out our now-untrusted active session tap. Our own teardown is
-    // instant, but it only runs after that timeout event reaches us, i.e. after the freeze. So
-    // while armed we poll trust faster than that ~1s timeout and, the instant it drops, tear our
-    // tap out ourselves so the WindowServer has nothing doomed to wait on. (kome)
+    // A revoke freezes clicks system-wide for ~1s while WindowServer force-times-out the tap;
+    // waiting for that timeout event means waiting through the freeze. So this polls trust
+    // faster than that timeout and tears the tap down itself the instant it drops. (kome)
 
     private var trustWatchdog: Timer?
 
@@ -218,23 +209,17 @@ final class BrightnessKeyService: @unchecked Sendable {
     // We use nonisolated so Swift 6 doesn't complain about CGEvent (non-Sendable) crossing
     // actor boundaries; all actual state access is done synchronously on the main thread.
 
-    /// Returns `false` to pass the event through, `true` to consume it.
-    /// Separated from the callback to keep the C-bridging function minimal.
+    /// Returns nil to consume the event, or a passthrough of `event` to let it
+    /// continue. Separated from the callback to keep the C-bridging function minimal.
     nonisolated func handleEventFromCallback(
         type: CGEventType,
         event: CGEvent
     ) -> Unmanaged<CGEvent>? {
-        // The system disabled the tap. Never re-enable it here. When the user revokes
-        // Accessibility (unchecks Crisp under Privacy > Accessibility) the system force-disables
-        // the tap, but AXIsProcessTrusted() keeps returning a cached `true` for a second or two.
-        // So any "re-enable while still trusted" (or eager re-create) churns against that
-        // force-disable for the whole lag window, and an active .cgSessionEventTap stuck in that
-        // loop stalls the window-server input pipeline and freezes clicks system-wide. Instead
-        // tear the tap fully out of the run loop at once, which frees input immediately, and let
-        // retryUntilArmed re-install it after a short settle delay, once trust has actually
-        // resolved (tapCreate then cleanly succeeds if still granted, or fails if revoked). A
-        // genuine timeout (rare, only if the main thread stalled past ~1s) recovers the same way,
-        // just a few seconds later, without ever risking the freeze. (kome)
+        // The system disabled the tap. Never re-enable it here: after a revoke,
+        // AXIsProcessTrusted() keeps returning a cached true for a second or
+        // two, and re-enabling in that window churns and freezes clicks
+        // system-wide. Tear it down instead and let retryUntilArmed re-install
+        // it once trust has actually resolved. (kome)
         if type.rawValue == CGEventType.tapDisabledByTimeout.rawValue ||
            type.rawValue == CGEventType.tapDisabledByUserInput.rawValue {
             Self.log.notice("key tap disabled by the system (\(type.rawValue == CGEventType.tapDisabledByTimeout.rawValue ? "timeout" : "user input", privacy: .public)), re-arming after settle")
@@ -248,15 +233,10 @@ final class BrightnessKeyService: @unchecked Sendable {
             return Unmanaged.passRetained(event)
         }
 
-        // Fallback path: raw keyDown for brightness. macOS normally delivers brightness as an
-        // NX_SYSDEFINED aux event (handled below), but when there is no built-in display to target
-        // (e.g. clamshell on some macOS versions) it can suppress that event while the raw keyDown
-        // still flows. Keycodes 144/145 are the brightness media keys. Mirrors MonitorControl's
-        // dual-path capture, which is why it keeps working in clamshell where a SYSDEFINED-only tap
-        // goes dead. (issue #21)
-        // Third-party keyboards in media-key mode (Logitech MX Keys via Logi Options+) send
-        // the brightness pair as F14/F15 (107/113) with no SYSDEFINED event at all; Apple's own
-        // full-size keyboard prints brightness on those two keys too. (issue #69)
+        // Fallback: raw keyDown for brightness (144/145). In clamshell mode macOS can suppress
+        // the NX_SYSDEFINED aux event while the raw keyDown still flows (issue #21). Third-party
+        // keyboards in media-key mode send the pair as F14/F15 (107/113) with no SYSDEFINED
+        // event at all (issue #69).
         if type.rawValue == CGEventType.keyDown.rawValue {
             let kc = event.getIntegerValueField(.keyboardEventKeycode)
             switch kc {
@@ -296,23 +276,14 @@ final class BrightnessKeyService: @unchecked Sendable {
         }
     }
 
-    /// Shared routing for a brightness key-down, called by both the NX_SYSDEFINED media-key path
-    /// and the raw-keyDown fallback path. Applies the step to the configured target(s), shows the
-    /// HUD, and returns nil to CONSUME the event when we adjusted an external display (so macOS does
-    /// not also bump the built-in), or a pass-through of `event` when we did not handle it (target
-    /// not attached / cursor on built-in / no controllable external).
-    /// Option+Shift moves a quarter of a stop, the finer grid macOS itself uses.
+    /// Shared routing for a brightness key-down, from both the media-key and the
+    /// raw-keyDown path. Returns nil to consume when we adjusted a display
+    /// ourselves, or a pass-through of `event` otherwise.
     nonisolated private func routeBrightnessPress(up: Bool, event: CGEvent) -> Unmanaged<CGEvent>? {
-        // macOS moves the built-in a quarter of a stop while Option and Shift are
-        // held, so Crisp moves the displays it drives the same way. The built-in
-        // under the pointer still passes through below, where macOS does it itself.
         let fine = event.flags.contains([.maskAlternate, .maskShift])
-        // Route by user preference. Read on the main actor, this callback runs on
-        // the main run loop (see class docs), so assumeIsolated is safe here.
-        // Which displays a press moves is the same rule for a key and for a bound
-        // shortcut (see adjustFromShortcut). Only the under-cursor case needs the
-        // tap's own pass-through handling, so it is the one that falls through here.
-        // The decision has to be synchronous (consume or not), the work does not.
+        // Explicit targets (allDisplays/selected) win; only underCursor (or a
+        // selected set with nothing attached) falls through below. The tap
+        // runs on the main run loop, so assumeIsolated is safe here.
         let hasExplicitTargets = MainActor.assumeIsolated { self.explicitTargets() != nil }
         if hasExplicitTargets {
             Task { @MainActor in
@@ -322,12 +293,7 @@ final class BrightnessKeyService: @unchecked Sendable {
             // macOS must not also bump the built-in on top.
             return nil
         }
-        // .underCursor (or .selected with none of the chosen displays attached):
-        // fall through to the under-cursor path below.
 
-        // Determine which display is under the cursor.
-        // NSEvent.mouseLocation and NSScreen.screens are safe to call on the main thread.
-        // The tap runs on the main run loop so this is fine.
         let mouseLocation = NSEvent.mouseLocation
         guard let screen = NSScreen.screens.first(where: { NSMouseInRect(mouseLocation, $0.frame, false) }),
               let screenNumber = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID
@@ -335,14 +301,11 @@ final class BrightnessKeyService: @unchecked Sendable {
             return Unmanaged.passRetained(event)
         }
 
-        // Consume the key ONLY when we can synchronously confirm the cursor is on a
-        // currently-connected, controllable EXTERNAL display. Leaving clamshell mode
-        // (external unplugged, then lid opened) briefly leaves NSScreen reporting a
-        // stale external screen while Crisp's display list has already dropped it. The
-        // old code consumed the key on that stale screen, then no-op'd asynchronously on
-        // the vanished display, swallowing the press so the built-in stayed dead until
-        // macOS settled (~30s). Fail safe instead: if we can't confirm a live external,
-        // pass the key through so macOS drives the built-in immediately. (issue #12)
+        // Consume only when we can confirm the cursor is on a live, controllable
+        // external display: leaving clamshell briefly leaves NSScreen reporting a
+        // stale external Crisp has already dropped, and consuming there swallowed
+        // the press (built-in dead until macOS settled, ~30s). Fail safe: pass
+        // through if we can't confirm a live external. (issue #12)
         let displayID = screenNumber
         let isControllableExternal = MainActor.assumeIsolated {
             guard let display = DisplayManagerAccessor.shared.displays.first(where: { $0.displayID == displayID })
@@ -353,7 +316,6 @@ final class BrightnessKeyService: @unchecked Sendable {
             return Unmanaged.passRetained(event)
         }
 
-        // All data captured here is Sendable (CGDirectDisplayID = UInt32, Double).
         Task { @MainActor in
             let displays = DisplayManagerAccessor.shared.displays
             guard let display = displays.first(where: { $0.displayID == displayID }) else { return }
@@ -364,10 +326,9 @@ final class BrightnessKeyService: @unchecked Sendable {
         return nil
     }
 
-    /// Routes a volume/mute key-down to the monitor's DDC speaker volume, but ONLY
-    /// when the default audio output IS that monitor (issue #23). HDMI/DP audio has
-    /// no macOS volume control, so without this the system just shows the crossed-out
-    /// OSD; any other audio route passes through untouched, macOS keeps owning it.
+    /// Routes a volume/mute key-down to DDC speaker volume, only when the
+    /// default audio output is that monitor (issue #23): HDMI/DP audio has no
+    /// macOS volume control otherwise, and any other route passes through.
     nonisolated private func routeVolumePress(keyCode: Int, event: CGEvent) -> Unmanaged<CGEvent>? {
         // Resolved synchronously on the main thread (this tap runs on the main run
         // loop): consume only when a live DDC-volume display owns the audio output.
@@ -403,10 +364,9 @@ final class BrightnessKeyService: @unchecked Sendable {
         return nil
     }
 
-    /// The displays the Brightness Keys target setting names outright, or nil when
-    /// it leaves the choice to the pointer: the under-cursor setting, and the chosen
-    /// subset with none of its displays attached, where the pointer is the fallback
-    /// so a press still does something instead of being dead.
+    /// The Brightness Keys target setting's displays, or nil to leave the
+    /// choice to the pointer (underCursor, or a selected set with none
+    /// attached, so a press still does something instead of being dead).
     private func explicitTargets() -> [DisplayInfo]? {
         let displays = DisplayManagerAccessor.shared.displays
         switch SettingsService.shared.brightnessKeyTarget {
@@ -423,10 +383,8 @@ final class BrightnessKeyService: @unchecked Sendable {
 
     /// Steps brightness for a shortcut bound in Settings > Keyboard Shortcuts
     /// (issue #160), for keyboards whose brightness keys are missing or taken.
-    /// Same stops, same fades, same banner and same targets as the keys.
-    /// One difference, and it cannot be otherwise: with the pointer on the built-in
-    /// the keys hand the event to macOS, while a shortcut has no event to hand over,
-    /// so Crisp moves the built-in itself, as it already does in all-displays mode.
+    /// Same stops, fades, banner and targets as the keys, except it moves the
+    /// built-in itself under the cursor: a shortcut has no event to pass through.
     func adjustFromShortcut(up: Bool) {
         if let targets = explicitTargets() {
             adjustDisplays(targets, up: up)
@@ -440,11 +398,10 @@ final class BrightnessKeyService: @unchecked Sendable {
         adjustDisplays([display], up: up)
     }
 
-    /// Moves each given display (built-in or external) to its next stop,
-    /// through BrightnessService's smooth fade (reusing its DDC/gamma/IOKit paths +
-    /// coalescing), and shows the brightness HUD on each display's own screen.
-    /// Backs every key mode and the shortcuts. `fine` is the quarter step the keys
-    /// ask for with Option+Shift held; a bound shortcut always moves a whole stop.
+    /// Moves each display to its next stop through BrightnessService's smooth
+    /// fade, and shows the HUD. Backs every key mode and the shortcuts; `fine`
+    /// is the quarter step Option+Shift asks for (a shortcut always moves a
+    /// whole stop).
     @MainActor
     private func adjustDisplays(_ displays: [DisplayInfo], up: Bool, fine: Bool = false) {
         let screens = NSScreen.screens

@@ -2,14 +2,9 @@ import CoreGraphics
 
 /// Which display IDs need their DDC transport invalidated after a reconfiguration.
 enum DDCTopologyChange {
-    /// The IDs whose channel changed since the last refresh, plus the ones that went
-    /// away. An ID whose fingerprint is unchanged keeps its in-flight work: a plug,
-    /// unplug or rearrangement elsewhere must not cancel the write, the fade or the
-    /// software fallback of a display the user is adjusting right now.
-    ///
-    /// A fingerprint is the display's identity plus its channel location, so an ID that
-    /// survives a reconnect storm naming a different physical panel still counts as
-    /// changed, and two identical monitors that swap IDs are both caught.
+    /// IDs whose fingerprint (identity + channel location) changed since the last
+    /// refresh, plus ones that went away. An unchanged ID keeps its in-flight work,
+    /// so ID reuse across a reconnect and swaps between identical monitors are caught.
     static func changedChannels(
         previous: [CGDirectDisplayID: String],
         current: [CGDirectDisplayID: String]

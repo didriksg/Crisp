@@ -53,11 +53,10 @@ final class CoreBrightnessService: ObservableObject {
         observeSystemChanges()
     }
 
-    /// Keep the published state live while the panel is closed, so it opens already-correct
-    /// instead of visibly flipping a beat after it appears (the on-open refresh then finds
-    /// nothing to change). Dark mode broadcasts a distributed notification; Night Shift /
-    /// True Tone deliver a CoreBrightness status callback. Each just re-reads via refresh(), 
-    /// event-driven, never a poll. Singleton, so the observers live for the process.
+    /// Keeps published state live while the panel is closed, so it opens
+    /// already correct. Dark mode arrives via a distributed notification;
+    /// Night Shift and True Tone via a CoreBrightness status callback; both
+    /// just call refresh(), event-driven, never polled.
     private func observeSystemChanges() {
         // Dark mode: Control Center / System Settings post this app-wide.
         DistributedNotificationCenter.default().addObserver(
@@ -67,7 +66,7 @@ final class CoreBrightnessService: ObservableObject {
             Task { @MainActor in self?.refresh() }
         }
         // Night Shift / True Tone: each client invokes this block on any status change.
-        // Guarded by responds(to:) so a client lacking the selector is simply skipped.
+        // responds(to:) guards a client that lacks the selector.
         let onChange: @convention(block) () -> Void = { [weak self] in
             Task { @MainActor in self?.refresh() }
         }
@@ -113,9 +112,8 @@ final class CoreBrightnessService: ObservableObject {
                 if let nightShift { self.nightShiftEnabled = nightShift }
                 if self.trueToneAvailable != ttAvailable { self.trueToneAvailable = ttAvailable }
                 if let trueTone { self.trueToneEnabled = trueTone }
-                // Don't clobber an optimistic toggle: the async theme change
-                // may still be in flight, and a stale read here snaps the
-                // button back for a beat (the native control never does).
+                // Don't clobber an optimistic toggle while the async theme
+                // change may still be in flight (see docs/brightness-notes.md).
                 if let dark, Date().timeIntervalSince(self.lastDarkModeSetAt) > 3.0 {
                     self.darkModeEnabled = dark
                 }
@@ -128,18 +126,13 @@ final class CoreBrightnessService: ObservableObject {
     func setDarkMode(_ on: Bool) {
         darkModeEnabled = on
         lastDarkModeSetAt = Date()
-        // The eased color crossfade is AppKit's private NSGlobalPreferenceTransition:
-        // grab a transition, flip the theme silently, then post the change through
-        // the transition so every app animates. Same path System Settings and
-        // Control Center use; plain SLS notify (and System Events) flip instantly.
-        // Acquiring the transition BLOCKS in the window server while it snapshots
-        // every display, so the whole dance runs off the main thread; the toggle
-        // above renders instantly, like the native control.
+        // Crossfades via AppKit's private NSGlobalPreferenceTransition, the
+        // same path System Settings and Control Center use. Acquiring it
+        // BLOCKS in the window server, so this runs off the main thread; see
+        // docs/brightness-notes.md (CoreBrightness).
         Task.detached(priority: .userInitiated) {
             // Let the flipped control reach the screen first: the transition
-            // freezes a snapshot of the display for the crossfade, and it must
-            // capture the button already released and re-tinted (the button
-            // flips instantly, so one frame-commit beat suffices).
+            // must snapshot it already released and re-tinted.
             try? await Task.sleep(nanoseconds: 120_000_000)
             let transition = (NSClassFromString("NSGlobalPreferenceTransition") as? NSObject.Type)?
                 .perform(NSSelectorFromString("transition"))?.takeUnretainedValue() as? NSObject
@@ -169,12 +162,10 @@ final class CoreBrightnessService: ObservableObject {
         trueToneEnabled = on
     }
 
-    /// After a full wake macOS computes True Tone against the built-in panel while an
-    /// external is still training its link, and the external keeps that tint until
-    /// True Tone is toggled (issue #131). This is that toggle, off and back on with a
-    /// beat between so CoreBrightness does not fold the two into nothing. The state
-    /// is read live, never from the published value, so a stale read cannot switch
-    /// True Tone on for someone who has it off. Returns whether it ran.
+    /// Toggles True Tone off and back on to clear a stale tint an external
+    /// keeps after a full wake (issue #131). See docs/brightness-notes.md
+    /// (CoreBrightness). Reads state live, never the published value, so a
+    /// stale read can't switch True Tone on for someone who has it off.
     @discardableResult
     func reassertTrueTone() -> Bool {
         guard let c = trueToneClient, Self.boolCall(c, "supported"), Self.boolCall(c, "available"),

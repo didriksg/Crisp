@@ -22,10 +22,8 @@ final class MirrorService: @unchecked Sendable {
 
     // MARK: - Enable
 
-    /// Makes `target` mirror `source`.
-    /// The entire Begin→Mirror→Complete transaction runs inside `CGHelpers.runWithTimeout`
-    /// so `CGCompleteDisplayConfiguration` cannot block indefinitely on WindowServer IPC.
-    /// - Returns: true on success.
+    /// Makes `target` mirror `source`, timeout-guarded via `CGHelpers.runWithTimeout` so
+    /// `CGCompleteDisplayConfiguration` cannot block WindowServer IPC forever.
     @discardableResult
     func enableMirror(source: CGDirectDisplayID, target: CGDirectDisplayID) async -> Bool {
         // Mirroring a display onto itself is invalid and causes undefined CG behaviour.
@@ -66,10 +64,7 @@ final class MirrorService: @unchecked Sendable {
 
     // MARK: - Disable
 
-    /// Stops `displayID` from mirroring.
-    /// The entire Begin→Mirror→Complete transaction runs inside `CGHelpers.runWithTimeout`
-    /// so `CGCompleteDisplayConfiguration` cannot block indefinitely on WindowServer IPC.
-    /// - Returns: true on success.
+    /// Stops `displayID` from mirroring. Same timeout-guarded transaction as enableMirror.
     @discardableResult
     func disableMirror(displayID: CGDirectDisplayID) async -> Bool {
         return await CGHelpers.runWithTimeout(seconds: 10, fallback: false) {

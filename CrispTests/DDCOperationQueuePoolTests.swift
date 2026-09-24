@@ -57,9 +57,7 @@ final class DDCOperationQueuePoolTests: XCTestCase {
         XCTAssertEqual(second.wait(timeout: .now() + 1), .success)
     }
 
-    /// A display whose first operation arrives mid-hold must wait like the rest:
-    /// WindowServer's enable is what the hold is protecting, and a fresh queue
-    /// would otherwise put I2C back on the bus during the transaction.
+    /// A display first seen mid-hold must wait too, or I2C returns to the bus during the transaction.
     func testDisplayFirstSeenDuringHoldIsHeldToo() {
         let pool = DDCOperationQueuePool()
         let idle = DispatchSemaphore(value: 0)
@@ -75,8 +73,7 @@ final class DDCOperationQueuePoolTests: XCTestCase {
         XCTAssertEqual(newcomer.wait(timeout: .now() + 1), .success)
     }
 
-    /// Two overlapping holds: each release only frees the queues it parked, so the
-    /// second hold still holds the bus after the first one lets go.
+    /// Overlapping holds release independently: the second still holds the bus after the first lets go.
     func testOverlappingHoldsReleaseIndependently() {
         let pool = DDCOperationQueuePool()
         let firstIdle = DispatchSemaphore(value: 0)

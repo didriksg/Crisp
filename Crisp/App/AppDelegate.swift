@@ -5,11 +5,9 @@ import ApplicationServices
 import Combine
 import os.log
 
-/// Borderless key-capable panel for the menu bar UI.
-/// Owning the panel (instead of MenuBarExtra's window) removes the WindowServer
-/// zoom-in materialization and gives us native-menu open behavior. All resize
-/// animation lives in PanelCanvas (docs/panel-resize.md); the panel itself is
-/// just the shell.
+/// Borderless key-capable panel for the menu bar UI (see CrispApp.swift for why
+/// AppDelegate owns it instead of MenuBarExtra). All resize animation lives in
+/// PanelCanvas (docs/panel-resize.md); the panel itself is just the shell.
 final class MenuPanel: NSPanel {
     var onCancel: (() -> Void)?
     override var canBecomeKey: Bool { true }
@@ -34,16 +32,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var clickMonitor: Any?
     private var clickInterceptor: Any?
     private var statusItemCatcher: StatusItemCatcher?
-    // Temporary probe: logs where every in-panel mouse-down lands in the view
-    // tree, to corner the dead-click zones. Remove with the other probes.
     // The NSMenu currently tracking (a SwiftUI Menu / context menu), captured so an
     // outside-panel click can cancel it the way native menus dismiss on click-away.
     private var trackingMenu: NSMenu?
 
-    // One-time migration of legacy `fd.*` UserDefaults keys into the `crisp.*`
-    // namespace. Declared above `displayManager` on purpose: stored-property
-    // initializers run in declaration order, and DisplayManager() reads persisted
-    // keys during init (reapplySavedModeIfNeeded etc.), so this must complete first.
+    // Declared above `displayManager` on purpose: stored-property initializers run
+    // in declaration order, and DisplayManager() reads persisted keys during init
+    // (reapplySavedModeIfNeeded etc.), so this migration must complete first.
     private let _defaultsMigrated = AppDelegate.migrateLegacyDefaultsNamespace()
 
     let displayManager = DisplayManager()
@@ -57,23 +52,20 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var keepAwakeBadge: NSView?
     private var panel: MenuPanel?
     /// The panel is NEVER ordered out once warmed: taking the backdrop surface
-    /// off screen makes WindowServer replay its materialize bloom (the growing
-    /// rectangle) on every reopen. Hidden = alpha 0 + click-through instead,
-    /// so track shown-ness ourselves; isVisible stays true.
+    /// off screen replays WindowServer's materialize bloom. Hidden = alpha 0 +
+    /// click-through instead; isVisible stays true, so track shown-ness ourselves.
     private var isPanelShown = false
     /// Mirrors external state changes (Control Center, brightness keys, other
     /// apps) into the sliders while the panel is open. Started by showPanel,
-    /// cancelled by closePanel: nothing polls while the panel is hidden;
-    /// showPanel's click-time refresh covers state that drifted while closed.
+    /// cancelled by closePanel.
     private var externalStatePollTask: Task<Void, Never>?
 
     /// Called after wake-from-sleep; wired in setupStartupBehavior.
     var onWake: (() -> Void)?
 
     /// One-time migration of legacy `fd.*` UserDefaults keys into the `crisp.*`
-    /// namespace: copies each key to its `crisp.` counterpart (without clobbering an
-    /// existing value) and drops the old one. Idempotent via a sentinel flag so
-    /// existing installs keep their settings instead of resetting to defaults.
+    /// namespace, idempotent via a sentinel flag so existing installs keep their
+    /// settings instead of resetting to defaults.
     @discardableResult
     static func migrateLegacyDefaultsNamespace() -> Bool {
         let defaults = UserDefaults.standard
@@ -104,22 +96,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             Self.log.error("Could not start local control socket: \(error.localizedDescription, privacy: .public)")
         }
 
-        // Start intercepting brightness keys to route them to the display under the cursor,
-        // but only if Accessibility is already granted. Creating the tap (tapCreate) is what
-        // surfaces the OS prompt, so gating on trust keeps launch prompt-free; new users opt
-        // in via the toggle in the Brightness Keys section, which arms it in context. (jv1b)
+        // Route brightness keys to the display under the cursor, but only if
+        // Accessibility is already granted: creating the tap surfaces the OS
+        // prompt. New users opt in via the Brightness Keys toggle. (jv1b)
         if AXIsProcessTrusted() {
             BrightnessKeyService.shared.start()
         } else {
-            // AXIsProcessTrusted() is unreliable at the exact launch instant, especially right
-            // after an upgrade while macOS re-validates the replaced bundle: a user who already
-            // granted access in the prior version would otherwise have the tap silently never arm
-            // (the launch check reads false, and nothing re-arms it since the opt-in toggle is
-            // hidden once trust settles true). Re-check a couple of times as trust settles and arm
-            // if it has; start() is idempotent, and this is bounded so users who never granted
-            // don't poll forever. (upgrade zombie)
-            // Logged so a support capture shows the #57 case: System Settings lists
-            // Crisp as allowed, but the grant belongs to a differently signed build.
+            // AXIsProcessTrusted() can read false right after launch even when
+            // access is already granted (upgrade zombie, #57). Re-check at 1 s
+            // and 3 s and arm if true; start() is idempotent.
             Self.log.notice("Accessibility not trusted at launch, key tap not started; re-checking at 1 s and 3 s")
             for delay in [1.0, 3.0] {
                 DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
@@ -173,7 +158,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 object: nil,
                 queue: .main
             ) { [weak self] _ in
-                // Delivered on `queue: .main`, so the main actor is current.
                 MainActor.assumeIsolated {
                     if name == NSWorkspace.didWakeNotification { self?.fullWakePending = true }
                     self?.onWake?()
@@ -194,12 +178,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         ) { [weak self] _ in
             Task { @MainActor in
                 guard let self, self.isPanelShown, self.panel != nil else { return }
-                // A display connect/disconnect fires a storm of these, and the
-                // geometry is garbage mid-flight: a just-connected virtual display
-                // can transiently read as NSScreen.main, spiking maxContentHeight
-                // (the panel balloons past its cap) and the x/anchor clamp (the
-                // panel offsets). Debounce so we re-anchor ONCE, after the storm
-                // settles, instead of sampling the volatile mid-reconfig state.
+                // A display connect/disconnect fires a storm of these with garbage
+                // mid-flight geometry (a virtual display can transiently read as
+                // NSScreen.main). Debounce to re-anchor ONCE, after the storm settles.
                 self.repositionWorkItem?.cancel()
                 let work = DispatchWorkItem { [weak self] in
                     guard let self, self.isPanelShown, let p = self.panel else { return }
@@ -210,10 +191,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             }
         }
 
-        // A SwiftUI `Menu` (row ⋯ buttons, context menus) opens an AppKit menu in
-        // its own window outside the panel frame. Suppress the panel's outside-click
-        // / resign-key dismissal while any menu tracks, so clicking a menu item that
-        // spilled past the panel edge doesn't close the panel out from under it.
+        // A SwiftUI `Menu` opens an AppKit menu in its own window outside the panel
+        // frame. Suppress the panel's outside-click/resign-key dismissal while any
+        // menu tracks, so a spilled-over click doesn't close the panel underneath it.
         NotificationCenter.default.addObserver(
             forName: NSMenu.didBeginTrackingNotification, object: nil, queue: .main
         ) { [weak self] note in
@@ -238,14 +218,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             }
         }
 
-        // Pre-warm the panel while hidden so the very first open, like every
-        // reopen, appears at its final, settled size (fittingSize is only an
-        // estimate; real layout can differ by a few points). Warm on the very
-        // next runloop turn, not a 1s timer: a runloop turn is <16ms, but the
-        // menu-bar icon isn't clickable until well after that, so the warm-up
-        // (Liquid Glass materialize bloom + first layout) reliably finishes
-        // hidden. On the 1s timer, a fast first click landed mid-warm and the
-        // bloom + estimate reflow played on screen.
+        // Pre-warm the panel while hidden so the first open, like every reopen,
+        // appears at its final settled size. Warm on the next runloop turn (<16ms,
+        // before the icon is clickable), not a timer, so a click can't land mid-warm.
         DispatchQueue.main.async { [weak self] in
             self?.warmPanel()
         }
@@ -257,9 +232,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     /// One-shot re-sync of everything that can drift while the panel is closed
-    /// (Night Shift/True Tone via Control Center, DDC brightness changed by the
-    /// monitor's own buttons or another app). All reads run off the main
-    /// thread; called at the click in showPanel.
+    /// (Night Shift/True Tone, DDC brightness changed externally). Reads run off
+    /// the main thread; called at the click in showPanel.
     private func refreshExternalState() {
         CoreBrightnessService.shared.refresh()
         for display in displayManager.displays {
@@ -268,8 +242,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func pollExternalState() {
-        // The panel is never ordered out (hidden = alpha 0), so isVisible
-        // alone is always true; alpha is the actual shown state.
+        // isVisible is always true (see isPanelShown); alphaValue is the real shown state.
         guard isPanelShown, let p = panel, p.alphaValue > 0 else { return }
         // Don't fight the user's own adjustments (or busy the DDC bus mid-drag).
         if let last = BrightnessService.shared.lastManualAdjustDate,
@@ -277,8 +250,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         CoreBrightnessService.shared.refresh()
         let autoBrightnessOn = AutoBrightnessService.shared.isEnabled
         for display in visibleDisplays() {
-            // Skip any display something else is actively driving (see the
-            // original note in MenuBarView history, issue #12 follow-up).
+            // Skip any display something else is actively driving (issue #12 follow-up).
             if display.isBuiltin || autoBrightnessOn { continue }
             Task { await BrightnessService.shared.refreshBrightness(for: display) }
         }
@@ -300,11 +272,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         VirtualDisplayService.shared.destroyAll()
     }
 
-    // MARK: - Startup behavior (previously in CrispApp's task)
+    // MARK: - Startup behavior
 
     private func setupStartupBehavior() {
-        // Launching must never touch display state the user didn't ask for
-        // (the inherited auto-arrange-external-above-builtin is gone).
+        // Launch must never touch display state the user didn't ask for: no
+        // automatic arrange-external-above-builtin.
         onWake = { [weak self] in
             guard let self, self.wakeTask == nil else { return }
             let dm = self.displayManager
@@ -320,11 +292,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 // it runs reconcile, which puts a remembered disconnect back.
                 dm.refreshDisplays()
                 try? await Task.sleep(nanoseconds: 500_000_000)
-                // WindowServer keeps settling for several seconds after wake: ICC
-                // restore and link retraining can clobber a freshly applied transfer
-                // table, which lost gamma adjustments until relaunch (issue #25).
-                // Three passes with increasing delays so the last lands after the
-                // churn; each is an idempotent no-op when state is already right.
+                // WindowServer keeps settling for seconds after wake: ICC restore and
+                // link retraining can clobber a freshly applied transfer table (#25).
+                // Three passes with increasing delays, each an idempotent no-op.
                 for delay: UInt64 in [0, 4_000_000_000, 8_000_000_000] {
                     try? await Task.sleep(nanoseconds: delay)
                     for display in dm.displays {
@@ -337,8 +307,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                     }
                     // Once an external is back after a full wake, toggle True Tone so macOS
                     // recomputes it with that display present (issue #131). Once per wake,
-                    // at the first pass that lists an external; a desk with no external
-                    // never gets the tint blink.
+                    // at the first pass that lists an external.
                     if self?.fullWakePending == true, dm.displays.contains(where: { !$0.isBuiltin }) {
                         self?.fullWakePending = false
                         if CoreBrightnessService.shared.reassertTrueTone() {
@@ -370,16 +339,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // intercepted below and never reach the button.
         item.button?.target = self
         item.button?.action = #selector(togglePanel)
-        // NSStatusBarButton's own click tracking force-clears its highlight at
-        // mouse-up, which fights a persistent while-panel-open highlight
-        // (flicker, or stuck off). Intercept clicks before the button sees
-        // them: toggle directly, swallow the event so the button never tracks,
-        // and showPanel/closePanel fully own the highlight. This also opens on
-        // press with either button, like native menus. Cmd-clicks pass through
-        // so the item can still be cmd-dragged. Presses that land here are this
-        // interceptor's alone: the panel's auto-dismiss paths skip them
-        // (isPointerOverStatusItem), so togglePanel is the single owner of
-        // whether the panel is open.
+        // NSStatusBarButton's own click tracking fights a persistent while-panel-open
+        // highlight: intercept clicks before the button sees them and swallow the
+        // event, so showPanel/closePanel own the highlight. Cmd-clicks pass through.
         clickInterceptor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
             guard let self,
                   let button = self.statusItem?.button,
@@ -389,11 +351,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             return nil
         }
         statusItem = item
-        // The pill is 2 pt wider than the item on each side and the item's
-        // window clips, so the window is widened before anything is drawn in
-        // it, and on macOS 27 a catcher goes over it so the system draws no
-        // pill of its own on a press. The button has no width until it has
-        // laid out its image.
+        // Both need the button laid out first (it has no width until then):
+        // StatusItemHighlight widens the clipping window before anything draws, and on
+        // macOS 27 the catcher intercepts the system's own pill.
         DispatchQueue.main.async { [weak self, weak item] in
             StatusItemHighlight.makeRoom(for: item?.button)
             self?.statusItemCatcher = StatusItemCatcher.over(item?.button) { [weak self] in self?.togglePanel() }
@@ -421,16 +381,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             }
         }
 
-        // Overlay a small orange dot on the icon while Keep Awake is on, so it's visible at a
-        // glance that sleep is being held. The base icon itself never changes. (keep-awake indicator)
+        // Small dot on the icon shows Keep Awake is on, at a glance. (keep-awake indicator)
         updateStatusIcon(active: KeepAwakeService.shared.isActive, animated: false)
         keepAwakeCancellable = KeepAwakeService.shared.$isActive
             .sink { [weak self] active in self?.updateStatusIcon(active: active, animated: true) }
     }
 
-    /// Renders the status-bar icon for the given Keep Awake state. A hidden default
-    /// (`crisp.debug.keepAwakeIconStyle` = "tint" | "badge") selects how "on" is shown, so
-    /// the two can be compared live; default is tint. (keep-awake indicator)
     /// Fades a small orange dot in/out over the (unchanged) menu-bar icon to reflect Keep Awake.
     /// Only the dot animates; the base symbol stays put. (keep-awake indicator)
     private func updateStatusIcon(active: Bool, animated: Bool) {
@@ -485,46 +441,29 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         panel = p
         guard !isWarmed else { return }
         isWarmed = true
-        // Static-window architecture: the window never resizes while an
-        // animation is in flight (a per-frame shadowed-window resize costs
-        // 5-9ms in the WindowServer, the measured root cause of every
-        // cadence failure). The visible panel is the `shell` inside a larger
-        // transparent window; the spring animates the shell as pure layer
-        // work, and the shadow is a CALayer twin that resizes in the same
-        // atomic commit.
+        // Static-window architecture (docs/panel-resize.md): the window never
+        // resizes mid-animation; the shell inside it animates as pure layer
+        // work, with the shadow as a CALayer twin resizing in the same commit.
         let windowW = canvas.width + canvas.sideMargin * 2
         let root = PanelRootView(frame: NSRect(x: 0, y: 0, width: windowW, height: 480))
         let shadow = NSView(frame: .zero)
         let shadowLayer = CALayer()
         shadowLayer.masksToBounds = false
-        // The twin sits OUTSET one device pixel from the shell (PanelCanvas
-        // computes it), so this black stroke falls just OUTSIDE the glass,
-        // where the WindowServer rim strokes its 1px hairline.
-        // Width 2, not 1: the knockout mask trims the band back to a 1px
-        // ring on straight edges, but at corners the wider stroke keeps the
-        // arc at full darkness where a 1px border is AA-diluted. Alpha is
-        // appearance-dependent and set per flight in PanelCanvas (measured:
-        // ~0.29 light mode, ~0.85 dark mode).
+        // Shadow twin: outset, calibrated border and alpha (PanelCanvas sets the
+        // rest per flight). See docs/panel-resize.md (Shadow twin).
         shadowLayer.borderWidth = 2
         shadowLayer.borderColor = NSColor.black.withAlphaComponent(0.29).cgColor
         shadowLayer.cornerRadius = 17
-        // Knockout mask: an empty layer does not cover its own shadow, so
-        // the blurred silhouette is visible through the shape interior too,
-        // and the glass backdrop would sample it (the whole panel reads
-        // darker in flight). Even-odd keeps only the ring outside the shell.
+        // Knockout mask removes the shadow's interior so the glass backdrop
+        // never samples it. See docs/panel-resize.md (Shadow twin).
         let knockout = CAShapeLayer()
         knockout.fillRule = .evenOdd
         shadowLayer.mask = knockout
         shadow.layer = shadowLayer
         shadow.wantsLayer = true
-        // The shadow MUST be set through the view API: AppKit syncs the
-        // view's `shadow` property onto the layer on every display pass, so
-        // raw layer shadow properties get clobbered (observed: shadowOpacity
-        // reset to 0 while radius and path survived). The explicit
-        // shadowPath (layoutNow) still keeps per-tick resizes cheap.
-        // Numbers are a pixel-measured clone of the WindowServer shadow this
-        // panel wears at rest (bottom: ~16% edge darkening over ~17px, sides
-        // ~11%), so the rest<->flight swap is invisible.
+        // Set through the view API (AppKit syncs shadow -> layer only on a
+        // display pass); shadowPath stays explicit so per-tick resizes stay
+        // cheap. See docs/panel-resize.md (Shadow twin).
         let menuShadow = NSShadow()
         menuShadow.shadowColor = NSColor.black.withAlphaComponent(0.21)
         menuShadow.shadowBlurRadius = 8.5
@@ -541,18 +480,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         shell.wantsLayer = true
         shell.layer?.cornerRadius = 16
         shell.layer?.masksToBounds = true
-        // The WindowServer shadow strokes a two-line rim around the window
-        // shape (measured: ~0.38 black just outside the boundary, ~0.32
-        // white on the first row inside; light mode shows the black line,
-        // dark mode the white one), and both vanish with hasShadow off.
-        // Flights redraw the white line as this border (width toggled in
-        // PanelCanvas); the black line lives on the outset shadow twin.
+        // Flights redraw the native rim's white line as this border (width
+        // toggled in PanelCanvas); the black line lives on the shadow twin.
+        // See docs/panel-resize.md (Shadow twin).
         shell.layer?.borderColor = NSColor.white.withAlphaComponent(0.25).cgColor
-        // The menu backdrop: macOS 26 Liquid Glass, the material Control
-        // Center panels actually use (no NSVisualEffectView grade matches
-        // it). Its materialize bloom plays only when the view first comes on
-        // screen, which happens once during hidden warm-up; the panel never
-        // orders out afterwards.
+        // macOS 26 Liquid Glass, the material Control Center panels use. Its
+        // materialize bloom plays only once, here during hidden warm-up; the
+        // panel never orders out afterwards.
         let backdrop: NSView
         if #available(macOS 26.0, *) {
             let glass = NSGlassEffectView(frame: shell.bounds)
@@ -569,10 +503,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             material.layer?.masksToBounds = true
             backdrop = material
         }
-        // Oversized fixed canvas glued to the shell top, clipped by the
-        // shell's rounded mask: resizing the shell then only MOVES the glass
-        // layer (autoresizing it with the shell cost ~3ms per tick in its
-        // internal layout).
+        // Oversized fixed canvas glued to the shell top, clipped by the shell's
+        // rounded mask: resizing the shell only MOVES the glass layer.
         let backdropHeight: CGFloat = 2200
         backdrop.frame = NSRect(x: 0, y: shell.bounds.height - backdropHeight,
                                 width: canvas.width, height: backdropHeight)
@@ -636,11 +568,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 }
                 .environmentObject(dm)
             ))
-            // Blocks near the window's top/bottom edge otherwise get a phantom
-            // safe-area inset: content shifts inside the host while the AppKit
-            // frame stays put, so clicks land ~12pt off (dead bands at the
-            // edges) and the inset flips with window height (spurious height
-            // reports, visible as jumps).
+            // Blocks near the window's edges otherwise get a phantom safe-area
+            // inset, misplacing clicks. See docs/panel-resize.md (failure map #9).
             h.safeAreaRegions = []
             return h
         }
@@ -658,14 +587,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             }
             dhead.liveInFlight = true   // display row chevron
             blocks.append(dhead)
-            // The expanded detail, split so every dropdown is its own block:
-            // the canvas animates each reveal as a clip over content that
-            // rendered once at natural height, so nothing re-renders per frame
-            // (the 120Hz fix for the nested dropdowns; docs/panel-resize.md).
-            // Controllers hold the state the sibling blocks share; the block
-            // hosts retain them. Every detail block carries the shaded band
-            // the one-piece detail view had, painted on the clip layer
-            // (banded) so reveal fades dim only the content, never the band.
+            // Split so every dropdown is its own block: the canvas clips content
+            // rendered once at natural height (the 120Hz fix; docs/panel-resize.md).
+            // Each detail block paints its shaded band on the clip layer (banded).
             let modeC = DisplayModeController(display: display, displayManager: dm)
             let profC = DisplayProfileController(display: display)
             let detailOpen = { state.expandedDisplayIDs.contains(id) }
@@ -856,10 +780,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             .store(in: &canvasCancellables)
     }
 
-    /// True while the pointer sits over Crisp's own status item. Presses there
+    /// True while the pointer sits over Crisp's own status item: presses there
     /// are the click interceptor's to toggle, so the panel's auto-dismiss paths
-    /// (resign-key, outside click) treat them as neither a dismissal nor a
-    /// click-away.
+    /// treat them as neither a dismissal nor a click-away.
     private var isPointerOverStatusItem: Bool {
         StatusItemHighlight.isPointerOver(statusItem?.button)
     }
@@ -878,15 +801,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
 
-    /// Anchors the panel under the status item on whatever screen it lives
-    /// on. Called on open AND whenever screen parameters change (e.g. the
-    /// main display switches, which re-origins global coordinates and would
-    /// otherwise leave the panel at a stale position).
     /// Display the open panel was summoned on, by stable UUID (displayIDs are
-    /// reassigned across a soft-reconnect). When that display blanks, the status
-    /// item's window migrates to a surviving display and the post-storm reposition
-    /// would drag the panel there for good; `preferOrigin` re-anchors to this
-    /// display once it's back online.
+    /// reassigned across a soft-reconnect); `preferOrigin` re-anchors here once
+    /// that display is back online after migrating away.
     private var panelOriginDisplayUUID: String?
 
     private func displayUUID(for displayID: CGDirectDisplayID) -> String? {
@@ -894,6 +811,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         return CFUUIDCreateString(nil, cfUUID.takeRetainedValue()) as String
     }
 
+    /// Anchors the panel under the status item on whatever screen it lives on.
+    /// Called on open and whenever screen parameters change (e.g. the main
+    /// display switching re-origins global coordinates).
     private func positionPanel(_ p: MenuPanel, preferOrigin: Bool = false) {
         guard let btnWindow = statusItem?.button?.window else { return }
         let btnFrame = btnWindow.frame
@@ -901,13 +821,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         var screen = btnScreen
         var anchorMidX = btnFrame.midX
         var topY = btnFrame.minY - 1
-        // macOS 27's status item window reaches three points past the menu bar
-        // it sits in, so its bottom edge is no longer where a menu hangs from:
-        // measured against the Display menu on the same screen, the system's
-        // top row sits one pixel under the bar's bottom row. The bar's own
-        // bottom edge is the anchor, and only when there is a bar: with it
-        // hidden, visibleFrame runs to the top of the screen and the item
-        // window is the only anchor left.
+        // macOS 27's status item window reaches 3pt past the menu bar, so anchor
+        // to the bar's own bottom edge instead, when there is one.
         if SystemLook.isMacOS27OrLater, let screen = btnScreen,
            screen.frame.maxY - screen.visibleFrame.maxY > 1 {
             topY = screen.visibleFrame.maxY - 1
@@ -947,10 +862,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         warmPanel()
         guard let p = panel else { return }
 
-        // Kick the refresh of everything that can drift while the panel is
-        // closed NOW, at the click: the reads run off the main thread and land
-        // during the fade-in, so the sliders are correct by the time the panel
-        // is readable instead of visibly jumping shortly after it opened.
+        // Kicks the refresh of everything that can drift while closed, NOW at
+        // the click: reads run off the main thread and land during the fade-in,
+        // so sliders are correct once the panel is readable.
         refreshExternalState()
 
         // Native menus appear at full size with all content visible at once;
@@ -965,20 +879,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // user clicked is the anchor, not wherever a previous open ended up).
         panelOriginDisplayUUID = displayManager.activePanelDisplayID.flatMap { displayUUID(for: $0) }
 
-        // Re-apply the appearance-tied rim/shadow before the panel becomes
-        // visible: the colors are only otherwise refreshed on a flight, so the
-        // first open (launch-time appearance) or an open after a light<->dark
-        // switch would show the other mode's rim until an expansion fixed it.
+        // Re-applies appearance-tied rim/shadow before becoming visible: colors
+        // are otherwise only refreshed on a flight, so first open or a mode
+        // switch would show the wrong rim until an expansion fixed it.
         canvas.refreshAppearance()
 
         p.ignoresMouseEvents = false
-        // First open only: fade in briefly so the panel's one-time on-screen costs
-        // (Liquid Glass materialize bloom, first backdrop sample, first rasterization)
-        // play under the fade instead of glitching in visibly, the way native menus'
-        // appearance animation masks the same cost. The offscreen/alpha-0 warm-up can't
-        // pre-play them (glass only materializes when genuinely on screen). The panel
-        // sits at alpha 0 (warm-up / last close), so this is a clean 0 -> 1; every later
-        // open stays instant (duration 0), replacing any in-flight close fade.
+        // First open only: fade in briefly so one-time on-screen costs (Liquid
+        // Glass materialize bloom, first rasterization) play under the fade
+        // rather than glitching in visibly. Later opens stay instant.
         let appearDuration: TimeInterval = hasShownOnce ? 0 : 0.12
         hasShownOnce = true
         NSAnimationContext.runAnimationGroup { ctx in
@@ -1000,11 +909,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // won't re-fire here.
         NotificationCenter.default.post(name: .crispPanelDidOpen, object: nil)
 
-        // Re-probe DDC volume for externals that haven't answered yet: the
-        // connect-time probe (+3s retry) can land inside the post-link-training
-        // garbage window, and nothing else retries. Once per open is bounded
-        // I2C traffic, and a success is remembered so this stops firing for
-        // that display.
+        // Re-probes DDC volume for externals that haven't answered yet: the
+        // connect-time probe can land in the post-link-training garbage window,
+        // and nothing else retries. A success is remembered so this stops firing.
         for display in visibleDisplays() where !display.isBuiltin && !display.volumeSupported {
             VolumeService.shared.refreshVolume(for: display)
         }
@@ -1027,17 +934,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
                 Task { @MainActor in
                     guard let self, self.panel != nil else { return }
-                    // Don't dismiss while our own admin auth dialog is up: those
-                    // clicks land in SecurityAgent (outside the panel). Same for a
-                    // tracking menu whose items spill outside the panel frame, or an
-                    // in-panel confirmation alert awaiting a choice.
-                    // A menu is tracking: an outside-panel click should dismiss the
-                    // MENU the way native menus do, but keep the panel open. Clicks
-                    // on the menu itself go to our own menu window and never reach
-                    // this global monitor, so selecting an item (even one spilled
-                    // past the panel edge) is unaffected.
-                    // The window frame includes transparent shadow margins;
-                    // the VISIBLE panel is the shell (canvas).
+                    // Don't dismiss for our own admin auth dialog, an in-panel alert,
+                    // or a tracking menu: an outside-panel click there cancels the
+                    // MENU (below), not the panel. Excludes the shadow margins.
                     let visible = self.canvas.visibleScreenFrame()
                     if PanelOpenGuard.isMenuTracking {
                         if !visible.contains(NSEvent.mouseLocation) {
@@ -1047,13 +946,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                     }
                     if PanelOpenGuard.suppressAutoDismiss
                         || PanelOpenGuard.isConfirmationActive { return }
-                    // Global monitors normally fire only for clicks landing in
-                    // OTHER apps (= outside the panel). But during the dark
-                    // mode crossfade the system's snapshot overlay intercepts
-                    // every click, so an inside click arrives here too; close
-                    // only when the cursor is genuinely outside the panel, and
-                    // never for a press on our own status item, which the click
-                    // interceptor owns (isPointerOverStatusItem).
+                    // Global monitors normally fire only for clicks in other apps, but the
+                    // dark-mode crossfade's snapshot overlay intercepts every click too.
+                    // Close only when the cursor is genuinely outside the panel or status item.
                     if visible.contains(NSEvent.mouseLocation) || self.isPointerOverStatusItem { return }
                     self.closePanel()
                 }
@@ -1099,20 +994,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             backing: .buffered,
             defer: false
         )
-        // Order matters: isFloatingPanel assigns the window level (.floating,
-        // 3), so setting it after the level silently threw the level away and
-        // the panel ran below every other app's utility windows instead of at
-        // the level the system's own menu bar popovers use.
+        // Order matters: isFloatingPanel assigns the window level (.floating, 3),
+        // so setting it after silently discards the level and the panel runs
+        // below other apps' utility windows.
         p.isFloatingPanel = true
         p.level = .popUpMenu
         p.hidesOnDeactivate = false
         p.isMovable = false
         p.isOpaque = false
         p.backgroundColor = .clear
-        // The shadow is a CALayer twin of the shell (PanelCanvas), not the
-        // WindowServer's: the server recomputes a transparent window's shadow
-        // from its alpha shape on EVERY setFrame (~5ms, measured), which is
-        // what made animated resizes judder.
+        // Shadow is a CALayer twin (PanelCanvas), not the WindowServer's. See
+        // docs/panel-resize.md (Shadow twin).
         p.hasShadow = false
         p.animationBehavior = .none
         p.isReleasedWhenClosed = false
@@ -1140,15 +1032,13 @@ extension AppDelegate {
             // noise, not the user clicking away (those still close via the global
             // click monitor, which ignores this grace).
             if Date() < PanelOpenGuard.resignKeyGraceUntil { return }
-            // Takes key, but is not a click-away: the press is on Crisp's own
-            // status item, so its interceptor is the one to toggle the panel
-            // (isPointerOverStatusItem). Closing here too would let that toggle
-            // reopen the panel it just hid.
+            // Takes key, but isn't a click-away: the press is on Crisp's own
+            // status item, whose interceptor already owns the toggle. Closing
+            // here too would let that toggle reopen the panel it just hid.
             if isPointerOverStatusItem { return }
-            // Same overlay caveat as the click monitor: during the crossfade
-            // the snapshot window can steal key while the user is clicking
-            // INSIDE the panel; don't treat that as clicking away. The window
-            // frame includes shadow margins, so test the visible shell.
+            // Same crossfade caveat as the click monitor: the snapshot window can
+            // steal key mid-click inside the panel. Test the visible shell
+            // (window frame includes shadow margins).
             if canvas.visibleScreenFrame().contains(NSEvent.mouseLocation) { return }
             closePanel()
         }

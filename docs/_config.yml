@@ -1,1 +1,3 @@
-exclude: [superpowers]
+# Pages serves this folder as crispmac.app. The Markdown files here are
+# developer notes for the repo, not site pages.
+exclude: ["*.md"]

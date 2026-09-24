@@ -3,8 +3,7 @@ import CoreGraphics
 
 // DisplayServices private framework, the macOS "Automatically adjust brightness"
 // (ambient light compensation) setting, same dlopen already used by BrightnessService.
-// Only built-in / ambient-light-sensor panels support it; elsewhere the getter returns
-// non-zero, which we treat as "unsupported" (toggle hidden) rather than guessing by model.
+// See supported() below for what counts as unsupported.
 private let _DSAmbientEnabled: (@convention(c) (CGDirectDisplayID, UnsafeMutablePointer<UInt8>) -> Int32)? = {
     guard let h = dlopen("/System/Library/PrivateFrameworks/DisplayServices.framework/DisplayServices", RTLD_LAZY),
           let sym = dlsym(h, "DisplayServicesAmbientLightCompensationEnabled") else { return nil }

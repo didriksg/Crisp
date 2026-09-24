@@ -2,41 +2,27 @@ import CoreGraphics
 import Foundation
 import os.log
 
-/// True HiDPI past WindowServer's scaled-backing cap (issue #65). On 5K2K
-/// ultrawides macOS refuses scaled backings wider than ~6720px, so looks-like
-/// sizes between the ladder top (~3360 wide) and native never enumerate as
-/// HiDPI on the physical display. This service delivers them anyway: it creates
-/// a hidden virtual display whose framebuffer is rendered, not scanned out (the
-/// cap does not apply there), drives it to the wanted looks-like HiDPI mode,
-/// and hardware-mirrors the physical panel onto it; the scanout engine
-/// downscales. The findings behind the recipe (mode declaration rules, the
-/// ~400-object applySettings ceiling, unmirror-before-destroy order) live in
-/// scripts/mirror-hidpi-probe.swift and its commit history.
-///
-/// Lazy lifecycle: the virtual display exists only while a beyond-cap size is
-/// active; `restore` unmirrors first, then destroys. Nothing is persisted, a
-/// relaunch comes up unmirrored. Rotated panels are unverified with mirroring.
+/// True HiDPI past WindowServer's scaled-backing cap (issue #65): mirrors the physical
+/// panel onto a hidden virtual display driven at the wanted looks-like HiDPI mode, whose
+/// framebuffer is rendered rather than scanned out, so the cap doesn't apply. Lazy lifecycle:
+/// the virtual exists only while a beyond-cap size is active; `restore` unmirrors first, then
+/// destroys. Nothing persists; rotated panels are unverified with mirroring.
+/// See docs/display-notes.md (MirroredModeService).
 @MainActor
 final class MirroredModeService: ObservableObject {
     static let shared = MirroredModeService()
     private init() {}
 
-    /// Mirror mode only misbehaves on live hardware, so every failure branch
-    /// logs; `log stream --predicate 'subsystem == "com.crisp.app"'` while
-    /// reproducing tells which step broke without a debug build.
     private static let log = Logger(subsystem: "com.crisp.app", category: "mirroredmode")
 
-    /// Live CGVirtualDisplay per mirrored physical display. Releasing a value
-    /// is what destroys its virtual display, so this dictionary IS the state.
+    /// Live CGVirtualDisplay per mirrored physical display; releasing a value destroys it,
+    /// so this dictionary IS the state.
     private var active: [CGDirectDisplayID: CGVirtualDisplay] = [:]
 
-    /// Published mirror of `active`'s keys so views can observe activity.
     @Published private(set) var activePhysicalIDs: Set<CGDirectDisplayID> = []
 
-    /// Serial-number marker stamped on every mirror virtual ("MIRR"), alongside
-    /// the shared 0xEEEE vendor stamp (which keeps every existing
-    /// isVirtualDisplay filter treating these as virtual). Lets launch recovery
-    /// recognize a stray mirror virtual left by a crash.
+    /// Serial-number marker stamped on every mirror virtual, alongside the shared 0xEEEE
+    /// vendor stamp, so launch recovery can recognize a stray left by a crash.
     static let mirrorSerialMarker: UInt32 = 0x4D49_5252
 
     // MARK: - Queries
@@ -49,8 +35,7 @@ final class MirroredModeService: ObservableObject {
         active[physicalID]?.displayID
     }
 
-    /// The looks-like size currently rendered for a mirrored physical display
-    /// (read from the virtual master's active mode), or nil when not mirrored.
+    /// Read from the virtual master's active mode, or nil when not mirrored.
     func currentLooksLike(for physicalID: CGDirectDisplayID) -> (width: Int, height: Int)? {
         guard let vdID = active[physicalID]?.displayID,
               let cur = CGDisplayCopyDisplayMode(vdID) else { return nil }
@@ -59,10 +44,8 @@ final class MirroredModeService: ObservableObject {
 
     // MARK: - Apply / Restore
 
-    /// Puts `display` on a beyond-cap looks-like size: first call creates the
-    /// mirror virtual and enables the mirror; subsequent calls only switch the
-    /// virtual's mode. Returns false with everything unwound on failure, so a
-    /// failed attempt never leaves a half-built mirror.
+    /// Puts `display` on a beyond-cap looks-like size: first call creates the mirror virtual,
+    /// later calls just switch its mode. Unwinds fully on failure.
     @discardableResult
     func apply(display: DisplayInfo, width: Int, height: Int) async -> Bool {
         guard !display.isBuiltin else { return false }
@@ -73,8 +56,7 @@ final class MirroredModeService: ObservableObject {
                 Self.log.error("apply \(width)x\(height): setLooksLike failed on existing virtual \(vdID)")
                 return false
             }
-            // Re-arm the mirror if something dropped it under us (a wake or a
-            // WindowServer reset can collapse a mirror set without telling us).
+            // Re-arm if a wake or WindowServer reset collapsed the mirror set without telling us.
             if CGDisplayMirrorsDisplay(physicalID) != vdID {
                 Self.log.info("apply \(width)x\(height): reused virtual \(vdID), re-arming mirror")
                 return await MirrorService.shared.enableMirror(source: vdID, target: physicalID)
@@ -107,10 +89,8 @@ final class MirroredModeService: ObservableObject {
         return true
     }
 
-    /// Leaves mirror mode: unmirrors the physical display, then destroys the
-    /// virtual. The caller applies whatever real mode it wants afterwards.
-    /// Order matters: destroying the master of a live mirror is undefined, so
-    /// always unmirror first (the probe's verified-safe order).
+    /// Unmirrors the physical display, then destroys the virtual. Order matters: destroying
+    /// the master of a live mirror is undefined.
     @discardableResult
     func restore(display: DisplayInfo) async -> Bool {
         await restore(physicalID: display.displayID)
@@ -120,11 +100,8 @@ final class MirroredModeService: ObservableObject {
     func restore(physicalID: CGDirectDisplayID) async -> Bool {
         guard let vdID = active[physicalID]?.displayID else { return true }
         Self.log.info("restore: unmirroring physical \(physicalID), destroying virtual \(vdID)")
-        // Only a confirmed unmirror may let the virtual go. disableMirror's false
-        // covers both a refused transaction and a slow one still in flight
-        // (runWithTimeout's fallback), and in either case the panel may still be
-        // mirroring this virtual; keep the entry, so the master stays alive and
-        // the next slider move or reconcile() gets another go.
+        // Only a confirmed unmirror may let the virtual go: the panel may still be mirroring
+        // it, so keep the entry and let the next slider move or reconcile() try again.
         guard await MirrorService.shared.disableMirror(displayID: physicalID) else {
             Self.log.error("restore: unmirror of physical \(physicalID) failed, keeping virtual \(vdID)")
             return false
@@ -136,14 +113,9 @@ final class MirroredModeService: ObservableObject {
         return true
     }
 
-    /// Keeps the bookkeeping truthful against the fresh online list (called from
-    /// DisplayManager.refreshDisplays). Two cases matter: the mirrored physical
-    /// was unplugged (nothing to unmirror anymore, dropping the entry lets the
-    /// orphan virtual die), or our virtual died without us (WindowServer
-    /// collapses the mirror set itself when a master disappears; dropping the
-    /// stale entry makes the next slider move take the normal create path).
-    /// Set-based rather than per removed ID because the mirror virtual is never
-    /// in `DisplayManager.displays`, so its death never shows in that diff.
+    /// Drops bookkeeping for a mirrored physical that got unplugged, or a virtual that died
+    /// without us (WindowServer can collapse the mirror set on its own). Checked against the
+    /// online list, not a removed-ID diff, since the virtual is never in `DisplayManager.displays`.
     func reconcile(online: Set<CGDirectDisplayID>) {
         for (physicalID, virtualDisplay) in active
         where !online.contains(physicalID) || !online.contains(virtualDisplay.displayID) {
@@ -152,26 +124,22 @@ final class MirroredModeService: ObservableObject {
         }
     }
 
-    /// A Crisp mirror virtual, ours or a stray from a crashed session: the shared
-    /// vendor stamp plus the MIRR serial. DisplayManager keeps these out of
-    /// `displays`, so no view, preset, or brightness path ever sees one.
+    /// A Crisp mirror virtual, ours or a stray from a crashed session (shared vendor stamp
+    /// plus the mirror serial). DisplayManager keeps these out of `displays`.
     static func isMirrorVirtual(_ displayID: CGDirectDisplayID) -> Bool {
         CGDisplayVendorNumber(displayID) == VirtualDisplayService.crispVirtualVendorID
             && CGDisplaySerialNumber(displayID) == mirrorSerialMarker
     }
 
-    /// The looks-like sizes a display can only reach through mirror mode: every
-    /// smooth-scaling grid step between the widest HiDPI mode WindowServer let
-    /// the panel enumerate and native. Empty when the whole ladder enumerated
-    /// (nothing is capped) and for the built-in panel. One definition for the
-    /// slider, presets, and the virtual's mode list, so they can never disagree.
+    /// The looks-like sizes a display can only reach through mirror mode. One definition for
+    /// the slider, presets, and the virtual's mode list, so they can never disagree.
+    /// See docs/display-notes.md (MirroredModeService).
     static func beyondCapStops(for display: DisplayInfo) -> [(width: Int, height: Int)] {
         guard !display.isBuiltin else { return [] }
         let (nativeW, nativeH) = display.nativeResolution
         guard nativeW > 0, nativeH > 0 else { return [] }
-        // ponytail: ultrawide-only (21:9 and wider) until a 16:9 4K or 5K panel is
-        // verified with the mirror. Those are capped too (7680 and 10240 backings)
-        // and would otherwise grow the same stops, untested. Drop this guard to widen.
+        // ponytail: ultrawide-only (21:9+) until a 16:9 4K/5K panel is verified with the
+        // mirror; also capped, untested. Drop this guard to widen.
         guard Double(nativeW) / Double(nativeH) >= 2.0 else { return [] }
         let hidpiTop = display.availableModes.filter { $0.isHiDPI }.map(\.width).max() ?? 0
         guard hidpiTop > 0 else { return [] }
@@ -180,12 +148,8 @@ final class MirroredModeService: ObservableObject {
             .filter { $0.width > hidpiTop && $0.width < nativeW }
     }
 
-    /// Frees any physical display left mirroring a STRAY Crisp mirror virtual
-    /// (vendor stamp + MIRR serial) that this process does not own, i.e. one a
-    /// crashed session left behind. We hold no object for it so we cannot
-    /// destroy it, but unmirroring gives the panel its desktop back; the ghost
-    /// display stays hidden from the UI by the vendor-stamp filters. Called on
-    /// every refreshDisplays; a cheap no-op when nothing is stray.
+    /// Frees a physical display left mirroring a stray Crisp mirror virtual (a crashed
+    /// session's, not ours). Unmirrors rather than destroying, since we hold no object for it.
     func recoverStrandedMirrors() {
         var count: UInt32 = 0
         CGGetOnlineDisplayList(0, nil, &count)
@@ -200,10 +164,8 @@ final class MirroredModeService: ObservableObject {
         }
     }
 
-    /// Quit-path teardown. applicationWillTerminate cannot await, so the
-    /// unmirror runs as a direct synchronous transaction; a rare WindowServer
-    /// hang at quit beats leaving the panel mirrored. (Process death would
-    /// also collapse the mirror set, this just makes it orderly.)
+    /// Quit-path teardown: applicationWillTerminate can't await, so this unmirrors
+    /// synchronously rather than leaving the panel mirrored.
     func teardownAll() {
         for physicalID in active.keys {
             var config: CGDisplayConfigRef?
@@ -219,23 +181,16 @@ final class MirroredModeService: ObservableObject {
 
     // MARK: - Creation
 
-    /// Builds the mirror virtual for a physical display: stable identity (so
-    /// macOS's "what do you want to show" picker appears at most once per
-    /// monitor and its answer is remembered), the panel's physical size (sane
-    /// PPI), and a backing + half-size mode PAIR for every beyond-cap stop.
-    /// The pair is mandatory: backing-only declarations get WindowServer to
-    /// mint enumerable looks-like twins, but those twins fail every apply
-    /// (verified live on a 5K2K panel). One refresh rate keeps the dense
-    /// ladder under the ~400-object ceiling where applySettings rejects the
-    /// whole set.
+    /// Builds the mirror virtual: stable identity, the panel's physical size, and a
+    /// backing + half-size mode pair for every beyond-cap stop. See docs/display-notes.md
+    /// (MirroredModeService) for why the pair is mandatory and the mode-count ceiling.
     private func createMirrorVirtual(for display: DisplayInfo,
                                      mustInclude: (width: Int, height: Int)) async -> CGVirtualDisplay? {
         let (nativeW, nativeH) = display.nativeResolution
         guard nativeW > 0, nativeH > 0 else { return nil }
 
-        // The new-display registration pops macOS's picker, which steals key
-        // focus and would trip the panel's auto-dismiss; same suppression as
-        // VirtualDisplayService.create.
+        // Registration pops macOS's picker, which steals key focus and would trip the
+        // panel's auto-dismiss; same suppression as VirtualDisplayService.create.
         PanelOpenGuard.suppressAutoDismiss = true
         defer {
             Task { @MainActor in
@@ -250,38 +205,28 @@ final class MirroredModeService: ObservableObject {
             : CGSize(width: Double(nativeW) / 110.0 * 25.4, height: Double(nativeH) / 110.0 * 25.4)
         descriptor.maxPixelsWide = UInt32(nativeW * 2)
         descriptor.maxPixelsHigh = UInt32(nativeH * 2)
-        // Panel name plus a marker: system UI lists the virtual while
-        // mirrored (Control Center, the first-run Extend picker), and a
-        // distinct name reads as a feature where a duplicate "Name (2)"
-        // reads as a glitch.
+        // System UI lists the virtual while mirrored (Control Center, first-run Extend
+        // picker); a distinct name reads as a feature, a duplicate "Name (2)" as a glitch.
         descriptor.name = String(localized: "\(display.name) (Crisp)")
         descriptor.vendorID = VirtualDisplayService.crispVirtualVendorID
-        // Stable per monitor; the serial carries the mirror marker. Two
-        // identical monitors mirroring at once would collide, accepted edge.
+        // Stable per monitor; two identical monitors mirroring at once would collide (accepted edge).
         let panelIdentity = display.vendorNumber ^ display.modelNumber
         descriptor.productID = panelIdentity != 0 ? panelIdentity : 0x4D52
         descriptor.serialNum = Self.mirrorSerialMarker
 
-        // Every beyond-cap stop on the smooth-scaling grid, in the same
-        // (rotated) space as availableModes and the slider; the requested size
-        // is force-included in case it sits off that grid.
+        // The requested size is force-included in case it sits off the smooth-scaling grid.
         var stops = Self.beyondCapStops(for: display)
         if !stops.contains(where: { $0.width == mustInclude.width && $0.height == mustInclude.height }) {
             stops.append((width: mustInclude.width, height: mustInclude.height))
         }
 
-        // One rate only (the panel's own, 60 when unreadable): every stop costs
-        // TWO mode objects below, and a second rate would put a dense ladder
-        // past the ~400-object ceiling where applySettings rejects the set.
+        // One rate only (the panel's own, 60 when unreadable): a second would push the
+        // dense ladder past the object ceiling. See docs/display-notes.md (MirroredModeService).
         let panelRate = display.currentDisplayMode?.refreshRate ?? 60
         let rate: Double = panelRate > 0 ? panelRate : 60
 
-        // Declare BOTH the 2x backing and the half-size pixel mode per stop
-        // (the probe's recipe). Backing-only declarations look sufficient,
-        // WindowServer mints enumerable looks-like twins for them, but those
-        // twins refuse to apply: CGConfigureDisplayWithDisplayMode fails on
-        // every attempt (found on a 5K2K panel). Only the
-        // declared pair yields a twin that can actually become current.
+        // Declares BOTH the 2x backing and half-size pixel mode per stop; backing-only
+        // twins enumerate but fail every apply (verified on a 5K2K panel).
         var modes: [CGVirtualDisplayMode] = []
         for stop in stops where stop.width >= 1 && stop.height >= 1 {
             modes.append(CGVirtualDisplayMode(width: UInt(stop.width * 2),
@@ -304,8 +249,7 @@ final class MirroredModeService: ObservableObject {
             Self.log.error("createMirrorVirtual: CGVirtualDisplay init returned nil")
             return nil
         }
-        // apply blocks on WindowServer IPC; off-main with a timeout like every
-        // CG transaction (same as VirtualDisplayService.create).
+        // apply blocks on WindowServer IPC; off-main with a timeout like every CG transaction.
         let vd = virtualDisplay
         let s = settings
         let applied: Bool = await CGHelpers.runWithTimeout(seconds: 10, fallback: false) {
@@ -321,9 +265,8 @@ final class MirroredModeService: ObservableObject {
 
     // MARK: - Helpers
 
-    /// Drives the virtual display to the looks-like HiDPI mode, retrying while
-    /// WindowServer finishes enumerating the fresh display. Prefers the highest
-    /// refresh rate offered at that size (the panel's own rate when kept).
+    /// Retries while WindowServer finishes enumerating the fresh display; prefers the
+    /// highest refresh rate offered at that size.
     private func setLooksLike(width: Int, height: Int, on virtualID: CGDirectDisplayID) async -> Bool {
         let options = [kCGDisplayShowDuplicateLowResolutionModes as String: true] as CFDictionary
         for attempt in 0..<10 {
@@ -348,9 +291,7 @@ final class MirroredModeService: ObservableObject {
         return false
     }
 
-    /// Waits (bounded) for a torn-down virtual display to leave the online
-    /// list; same event-driven pattern as VirtualDisplayService, duplicated
-    /// because both keep it private to their own teardown story.
+    /// Bounded wait for a torn-down virtual display to leave the online list.
     private func waitForDisplayOffline(_ displayID: CGDirectDisplayID) async {
         var count: UInt32 = 0
         CGGetOnlineDisplayList(0, nil, &count)

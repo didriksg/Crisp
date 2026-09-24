@@ -89,12 +89,10 @@ final class CrispControlServer {
         Self.write(data, to: client)
     }
 
-    /// Connection changes run one at a time. Each connection is served in its own
-    /// task and disconnect() checks the last-screen guard before it awaits the
-    /// transaction, so two disconnects fired together for the last two displays
-    /// both passed the guard and every screen went dark (measured on two sockets:
-    /// both reported success, 387 and 1155 ms). Brightness and HDR
-    /// stay concurrent, since a reconnect can hold the line for seconds.
+    /// Connection changes run one at a time: two disconnects fired together for the last
+    /// two displays both passed disconnect()'s last-screen guard and blacked out every
+    /// screen. Brightness and HDR stay concurrent, since a reconnect can hold the line
+    /// for seconds.
     private var connectionChain: Task<Void, Never>?
 
     private func response(to request: Data) async -> Data {
@@ -255,10 +253,9 @@ final class CrispControlServer {
         )
     }
 
-    /// Applies a resolved connection change and returns nil, or the reason it was
-    /// refused. Not fire-and-forget like brightness: a disconnect can be legitimately
-    /// refused (it would leave no active display) and a caller wiring this to a
-    /// button needs to hear that, so the reply carries Crisp's own reason.
+    /// Applies a connection change, returning nil or the refusal reason. Not fire-and-forget
+    /// like brightness: a disconnect can be legitimately refused (last active display), and
+    /// the caller needs to hear why.
     private func apply(_ change: CrispControlConnectionChange, among managedDisplays: [DisplayInfo]) async -> String? {
         let service = PhysicalDisplayToggleService.shared
         let outcome: Result<Void, PhysicalDisplayToggleService.ToggleError>

@@ -13,8 +13,7 @@ struct SavePresetView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Fade the row out / card in on the panel spring (no curtain wipe or
-            // slide, so nothing ghosts through the glass mid-reveal).
+            // Fades row/card on the panel spring so nothing ghosts through glass mid-reveal.
             if isShowingForm {
                 SavePresetForm(
                     onClose: { withAnimation(.panelResize) { isShowingForm = false } },
@@ -26,8 +25,7 @@ struct SavePresetView: View {
                     .transition(.opacity)
             } else {
                 Button(action: {
-                    // Focus the name field the instant the reveal finishes, 
-                    // completion handler, not a timer.
+                    // Focus via the reveal's completion handler, not a timer.
                     withAnimation(.panelResize) {
                         isShowingForm = true
                     } completion: {
@@ -40,8 +38,7 @@ struct SavePresetView: View {
                             .font(.body)
                         Spacer()
                     }
-                    // Padding inside the button label so the tappable area
-                    // matches the hover highlight (no dead padded margin).
+                    // Padding inside the label so the tappable area matches the hover highlight.
                     .padding(.horizontal, 12)
                     .padding(.vertical, 3)
                     .contentShape(Rectangle())
@@ -52,8 +49,7 @@ struct SavePresetView: View {
                 .transition(.opacity)
             }
         }
-        // Collapse the create form when the panel closes, so it reopens fresh
-        // like the rest of the panel (fires while hidden).
+        // Collapse the form when the panel closes so it reopens fresh (fires while hidden).
         .onReceive(NotificationCenter.default.publisher(for: .crispPanelDidClose)) { _ in
             isShowingForm = false
         }
@@ -77,18 +73,16 @@ struct SavePresetForm: View {
     @State private var includeResolution: Bool = true
     @State private var includeBrightness: Bool = true
     @State private var includeArrangement: Bool = true
-    /// Edit mode only: when on, Save re-captures the current display values
-    /// (resolution/brightness/arrangement) instead of keeping the stored ones.
+    /// Edit mode only: when on, Save re-captures current values instead of stored ones.
     @State private var recaptureValues: Bool = false
     /// Global shortcut for this preset, held here until Save like name and icon
-    /// (issue #61). Recording works at creation time because this form is also
-    /// the New Preset form.
+    /// (#61); works at creation time too since this form is also the New Preset form.
     @State private var recordedShortcut: KeyboardShortcut? = nil
     @State private var showIdentityPicker: Bool = false
     @State private var isSaving: Bool = false
     @State private var saveError: String?
-    /// Owned by the parent so it can focus the field in the reveal animation's
-    /// completion handler (focusing mid-reveal janks the transition).
+    /// Owned by the parent so it can focus via the reveal's completion handler
+    /// instead of mid-reveal, which janks the transition.
     @FocusState.Binding var nameFocused: Bool
 
     init(editing: DisplayPreset? = nil,
@@ -110,9 +104,8 @@ struct SavePresetForm: View {
         !includeResolution && !includeBrightness && !includeArrangement
     }
 
-    /// Stored resolution shown inline only when a single display carries it (clean
-    /// and unambiguous). Several displays stay subtitle-less like the Arrangement
-    /// row; their per-display specifics live in the arrangement balloon.
+    /// Stored resolution shown inline only for a single display (clean and
+    /// unambiguous); with several, per-display specifics live in the arrangement balloon.
     private var resolutionDetail: String? {
         guard let editing else { return nil }
         let labels = editing.displays.compactMap { $0.width != nil ? $0.resolutionLabel : nil }
@@ -144,13 +137,11 @@ struct SavePresetForm: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            // Identity line: icon button (opens icon+color) + name field
             HStack(spacing: 9) {
                 PresetIconButton(symbol: selectedIcon, color: selectedSwatch, isOpen: showIdentityPicker) {
                     withAnimation(.panelResize) { showIdentityPicker.toggle() }
                 }
-                // Explicit placeholder: macOS drops a plain field's own
-                // placeholder once it's focused, so draw our own while empty.
+                // Explicit placeholder: macOS drops a plain field's own once focused.
                 ZStack(alignment: .leading) {
                     if presetName.isEmpty {
                         Text("Preset name")
@@ -178,7 +169,6 @@ struct SavePresetForm: View {
                 .animation(.easeOut(duration: 0.12), value: nameFocused)
             }
 
-            // Progressive icon + color picker (collapsed by default)
             if showIdentityPicker {
                 VStack(alignment: .leading, spacing: 8) {
                     VStack(alignment: .leading, spacing: 5) {
@@ -186,9 +176,8 @@ struct SavePresetForm: View {
                             .font(.caption)
                             .foregroundColor(.secondary)
                         // Plain HStack, not LazyVGrid: lazy containers reposition
-                        // their items mid-flight during animated panel resizes.
-                        // Sized to fit the 242pt inner width (8×26 + 7×3 = 229) so
-                        // expanding the picker doesn't force the fixed-308 panel wider.
+                        // items mid-flight during animated panel resizes.
+                        // Measured: see docs/ui-notes.md (SavePresetView: icon grid width)
                         HStack(spacing: 3) {
                             ForEach(iconOptions, id: \.symbol) { option in
                                 IconOptionButton(
@@ -232,12 +221,10 @@ struct SavePresetForm: View {
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
                         .fill(Color.black.opacity(0.18))
                 )
-                // Fade in place (no slide from behind the identity row, which
-                // would ghost through the glass mid-reveal).
+                // Fade in place, not a slide (same reasoning as the form fade above).
                 .transition(.opacity)
             }
 
-            // Captures
             VStack(alignment: .leading, spacing: 6) {
                 Text("Captures")
                     .font(.caption2)
@@ -249,8 +236,7 @@ struct SavePresetForm: View {
                                  label: "Brightness", detail: brightnessDetail, isOn: $includeBrightness)
                 CaptureToggleRow(icon: "display.2", color: .indigo,
                                  label: "Arrangement", isOn: $includeArrangement)
-                // Editing an arrangement-bearing preset: show the saved layout as a
-                // small diagram (raw x/y coordinates aren't legible; a picture is).
+                // Small diagram of the saved layout: raw x/y coordinates aren't legible.
                 if includeArrangement, let editing, editing.includesArrangement {
                     PresetArrangementThumbnail(preset: editing,
                                                includeResolution: includeResolution,
@@ -265,8 +251,7 @@ struct SavePresetForm: View {
             ShortcutRecorderRow(label: "Shortcut", shortcut: $recordedShortcut)
                 .padding(.horizontal, -12)  // recorder row pads itself; cancel the form's inset
 
-            // Edit mode only: let Save refresh the stored values to the current
-            // display state. New always captures fresh, so this only shows when editing.
+            // Edit mode only; new presets always capture fresh values.
             if editing != nil {
                 Toggle(isOn: $recaptureValues) {
                     VStack(alignment: .leading, spacing: 1) {
@@ -289,7 +274,6 @@ struct SavePresetForm: View {
                     .foregroundColor(.red)
             }
 
-            // Cancel / Save
             HStack(spacing: 10) {
                 Spacer()
                 Button("Cancel") {
@@ -327,16 +311,14 @@ struct SavePresetForm: View {
         let name = presetName.trimmingCharacters(in: .whitespaces)
         guard !name.isEmpty, !nothingSelected else { return }
 
-        // Stop an in-flight recording before committing: commitShortcut re-syncs
-        // hotkey registrations, which no-ops while recording suspends them.
+        // Stop recording first: commitShortcut re-syncs hotkeys, a no-op while suspended.
         NotificationCenter.default.post(name: .crispStopShortcutRecording, object: nil)
 
         isSaving = true
         saveError = nil
 
         if let editing {
-            // Edit: update identity + capture inclusions, preserving stored
-            // values for captures left unchanged.
+            // Preserves stored values for captures left unchanged.
             PresetService.shared.editPreset(
                 id: editing.id, name: name, icon: selectedIcon, colorName: selectedColor,
                 includeResolution: includeResolution,
@@ -409,15 +391,13 @@ struct PresetIconButton: View {
 // MARK: - CaptureToggleRow
 
 /// One "Captures" switch row: colored icon chip + label + native switch.
-/// Mirrors the Settings toggle rows so it inherits the panel's look (and the
-/// native Liquid Glass material on macOS 26).
+/// Mirrors the Settings toggle rows for the same panel look.
 struct CaptureToggleRow: View {
     let icon: String
     let color: Color
     let label: String
-    /// When editing a preset, the stored value for this capture (e.g. "1512×982
-    /// HiDPI", "72%"), shown under the label so you can see what's saved. Hidden
-    /// while the capture is toggled off (it's being dropped) and when creating.
+    /// Stored value for this capture when editing (e.g. "1512x982 HiDPI", "72%").
+    /// Hidden when the capture is toggled off or when creating a new preset.
     var detail: String? = nil
     @Binding var isOn: Bool
 
@@ -466,8 +446,7 @@ struct IconOptionButton: View {
                     RoundedRectangle(cornerRadius: 5)
                         .fill(isSelected ? tint : (isHovered ? Color.primary.opacity(0.08) : Color.clear))
                 )
-                // Without this the clear background doesn't hit-test, so hover
-                // only fires over the glyph strokes, not the full highlight box.
+                // Without this, hover fires only over the glyph strokes, not the full box.
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -478,9 +457,8 @@ struct IconOptionButton: View {
 
 // MARK: - PresetArrangementThumbnail
 
-/// Static, non-interactive schematic of a preset's saved display arrangement:
-/// outlined rectangles at their saved relative positions. Not the arranger, no
-/// wallpaper or drag, just a legible stand-in for the raw x/y coordinates.
+/// Static schematic of a preset's saved arrangement: outlined rectangles at
+/// their saved positions, a legible stand-in for the raw x/y coordinates.
 struct PresetArrangementThumbnail: View {
     let preset: DisplayPreset
     var includeResolution: Bool = true
@@ -502,8 +480,7 @@ struct PresetArrangementThumbnail: View {
                             }
                         }
                         .overlay(alignment: .top) {
-                            // Same hover callout as the arranger; connected displays
-                            // only (offline fallbacks have no name to show).
+                            // Same hover callout as the arranger; connected displays only.
                             if hoveredID == item.id, let display = item.display {
                                 DisplayNameBadge(name: display.name, detail: detail(for: display))
                                     .transition(.scale(scale: 0.85, anchor: .bottom).combined(with: .opacity))
@@ -526,8 +503,7 @@ struct PresetArrangementThumbnail: View {
         )
     }
 
-    /// The arranger's own wallpaper thumbnail for a connected display; a neutral
-    /// rounded panel when the preset's display isn't currently attached.
+    /// The arranger's wallpaper thumbnail when connected, else a neutral rounded panel.
     @ViewBuilder
     private func thumbnail(for display: DisplayInfo?) -> some View {
         if let display {
@@ -539,8 +515,7 @@ struct PresetArrangementThumbnail: View {
         }
     }
 
-    /// This display's saved resolution · brightness for the hover balloon, limited
-    /// to the captures that are currently on. nil when the preset stores neither.
+    /// Saved resolution/brightness for the hover balloon, limited to captures on.
     private func detail(for display: DisplayInfo) -> String? {
         guard let e = preset.displays.first(where: { $0.displayUUID == display.displayUUID }) else { return nil }
         var parts: [String] = []
@@ -555,8 +530,7 @@ struct PresetArrangementThumbnail: View {
         let display: DisplayInfo?
     }
 
-    /// Saved origins + each display's live point-size (for correct wallpaper aspect),
-    /// scaled to fit `size`. Falls back to the stored resolution when a display is offline.
+    /// Saved origins + live point-size (or stored resolution if offline), scaled to fit `size`.
     private func layout(in size: CGSize) -> [Placed] {
         let raw: [(screen: CGRect, display: DisplayInfo?)] = preset.displays.compactMap { e in
             guard let x = e.arrangementX, let y = e.arrangementY else { return nil }
@@ -586,8 +560,7 @@ struct PresetArrangementThumbnail: View {
         }
     }
 
-    /// Point footprint from the stored logical resolution (already in points), or a
-    /// default 16:10 box when a preset saved arrangement without resolution.
+    /// Point footprint from the stored resolution, or a default 16:10 box.
     private func pointSize(_ e: DisplayPresetEntry) -> CGSize {
         guard let w = e.width, let h = e.height else {
             return CGSize(width: 1440, height: 900) // ponytail: default box, arrangement-only preset

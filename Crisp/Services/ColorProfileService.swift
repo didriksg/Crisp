@@ -12,11 +12,9 @@ struct ICCProfile: Identifiable, Equatable {
     /// "scnr" (scanner), "spac" (color-space conversion), etc. "" if unreadable.
     let deviceClass: String
 
-    /// Whether this profile is safe to assign as a display's ColorSync profile.
-    /// Displays take RGB, matrix-based profiles, the monitor ("mntr") and RGB
-    /// working-space ("spac") classes. Printer/scanner/CMYK/LUT profiles can make
-    /// WindowServer abort while building the display transform, crashing the whole
-    /// GUI on every reconnect (recoverable only in Safe Mode; seen on AOC Q27G3XMN),
+    /// Whether this profile is safe to assign as a display's ColorSync profile: only RGB
+    /// monitor ("mntr") or working-space ("spac") profiles. Printer/scanner/CMYK/LUT
+    /// profiles crash WindowServer building the display transform (Safe Mode to recover),
     /// so they must never be offered or assigned.
     var isDisplayProfile: Bool {
         colorSpaceType == "RGB" && (deviceClass == "mntr" || deviceClass == "spac")
@@ -30,7 +28,6 @@ struct ICCProfile: Identifiable, Equatable {
         self.deviceClass = deviceClass
     }
 
-    /// Convenience failable initializer: loads profile metadata from a file URL.
     init?(url: URL) {
         guard let profile = ColorProfileService.makeProfile(from: url) else { return nil }
         self = profile
@@ -49,10 +46,9 @@ final class ColorProfileService: @unchecked Sendable {
 
     // MARK: - Profile Enumeration
 
-    /// Returns the display-assignable ICC profiles for the given display, sorted
-    /// alphabetically, matching macOS's own Displays color list: the standard RGB
-    /// profiles plus only THIS display's own factory profile. Other monitors'
-    /// per-display profiles are hidden. `displayUUID` is `DisplayInfo.displayUUID`.
+    /// Display-assignable ICC profiles for `displayUUID` (DisplayInfo.displayUUID), matching
+    /// macOS's own Displays list: standard RGB profiles plus only this display's own factory
+    /// profile.
     func enumerateProfiles(for displayUUID: String) async -> [ICCProfile] {
         await Task.detached(priority: .userInitiated) {
             var profiles: [ICCProfile] = []
@@ -84,15 +80,12 @@ final class ColorProfileService: @unchecked Sendable {
                 }
             }
 
-            // Only offer profiles that are safe to assign to a display. A non-display
-            // profile (printer/scanner/CMYK/LUT) crashes WindowServer on assignment.
+            // Only offer profiles safe to assign; a non-display profile crashes WindowServer.
             return profiles
                 .filter { $0.isDisplayProfile }
                 .filter { profile in
-                    // Match macOS's list: standard profiles show for every display, but
-                    // a per-display factory profile (.../ColorSync/Profiles/Displays/)
-                    // shows only for the display whose UUID is in its filename. Keeps
-                    // other monitors' profiles out of this display's list.
+                    // A per-display factory profile (.../ColorSync/Profiles/Displays/) shows
+                    // only for the display whose UUID is in its filename.
                     let path = profile.path.path
                     guard path.contains("/ColorSync/Profiles/Displays/") else { return true }
                     return path.range(of: displayUUID, options: .caseInsensitive) != nil
@@ -139,10 +132,8 @@ final class ColorProfileService: @unchecked Sendable {
         let data = rawData.takeRetainedValue() as Data
         guard data.count >= 20 else { return ("", "") }
         func sig(_ range: Range<Int>) -> String {
-            // The header's 4CC fields come back as host-endian OSTypes, so on a
-            // little-endian Mac their bytes are reversed ("rtnm" for "mntr"). Reverse
-            // to recover the ASCII signature. (Reading them forward is why the old
-            // colorSpaceType always fell through to its "RGB" default.)
+            // 4CC fields come back host-endian, so on a little-endian Mac their bytes are
+            // reversed ("rtnm" for "mntr"); reverse to recover the ASCII signature.
             let bytes = Array([UInt8](data[range]).reversed())
             guard bytes.allSatisfy({ $0 >= 0x20 && $0 <= 0x7E }),
                   let str = String(bytes: bytes, encoding: .ascii) else { return "" }
@@ -259,10 +250,8 @@ final class ColorProfileService: @unchecked Sendable {
     /// Returns true on success.
     @discardableResult
     func setProfile(_ profile: ICCProfile, for displayID: CGDirectDisplayID) -> Bool {
-        // Safety net (defends the ColorSyncDeviceSetCustomProfiles call even if a
-        // non-display profile reaches here another way): assigning a printer/scanner/
-        // CMYK/LUT profile as a display override makes WindowServer abort building the
-        // display transform, crashing the whole GUI on every reconnect. Refuse it.
+        // Safety net: assigning a non-display profile crashes WindowServer building the
+        // display transform on every reconnect. Refuse it.
         guard profile.isDisplayProfile else {
             return false
         }
@@ -286,10 +275,8 @@ final class ColorProfileService: @unchecked Sendable {
     }
 }
 
-/// `CGDisplayMode.pixelEncoding` is deprecated (macOS 10.11, "No longer
-/// supported") but still returns real data and is the only source for the
-/// panel's bits-per-channel. Reading it through this protocol witness
-/// acknowledges the deprecation once instead of warning at every call site.
+/// `CGDisplayMode.pixelEncoding` is deprecated but still works and is the only source for
+/// bits-per-channel; wrapped in a protocol to acknowledge the deprecation once.
 private protocol DisplayModePixelEncoding {
     var pixelEncoding: CFString? { get }
 }

@@ -4,11 +4,9 @@ import SwiftUI
 /// Mirrors BetterDisplay's Image Adjustment panel.
 struct ImageAdjustmentView: View {
     @ObservedObject var display: DisplayInfo
-    /// Whether the parent section is expanded. The view stays instantiated even
-    /// when collapsed (its reveal is a curtain, not an `if`), so the gamma
-    /// apply/persist side-effects key off this instead of onAppear/onDisappear,
-    /// which would otherwise fire for every display on panel open/close and reset
-    /// gamma + color profiles the user never touched here.
+    /// Whether the parent section is expanded. The view stays instantiated when
+    /// collapsed (a curtain, not an `if`), so apply/persist side effects key off
+    /// this instead of onAppear/onDisappear, which fire for every display.
     let isExpanded: Bool
 
     // MARK: - Local adjustment state (mirrors GammaAdjustment)
@@ -26,10 +24,8 @@ struct ImageAdjustmentView: View {
     @State private var isInverted: Bool
     @State private var isPaused: Bool
 
-    // Seed @State from the saved gamma state at init so the 11 sliders render at
-    // their real values on the first frame. Doing this in .onAppear mutated
-    // @State mid-spring and made the section's open animation hitch; Resolution/
-    // Refresh don't touch @State on open, so they stay smooth.
+    // Seed @State from saved gamma state at init, not onAppear: mutating @State
+    // there hitched the section's open animation mid-spring.
     init(display: DisplayInfo, isExpanded: Bool) {
         _display = ObservedObject(wrappedValue: display)
         self.isExpanded = isExpanded
@@ -52,7 +48,7 @@ struct ImageAdjustmentView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
 
-            // ── Group 1: Global adjustments ────────────────────────────────
+            // MARK: Global adjustments
             adjustRow(icon: "circle.righthalf.filled", label: "Contrast", value: $contrast)
             adjustRow(icon: "sparkle", label: "Gamma", value: $gammaVal)
             adjustRow(icon: "bolt.fill", label: "Gain", value: $gain)
@@ -63,7 +59,7 @@ struct ImageAdjustmentView: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 2)
 
-            // ── Group 2: Per-channel gamma ─────────────────────────────────
+            // MARK: Per-channel gamma
             adjustRow(icon: "r.circle", label: "Gamma R", value: $rGamma, accent: .red)
             adjustRow(icon: "g.circle", label: "Gamma G", value: $gGamma, accent: .green)
             adjustRow(icon: "b.circle", label: "Gamma B", value: $bGamma, accent: .blue)
@@ -72,7 +68,7 @@ struct ImageAdjustmentView: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 2)
 
-            // ── Group 3: Per-channel gain ──────────────────────────────────
+            // MARK: Per-channel gain
             adjustRow(icon: "r.circle.fill", label: "Gain R", value: $rGain, accent: .red)
             adjustRow(icon: "g.circle.fill", label: "Gain G", value: $gGain, accent: .green)
             adjustRow(icon: "b.circle.fill", label: "Gain B", value: $bGain, accent: .blue)
@@ -81,7 +77,7 @@ struct ImageAdjustmentView: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 2)
 
-            // ── HDR warning ────────────────────────────────────────────────
+            // MARK: HDR warning
             HStack(spacing: 5) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundColor(.yellow)
@@ -93,7 +89,7 @@ struct ImageAdjustmentView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 5)
 
-            // ── Action buttons ─────────────────────────────────────────────
+            // MARK: Action buttons
             HStack(spacing: 8) {
                 actionButton(
                     title: "Invert Colors",
@@ -130,16 +126,14 @@ struct ImageAdjustmentView: View {
         }
         .onChange(of: isExpanded) { _, expanded in
             if expanded {
-                // Re-apply the restored adjustment on open so the display matches
-                // the UI. commitAdjustment() no-ops while paused.
+                // Re-apply so the display matches the UI; no-ops while paused.
                 if !isIdentity { commitAdjustment() }
             } else {
                 persist()
             }
         }
         .onDisappear {
-            // Panel closed while the section was open: persist the live state.
-            // (A collapse already persisted via onChange, so guard on isExpanded.)
+            // A collapse already persisted via onChange; only handle panel-close.
             if isExpanded { persist() }
         }
     }
@@ -168,8 +162,7 @@ struct ImageAdjustmentView: View {
                 .font(.caption)
                 .frame(width: 72, alignment: .leading)
 
-            // Round in the binding rather than using `step:`, which would make
-            // macOS draw tick marks under this slider (and no other).
+            // Round in the binding, not via `step:`, which would draw tick marks.
             Slider(value: Binding(get: { quantLevels },
                                   set: { quantLevels = $0.rounded() }),
                    in: 2...256) { _ in

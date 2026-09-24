@@ -10,13 +10,11 @@ enum CombinedBrightnessMath {
     /// Must stay aligned with BrightnessService's DDC + gamma blend boundary.
     static let externalGammaBlendThreshold = 15.0
 
-    /// Converts the shared 0...100 control to a target luminance.
     static func targetNits(combined: Double, referenceMaxNits: Double) -> Double {
         guard combined.isFinite, referenceMaxNits.isFinite, referenceMaxNits > 0 else { return 0 }
         return min(100.0, max(0.0, combined)) / 100.0 * referenceMaxNits
     }
 
-    /// Converts target luminance to a display's native 0...maxBrightness scale.
     static func targetBrightness(
         combined: Double,
         maxBrightness: Double,
@@ -35,7 +33,6 @@ enum CombinedBrightnessMath {
         return min(maxBrightness, max(0.0, percent))
     }
 
-    /// Converts a display's native brightness back to the shared control scale.
     static func controlValue(
         brightness: Double,
         maxBrightness: Double,

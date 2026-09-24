@@ -1,9 +1,8 @@
 import XCTest
 import CoreGraphics
 
-/// `DDCTopologyChange` is compiled directly into this test target (see `project.yml`
-/// sources, same route as `DDCServiceMatcher`), so no `@testable import Crisp` is needed.
-
+/// `DDCTopologyChange` compiles directly into this test target, so no
+/// `@testable import Crisp` is needed.
 final class DDCTopologyChangeTests: XCTestCase {
     private let aoc = "1050/12345/0/IOService:/AppleARMPE/dcp0"
     private let dell = "4268/16843/9911/IOService:/AppleARMPE/dcp1"
@@ -13,8 +12,7 @@ final class DDCTopologyChangeTests: XCTestCase {
         XCTAssertTrue(DDCTopologyChange.changedChannels(previous: map, current: map).isEmpty)
     }
 
-    /// The regression this exists for: display 2 replugs while display 1 has a write in
-    /// flight. Only 2 may be invalidated, or 1's pending target is dropped mid-drag.
+    /// Display 2 replugs while display 1 has a write in flight: only 2 may invalidate.
     func testOnlyTheRepluggedDisplayIsInvalidated() {
         let previous: [CGDirectDisplayID: String] = [1: aoc, 2: dell]
         let current: [CGDirectDisplayID: String] = [1: aoc, 3: dell]

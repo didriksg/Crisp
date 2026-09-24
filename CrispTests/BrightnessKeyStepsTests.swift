@@ -1,10 +1,7 @@
 import XCTest
 
-/// Headless tests for the stops the brightness and volume keys move between.
-///
-/// `BrightnessKeySteps` is compiled directly into this test target (see `project.yml`
-/// sources, same route as `DisplayModeGeometry`), so no `@testable import Crisp` is
-/// needed.
+/// Headless tests for the brightness/volume key stops. `BrightnessKeySteps` compiles
+/// directly into this test target, so no `@testable import Crisp` is needed.
 final class BrightnessKeyStepsTests: XCTestCase {
 
     /// A value already on a stop moves a whole step, not a hair.
@@ -13,28 +10,24 @@ final class BrightnessKeyStepsTests: XCTestCase {
         XCTAssertEqual(BrightnessKeySteps.next(from: 50, up: false), 43.75, accuracy: 0.0001)
     }
 
-    /// A value off the grid, which is where every display Crisp has never touched starts,
-    /// lands on the next stop rather than carrying its offset along.
-    /// Kills mutation: "add or subtract the step instead of snapping".
+    /// A value off the grid lands on the next stop, not carrying its offset along.
     func testOffTheGridSnapsToTheNextStop() {
         XCTAssertEqual(BrightnessKeySteps.next(from: 79, up: true), 81.25, accuracy: 0.0001)
         XCTAssertEqual(BrightnessKeySteps.next(from: 79, up: false), 75, accuracy: 0.0001)
     }
 
-    /// A readback a hair off a stop (DDC and gamma both round) still moves a whole step,
-    /// or holding the key would creep by fractions.
+    /// A readback a hair off a stop (DDC and gamma both round) still moves a whole step.
     func testNearlyOnAStopStillMovesAWholeStep() {
         XCTAssertEqual(BrightnessKeySteps.next(from: 56.2499, up: true), 62.5, accuracy: 0.0001)
         XCTAssertEqual(BrightnessKeySteps.next(from: 56.2501, up: false), 50, accuracy: 0.0001)
     }
 
-    /// The grid carries on past 100 for displays with Extra Brightness; clamping to the
-    /// display's own maximum belongs to the caller.
+    /// The grid carries on past 100 for Extra Brightness; the caller clamps.
     func testGridContinuesAboveOneHundred() {
         XCTAssertEqual(BrightnessKeySteps.next(from: 100, up: true), 106.25, accuracy: 0.0001)
     }
 
-    /// Below zero is the caller's to clamp too, so the step itself keeps counting down.
+    /// Below zero is the caller's to clamp too, so the step keeps counting down.
     func testBelowZeroIsLeftToTheCaller() {
         XCTAssertEqual(BrightnessKeySteps.next(from: 0, up: false), -6.25, accuracy: 0.0001)
     }
@@ -54,15 +47,13 @@ final class BrightnessKeyStepsTests: XCTestCase {
         }
     }
 
-    /// DDC and gamma read back whole percent, so a fine press counts from the nearest
-    /// quarter: 51.5625 read back as 52 must go on to 53.125, not re-send 51.5625.
+    /// A fine press counts from the nearest quarter, so a rounded readback still advances.
     func testRoundedReadbackStillAdvancesAFineStep() {
         XCTAssertEqual(BrightnessKeySteps.next(from: 52, up: true, fine: true), 53.125, accuracy: 0.0001)
         XCTAssertEqual(BrightnessKeySteps.next(from: 52, up: false, fine: true), 50, accuracy: 0.0001)
     }
 
-    /// Held down across the whole range against whole-percent readbacks, every press
-    /// still moves, and the quarters end exactly on 100 and 0.
+    /// Held across the whole range against rounded readbacks, every press still moves.
     func testFineStepsCrossTheRangeWithRoundedReadbacks() {
         for up in [true, false] {
             var readback = up ? 0.0 : 100.0

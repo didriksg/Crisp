@@ -25,13 +25,9 @@ struct DisplayModeGeometry: Equatable {
         return (width > height) == (referenceWidth > referenceHeight)
     }
 
-    /// Whether a built-in panel with this native aspect has a notch. Notched
-    /// panels are 16:10 plus the menu-bar strip beside the camera housing, so
-    /// their native aspect (~1.54) sits well below 16:10; every non-notched Mac
-    /// panel is 16:10 or wider (16:9 on the 11" Air). Same 2% tolerance the
-    /// resolution list uses to split the families. The lower bound drops
-    /// portrait aspects: a rotated panel reports rotated dims, and the notch
-    /// toggle has no sensible meaning there.
+    /// A notch narrows the native aspect (~1.54) well below the 16:10 every other Mac
+    /// panel meets or exceeds, using the resolution list's 2% tolerance. The lower bound
+    /// excludes portrait aspects, where rotated dims make the notch check meaningless.
     static func isNotchedPanelAspect(_ nativeAspect: Double) -> Bool {
         let sixteenTen = 16.0 / 10.0
         return nativeAspect > 1 && (sixteenTen - nativeAspect) / sixteenTen >= 0.02

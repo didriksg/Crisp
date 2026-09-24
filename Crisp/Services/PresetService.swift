@@ -103,10 +103,9 @@ final class PresetService: ObservableObject, @unchecked Sendable {
         activePresetID = id
     }
 
-    /// Edits an existing user preset's identity and capture inclusions. Identity
-    /// (name/icon/color) updates directly; a capture is only dropped or
-    /// re-captured when its inclusion actually changed, so captures left alone
-    /// keep their stored values across a rename.
+    /// Identity (name/icon/color) updates directly; a capture is only dropped or
+    /// re-captured when its inclusion actually changed, so captures left alone keep
+    /// their stored values across a rename.
     func editPreset(id: UUID, name: String, icon: String, colorName: String?,
                     includeResolution: Bool, includeBrightness: Bool, includeArrangement: Bool) {
         guard let index = presets.firstIndex(where: { $0.id == id }) else { return }
@@ -122,10 +121,8 @@ final class PresetService: ObservableObject, @unchecked Sendable {
         }
     }
 
-    /// Flips whether a preset controls one attribute. Turning it off drops the
-    /// stored value (nil, so apply skips it); turning it back on re-captures the
-    /// current live value for each of the preset's displays. A display that's
-    /// offline can't be re-captured, so its entry stays excluded.
+    /// Turning a capture off drops its stored value (nil, so apply skips it); turning it
+    /// back on re-captures the live value. An offline display can't be re-captured.
     func setCapture(id: UUID, _ capture: PresetCapture, included: Bool) {
         guard let index = presets.firstIndex(where: { $0.id == id }) else { return }
         let displays = DisplayManagerAccessor.shared.displays
@@ -184,10 +181,8 @@ final class PresetService: ObservableObject, @unchecked Sendable {
             guard display.isOnline else { continue }
             let displayID = display.displayID
 
-            // Set resolution, only when the preset includes it (width present).
-            // The built-in panel is driven too: a preset restores whatever mode was
-            // live when it was captured, so an unchanged built-in resolves to the
-            // alreadyActive no-op below. Brightness and arrangement apply regardless.
+            // Resolution applies only when the preset includes it (width present); the
+            // built-in is driven too, resolving to the alreadyActive no-op if unchanged.
             if let w = entry.width, let h = entry.height {
                 let hiDPI = entry.isHiDPI ?? false
                 let targetMode = display.availableModes.first(where: {
@@ -202,9 +197,8 @@ final class PresetService: ObservableObject, @unchecked Sendable {
                         && currentMode?.height == mode.height
                         && currentMode?.isHiDPI == mode.isHiDPI
                     if !alreadyActive {
-                        // A real mode while the panel is a mirror target (#65): unmirror
-                        // first, or WindowServer redirects the change to the virtual source.
-                        // A failed unmirror keeps the mirror up; leave the resolution alone.
+                        // Unmirror first (#65) or WindowServer redirects the change to the
+                        // virtual source; a failed unmirror leaves the resolution alone.
                         var unmirrored = true
                         if MirroredModeService.shared.isActive(for: displayID) {
                             unmirrored = await MirroredModeService.shared.restore(display: display)
@@ -218,15 +212,14 @@ final class PresetService: ObservableObject, @unchecked Sendable {
                     }
                 } else if hiDPI, MirroredModeService.beyondCapStops(for: display)
                             .contains(where: { $0.width == w && $0.height == h }) {
-                    // A beyond-cap size captured while mirrored (#65): it never
-                    // enumerates on the physical panel, so the lookup above cannot
-                    // find it. Mirror mode is the only route there.
+                    // A beyond-cap size (#65) never enumerates on the physical panel;
+                    // mirror mode is the only route there.
                     await MirroredModeService.shared.apply(display: display, width: w, height: h)
                 }
             }
 
-            // Set brightness if specified (convert 0.0-1.0 to 0-100 range used by BrightnessService).
-            // Smooth variant fades over ~200ms instead of snapping.
+            // Convert 0.0-1.0 to the 0-100 range BrightnessService uses; fades over 0.5s
+            // instead of snapping.
             if let brightness = entry.brightness {
                 BrightnessService.shared.setBrightnessSmooth(
                     brightness * 100.0,
@@ -236,7 +229,6 @@ final class PresetService: ObservableObject, @unchecked Sendable {
                 )
             }
 
-            // Set arrangement position if specified
             if let x = entry.arrangementX, let y = entry.arrangementY {
                 _ = await ArrangementService.shared.setPosition(
                     x: Int(x), y: Int(y), for: displayID

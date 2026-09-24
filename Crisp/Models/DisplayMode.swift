@@ -1,21 +1,17 @@
 import Foundation
 import CoreGraphics
 
-/// Represents a single display mode (resolution + refresh rate + HiDPI flag).
 struct DisplayMode: Identifiable, Equatable {
     /// Unique identifier: IODisplayModeID
     let id: Int32
-    /// Logical width in points
+    /// Logical width/height in points
     let width: Int
-    /// Logical height in points
     let height: Int
     /// Physical pixel width (HiDPI: 2× logical)
     let pixelWidth: Int
-    /// Physical pixel height
     let pixelHeight: Int
     /// Refresh rate in Hz (0 means display default, shown as 60)
     let refreshRate: Double
-    /// Whether this is a HiDPI (Retina) scaled mode
     let isHiDPI: Bool
     /// Whether this is the native (highest pixel resolution) mode
     let isNative: Bool
@@ -37,16 +33,14 @@ struct DisplayMode: Identifiable, Equatable {
 
     // MARK: - Enumeration helpers
 
-    /// Computes the native pixel width for a set of raw display modes.
     /// Prefers the max pixelWidth among non-HiDPI modes (pixelWidth == width),
-    /// falling back to global max if all modes are HiDPI.
+    /// falling back to the global max if all modes are HiDPI.
     private static func nativePixelWidth(from rawModes: [CGDisplayMode]) -> Int {
         rawModes.filter { $0.pixelWidth == $0.width }.map { $0.pixelWidth }.max()
             ?? rawModes.map { $0.pixelWidth }.max() ?? 0
     }
 
     /// Returns all display modes for the given display, sorted by logical width descending.
-    /// Pass `includeHiDPI: true` (default) to include all scaled modes.
     static func availableModes(for displayID: CGDirectDisplayID) -> [DisplayMode] {
         let options: CFDictionary = [kCGDisplayShowDuplicateLowResolutionModes: true] as CFDictionary
         guard let rawModes = CGDisplayCopyAllDisplayModes(displayID, options) as? [CGDisplayMode],
@@ -60,7 +54,7 @@ struct DisplayMode: Identifiable, Equatable {
         var seen = Set<Int32>()
         var modes: [DisplayMode] = rawModes.compactMap { mode -> DisplayMode? in
             let modeID = mode.ioDisplayModeID
-            guard seen.insert(modeID).inserted else { return nil }  // deduplicate
+            guard seen.insert(modeID).inserted else { return nil }
             guard mode.isUsableForDesktopGUI() else { return nil }
 
             let w = mode.width
@@ -82,9 +76,8 @@ struct DisplayMode: Identifiable, Equatable {
             )
         }
 
-        // Merge in every GPU-scaled HiDPI mode CG hides (see cgsHiddenHiDPIModes): the panel's
-        // clean scaled resolutions (1600x900, 2048x1152, full 2560x1440 refresh set, ...) that
-        // CGS carries without any override, so we can offer and apply them directly like BetterDisplay.
+        // Merge in every GPU-scaled HiDPI mode CG hides (cgsHiddenHiDPIModes): CGS carries
+        // these panel-native scaled resolutions with no override, like BetterDisplay applies them.
         let knownIDs = Set(modes.map { $0.id })
         let nativeAR = DisplayModeGeometry.nativeAspect(from: rawModes.map {
             DisplayModeGeometry(width: $0.width, height: $0.height,
@@ -121,15 +114,9 @@ struct DisplayMode: Identifiable, Equatable {
         return out
     }
 
-    /// GPU-scaled HiDPI modes that `CGDisplayCopyAllDisplayModes` omits. When a scaled resolution
-    /// collides with a real EDID timing (e.g. 1920x1080 HiDPI, whose 3840x2160 backing the panel
-    /// advertises as a real 4K timing at only 50/60Hz), CG surfaces just that low-refresh timing
-    /// and drops the GPU-scaled full-refresh variant. The private CGS list still carries it.
-    /// Return every usable HiDPI mode CG omits (not just refresh variants of sizes CG already
-    /// lists): these are the panel's clean scaled resolutions the private CGS list carries with no
-    /// override plist, which is exactly what BetterDisplay applies. Same id space as CG
-    /// (modeNumber == ioDisplayModeID), so ResolutionService applies them directly via
-    /// CGSConfigureDisplayMode: no override write, no reconnect, no blank.
+    /// GPU-scaled HiDPI modes CG omits entirely; the private CGS list still carries them
+    /// with no override plist. Same id space as CG, so ResolutionService applies them via
+    /// CGSConfigureDisplayMode directly: no override write, reconnect, or blank.
     private static func cgsHiddenHiDPIModes(for displayID: CGDirectDisplayID,
                                             excludingIDs known: Set<Int32>,
                                             maxPixelWidth: Int,
@@ -162,7 +149,6 @@ struct DisplayMode: Identifiable, Equatable {
         return out
     }
 
-    /// Returns the current active display mode.
     static func currentMode(for displayID: CGDirectDisplayID) -> DisplayMode? {
         guard let mode = CGDisplayCopyDisplayMode(displayID) else { return nil }
 

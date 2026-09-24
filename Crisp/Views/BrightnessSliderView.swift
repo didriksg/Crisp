@@ -8,10 +8,9 @@ struct BrightnessStepButton: View {
     let action: () -> Void
 
     var body: some View {
-        // A Button, not a raw DragGesture: these live inside the panel's
-        // ScrollView, which steals a DragGesture so its onEnded never fires and
-        // the "pressed" highlight sticks on. ButtonStyle.isPressed is managed by
-        // the framework and always resets on release (and on scroll-steal).
+        // A Button, not a raw DragGesture: the panel's ScrollView steals a
+        // DragGesture, so onEnded never fires and "pressed" sticks on.
+        // ButtonStyle.isPressed always resets on release instead.
         Button(action: {}) {
             Image(systemName: systemName)
                 .font(.system(size: 15))
@@ -68,22 +67,20 @@ struct BrightnessSliderView: View {
     // produces a single change (glide it on release); a drag produces a stream (write live).
     @State private var dragConfirmed: Bool = false
     @State private var deferredFirstChange: Bool = false
-    // While a click's fade runs, hold the thumb at the target instead of letting the
-    // display->slider sync pull it back down through the fade.
+    // While a click's fade runs, hold the thumb at the target (see the
+    // display.brightness onChange below) instead of snapping back through the fade.
     @State private var clickGliding: Bool = false
 
     /// Debug switch: `defaults write com.crisp.app crisp.showBrightnessControlMode -bool true`
-    /// (relaunch Crisp) shows the mode row above every brightness slider, so a support
-    /// thread can tell DDC from software gamma without opening the monitor's menu. Read
-    /// once at launch, like `crisp.disableKeepAwake`; no Settings row on purpose.
-    /// ponytail: reads the DDC latch only. An HDR-dimmed external writes gamma but still
-    /// shows "DDC"; fold in BrightnessService's hdrDimmedDisplays if that ever misleads.
+    /// (relaunch) shows the DDC/software mode row on every slider, for support threads.
+    /// Read once at launch; no Settings row on purpose.
+    /// ponytail: reads the DDC latch only; an HDR-dimmed external shows "DDC" while
+    /// writing gamma. Fold in BrightnessService.hdrDimmedDisplays if that misleads.
     static let showControlMode = UserDefaults.standard.bool(forKey: "crisp.showBrightnessControlMode")
 
     var body: some View {
         VStack(spacing: 2) {
-            // Mode indicator row: normally only in non-compact use (none today), or on
-            // every slider while the debug switch above is set.
+            // Shown outside compact mode, or always when the debug switch is set.
             if !compact || Self.showControlMode {
             HStack(spacing: 4) {
                 Spacer()
@@ -128,12 +125,9 @@ struct BrightnessSliderView: View {
                     } else {
                         isDragging = false
                         if !dragConfirmed {
-                            // It was a click, not a drag: glide to the target instead of jumping,
-                            // on every path. DDC externals fade too, the same way brightness keys
-                            // and presets already fade them: the coalescing writer paces the I2C
-                            // bus (~20/s) and drops steps it can't take, so a 200ms fade costs a
-                            // handful of writes. The thumb is already at the target; hold it
-                            // until the fade lands.
+                            // A click glides to the target instead of jumping, like
+                            // brightness keys and presets. Hold the thumb until it lands.
+                            // Measured: see docs/ui-notes.md (BrightnessSliderView: click-glide fade)
                             clickGliding = true
                             BrightnessService.shared.setBrightnessSmooth(localBrightness, for: display, duration: 0.2)
                             Task { @MainActor in
@@ -155,12 +149,9 @@ struct BrightnessSliderView: View {
                 .overlay {
                     if display.maxBrightness > 100 {
                         GeometryReader { geo in
-                            // Notch at the 100% mark: the track to its right is
-                            // the Extra Brightness region. The slider's track is
-                            // inset by roughly the knob radius on each side;
-                            // ponytail: 10pt eyeballed for .small controls, tune
-                            // here if the notch sits visibly off the thumb
-                            // center when parked at exactly 100.
+                            // Notch at 100%: track to its right is Extra Brightness.
+                            // ponytail: inset is eyeballed for .small; retune if it
+                            // drifts off the thumb center at 100.
                             let inset: CGFloat = 10
                             let usable = geo.size.width - inset * 2
                             let x = inset + usable * 100.0 / display.maxBrightness
@@ -172,28 +163,24 @@ struct BrightnessSliderView: View {
                         .allowsHitTesting(false)
                     }
                 }
-                // Control Centre's own brightness slider grew on macOS 27:
-                // measured on its display panel the track is 6 pt and the knob
-                // 16, against the 4 and 14 that .small draws. .regular is the
-                // size that matches it, and 26 keeps the smaller one.
+                // Matches Control Center's own slider size per OS version.
+                // Measured: see docs/ui-notes.md (BrightnessSliderView: control size by OS)
                 .controlSize(SystemLook.isMacOS27OrLater ? .regular : .small)
                 .accessibilityLabel("Display brightness")
                 .accessibilityValue("\(Int(localBrightness))%")
                 .onChange(of: localBrightness) { _, newValue in
                     guard isDragging else { return }
                     if dragConfirmed {
-                        // Apply immediately, the service chooses software or DDC internally,
-                        // and its coalescing writer keeps the I2C bus from flooding.
+                        // Applies immediately; the service picks DDC or software and paces writes.
                         display.brightness = newValue
                         Task { @MainActor in
                             await BrightnessService.shared.setBrightness(newValue, for: display)
                         }
                     } else if !deferredFirstChange {
-                        // First change: could be a click or the start of a drag. Defer the
-                        // write so a click can glide from the old value instead of jumping.
+                        // Defer the first change so a click can glide instead of jumping.
                         deferredFirstChange = true
                     } else {
-                        // Second change: it's a real drag. Go live from here.
+                        // Second change confirms a real drag: go live from here.
                         dragConfirmed = true
                         display.brightness = newValue
                         Task { @MainActor in
@@ -212,27 +199,21 @@ struct BrightnessSliderView: View {
             updateDDCStatus()
         }
         .onChange(of: display.brightness) { _, newValue in
-            // While a click-glide runs, hold the thumb at the target the click set and
-            // release once the fade reaches it, so the thumb never snaps back down through
-            // the fade (and the release timing tracks the actual DDC fade, not a guess).
+            // Holds at the click target until the fade catches up (see click-glide above).
             if clickGliding {
                 if abs(newValue - localBrightness) < 0.75 { clickGliding = false }
                 return
             }
-            // External change (preset fade, brightness keys, another app).
-            // NSSlider renders value changes discretely (withAnimation does not
-            // interpolate control values), so smoothness comes from the 60Hz
-            // fade steps; track every one of them with a low threshold.
+            // External change (preset fade, keys, another app): NSSlider doesn't
+            // interpolate, so track every fade step with a low threshold.
             if !isDragging && abs(newValue - localBrightness) >= 0.1 {
                 localBrightness = newValue
             }
         }
     }
 
-    /// Animates the slider tint between accent and boost yellow when the
-    /// value crosses 100. Tint on a control does not interpolate on its own,
-    /// so the blend progress is the animatable data and the mixed color is
-    /// recomputed every frame of the transition.
+    /// Animates the slider tint accent -> boost yellow past 100: .tint doesn't
+    /// interpolate on its own, so progress is the animatable data.
     private struct BoostTintModifier: ViewModifier, Animatable {
         var progress: Double
         // ViewModifier's body puts the modifier on the main actor, while
@@ -350,10 +331,8 @@ struct CombinedBrightnessView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            // Bold title matching the per-display name rows (DisplayRowView), so the
-            // combined control reads as another titled row rather than a separate
-            // widget. Aligned to the display titles' 14pt inset; the slider below
-            // keeps the sliders' 12pt inset.
+            // Matches DisplayRowView's bold title so this reads as another row.
+            // 14pt inset matches the display titles; the slider below uses 12pt.
             Text("Combined")
                 .fontWeight(.semibold)
                 .lineLimit(1)
@@ -370,10 +349,8 @@ struct CombinedBrightnessView: View {
                     } else {
                         isDragging = false
                         if !dragConfirmed {
-                            // A click, not a drag: fade every display to the target, the
-                            // same glide the per-display sliders use (DDC pacing included).
-                            // Hold the handle at the target until the fades land, or the
-                            // probe sync would snap it back down through the fade.
+                            // Same click-glide as the per-display slider (see above);
+                            // hold the handle until the probe-driven fades land.
                             clickGliding = true
                             for display in displays {
                                 setSmooth(combinedBrightness, for: display)
@@ -399,10 +376,8 @@ struct CombinedBrightnessView: View {
                 .onChange(of: combinedBrightness) { _, newValue in
                     guard isDragging else { return }
                     if !dragConfirmed {
-                        // First change: could be a click or the start of a drag. Defer the
-                        // write so a click can glide from the old value instead of jumping.
+                        // Defer the first change, as in BrightnessSliderView.
                         if !deferredFirstChange { deferredFirstChange = true; return }
-                        // Second change: it's a real drag. Go live from here.
                         dragConfirmed = true
                     }
                     Task { @MainActor in
@@ -418,15 +393,11 @@ struct CombinedBrightnessView: View {
         }
         .padding(.vertical, 6)
         .background {
-            // Track the displays' real brightness so the combined handle glides in
-            // exact sync with the per-display handles (they read the same source
-            // that setBrightnessSmooth updates per-frame). Invisible; skipped while
-            // dragging, when the drag itself is driving the displays.
+            // Mirrors the displays' real brightness so the combined handle glides in
+            // sync; skipped while dragging (the drag itself drives the displays).
             ForEach(displays) { display in
                 BrightnessProbe(display: display) {
-                    // While a click-glide runs, hold the handle at the click target and
-                    // release once the fading reference average reaches it (mirrors the
-                    // per-display slider's clickGliding hold).
+                    // Same click-glide hold as the per-display slider.
                     if clickGliding {
                         if abs(averageBrightness - combinedBrightness) < 0.75 { clickGliding = false }
                         return
@@ -436,8 +407,7 @@ struct CombinedBrightnessView: View {
             }
         }
         .onChange(of: settings.combinedBuiltinBrightnessFactor) { _, _ in
-            // Changing the calibration should be visible immediately. Keep the
-            // external reference fixed and re-aim the built-in around it.
+            // Visible immediately: keep the external reference fixed, re-aim the built-in.
             guard !isDragging else { return }
             combinedBrightness = averageBrightness
             for display in displays where display.isBuiltin {
@@ -451,10 +421,8 @@ struct CombinedBrightnessView: View {
 
     private func stepAll(_ delta: Double) {
         let target = max(0, min(100, combinedBrightness + delta))
-        // Fade every display with the tuned smooth transition (paces DDC/gamma,
-        // re-targets any in-flight fade). The handle is NOT moved here: it follows
-        // the displays' real brightness via BrightnessProbe, so it glides in exact
-        // sync with the per-display handles instead of lagging a separate ramp.
+        // Handle is not moved here; it follows the displays' real brightness via
+        // BrightnessProbe, so it stays in sync instead of running its own ramp.
         for display in displays {
             setSmooth(target, for: display)
         }

@@ -1,11 +1,9 @@
 import Foundation
 
-/// A recorded global shortcut: a virtual key code plus Carbon modifier flags, with
-/// the key's display label captured at record time (the label depends on the active
-/// keyboard layout, so it cannot be re-derived later without Carbon).
-///
-/// Carbon and NSEvent modifier masks are redeclared as raw values so this file stays
-/// Foundation-only and compiles into CrispTests without an app host.
+/// A recorded global shortcut: a virtual key code plus Carbon modifier flags, with the
+/// key's display label captured at record time (layout-dependent, so it can't be
+/// re-derived later). Carbon/NSEvent masks are redeclared as raw values so this file
+/// stays Foundation-only and compiles into CrispTests without an app host.
 struct KeyboardShortcut: Equatable, Codable {
     /// Virtual key code (kVK_*), the value RegisterEventHotKey wants.
     let keyCode: UInt32
@@ -55,9 +53,8 @@ struct KeyboardShortcut: Equatable, Codable {
         keyCode == other.keyCode && carbonModifiers == other.carbonModifiers
     }
 
-    /// Label for a pressed key: named glyphs for keys that don't type a printable
-    /// character, else the typed character uppercased. `characters` is the event's
-    /// charactersIgnoringModifiers.
+    /// Named glyphs for keys with no printable character, else the typed character
+    /// uppercased. `characters` is the event's charactersIgnoringModifiers.
     static func keyLabel(keyCode: UInt16, characters: String?) -> String {
         if let special = specialKeyLabels[keyCode] { return special }
         guard let ch = characters, !ch.isEmpty else { return "" }

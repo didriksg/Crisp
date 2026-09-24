@@ -118,6 +118,19 @@ final class CrispControlModelTests: XCTestCase {
         }
     }
 
+    func testParserReadsTheSkillCommands() {
+        XCTAssertEqual(CrispControlCLIModel.parse(arguments: ["skill", "show"]), .showSkill)
+        XCTAssertEqual(CrispControlCLIModel.parse(arguments: ["skill", "install", "claude"]), .installSkill(agent: "claude"))
+        XCTAssertEqual(CrispControlCLIModel.parse(arguments: ["skill", "install", "codex"]), .installSkill(agent: "codex"))
+        // The agent is required and must be one crispctl knows the skills folder of.
+        let usage = CrispControlCLIModel.ParseResult.failure("usage: crispctl skill show or crispctl skill install claude|codex")
+        for arguments in [["skill"], ["skill", "--help"], ["skill", "install"], ["skill", "install", "cursor"],
+                          ["skill", "install", "claude", "codex"]] {
+            XCTAssertEqual(CrispControlCLIModel.parse(arguments: arguments), usage, "\(arguments)")
+        }
+        XCTAssertTrue(CrispControlCLIModel.help.contains("skill install"))
+    }
+
     func testParserNamesTheUsageAWrongInvocationWasClosestTo() {
         let cases: [([String], String)] = [
             (["bogus"], "unknown command 'bogus'; run 'crispctl help' for the commands"),
@@ -705,8 +718,7 @@ final class CrispControlModelTests: XCTestCase {
             (#"{"command":"toggleDisplay","selector":""}"#, [display]),
             (#"{"command":"toggleDisplay","selector":"404"}"#, [display]),
             (#"{"command":"connectDisplay","selector":"nope"}"#, [display]),
-            // A display with no stable uuid cannot be found again once it is gone,
-            // so refuse rather than hand back a handle that will not work.
+            // No stable uuid: cannot be found again once it is gone.
             (#"{"command":"disconnectDisplay","selector":"3"}"#, [anonymous])
         ]
         for (request, displays) in cases {
