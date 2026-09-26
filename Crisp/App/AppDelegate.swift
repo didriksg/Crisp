@@ -135,6 +135,22 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             BrightnessBoostService.shared.reapplyAll()
         }
 
+        // Restore a color mode explicitly chosen in Crisp on a fresh launch too.
+        // Delay one second to let the initial display and WindowServer mode lists settle.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            guard let self else { return }
+            self.displayManager.refreshDisplays()
+            var restored = false
+            for display in self.displayManager.displays {
+                if DisplayColorModeService.shared.restoreSavedModeIfNeeded(for: display) {
+                    restored = true
+                }
+            }
+            if restored {
+                NotificationCenter.default.post(name: .crispDisplayColorModeNeedsRefresh, object: nil)
+            }
+        }
+
         // Record every display's mode as the screens go down, so the wake passes
         // below can put back what macOS moved and nothing else. Both notifications:
         // a display idle timeout posts screensDidSleep with no system sleep at all.
@@ -294,17 +310,36 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 try? await Task.sleep(nanoseconds: 500_000_000)
                 // WindowServer keeps settling for seconds after wake: ICC restore and
                 // link retraining can clobber a freshly applied transfer table (#25).
-                // Three passes with increasing delays, each an idempotent no-op.
+                // Three passes with increasing delays; services reapply state as needed.
+                var restoredColorModeUUIDs: Set<String> = []
                 for delay: UInt64 in [0, 4_000_000_000, 8_000_000_000] {
                     try? await Task.sleep(nanoseconds: delay)
+                    var colorModeChangeRequested = false
                     for display in dm.displays {
                         // Apply software brightness factor first so GammaService
                         // can read the up-to-date factor when it re-applies its formula.
                         BrightnessService.shared.reapplySoftwareBrightnessIfNeeded(for: display)
                         GammaService.shared.reapplyIfNeeded(for: display)
                         // Re-apply any custom resolution that macOS may have reset on wake
-                        ResolutionService.shared.restoreModeAfterWakeIfNeeded(for: display.displayID)
+                        let resolutionRestored = await ResolutionService.shared.restoreModeAfterWakeIfNeeded(
+                            for: display.displayID
+                        )
+                        if resolutionRestored == true {
+                            // Let the new timing appear in WindowServer before reading
+                            // its compatible color formats.
+                            try? await Task.sleep(nanoseconds: 250_000_000)
+                        }
+                        // Skip color after a failed or timed-out resolution request;
+                        // try again on the next wake pass.
+                        if resolutionRestored != false,
+                           !restoredColorModeUUIDs.contains(display.displayUUID),
+                           DisplayColorModeService.shared.restoreSavedModeIfNeeded(for: display) {
+                            restoredColorModeUUIDs.insert(display.displayUUID)
+                            colorModeChangeRequested = true
+                        }
                     }
+                    if colorModeChangeRequested { try? await Task.sleep(nanoseconds: 250_000_000) }
+                    NotificationCenter.default.post(name: .crispDisplayColorModeNeedsRefresh, object: nil)
                     // Once an external is back after a full wake, toggle True Tone so macOS
                     // recomputes it with that display present (issue #131). Once per wake,
                     // at the first pass that lists an external.
@@ -593,6 +628,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             // rendered once at natural height (the 120Hz fix; docs/panel-resize.md).
             // Each detail block paints its shaded band on the clip layer (banded).
             let modeC = DisplayModeController(display: display, displayManager: dm)
+            let colorModeC = DisplayColorModeController(display: display)
             let profC = DisplayProfileController(display: display)
             let detailOpen = { state.expandedDisplayIDs.contains(id) }
             func detail<V: View>(_ sub: String, isOpen: @escaping () -> Bool,
@@ -630,6 +666,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             })
             blocks.append(detail("dmode-tail", isOpen: detailOpen) {
                 ModeTailBlock(controller: modeC)
+            })
+            blocks.append(detail("dcolor-head", isOpen: detailOpen, live: true) {
+                ColorModeHeadBlock(controller: colorModeC, state: state)
+            })
+            blocks.append(detail("dcolor-body", isOpen: {
+                detailOpen() && state.colorModeOpenIDs.contains(id)
+            }) {
+                ColorModeListBlock(controller: colorModeC)
+            })
+            blocks.append(detail("dcolor-tail", isOpen: detailOpen) {
+                ColorModeTailBlock(controller: colorModeC)
             })
             blocks.append(detail("dprof-head", isOpen: detailOpen, live: true) {
                 ProfileHeadBlock(controller: profC, state: state)

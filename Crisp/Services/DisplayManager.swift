@@ -23,6 +23,9 @@ private func displayReconfigCallback(
         } else {
             // refreshExistingDisplayModes doesn't re-read bounds, so add/remove/move needs a rebuild.
             manager.refreshDisplays()
+            if flags.contains(.addFlag) {
+                manager.scheduleColorModeRestore(for: displayID)
+            }
         }
     }
 }
@@ -89,6 +92,7 @@ class DisplayManager: ObservableObject {
     // nonisolated(unsafe) so deinit (nonisolated in Swift 6) can access this.
     nonisolated(unsafe) private var callbackContext: UnsafeMutableRawPointer?
     nonisolated(unsafe) private var screenParamsObserver: NSObjectProtocol?
+    private var colorModeRestoreTasks: [CGDirectDisplayID: (token: UUID, task: Task<Void, Never>)] = [:]
 
     init() {
         PhysicalDisplayToggleService.shared.displayManager = self
@@ -101,7 +105,7 @@ class DisplayManager: ObservableObject {
             forName: NSApplication.didChangeScreenParametersNotification,
             object: nil,
             queue: .main
-        ) { _ in
+        ) { [weak self] _ in
             Task { @MainActor [weak self] in self?.refreshDisplayNames() }
         }
     }
@@ -169,6 +173,7 @@ class DisplayManager: ObservableObject {
 
         let removedIDs = currentIDs.subtracting(newIDSet)
         removedIDs.forEach {
+            colorModeRestoreTasks.removeValue(forKey: $0)?.task.cancel()
             DDCService.shared.clearCache(for: $0)
             BrightnessService.shared.invalidateDDCState(for: $0)
             GammaService.shared.invalidate(for: $0)
@@ -253,6 +258,33 @@ class DisplayManager: ObservableObject {
         PhysicalDisplayToggleService.shared.restoreIfNoActiveDisplay()
 
         BrightnessService.shared.startObservingNativeBrightness(for: displays)
+    }
+
+    /// A newly connected display can appear in CG's list before CADisplay has its
+    /// color formats. Retry briefly after link training, using the saved UUID-based
+    /// choice so mode IDs from the previous connection are never reused.
+    fileprivate func scheduleColorModeRestore(for displayID: CGDirectDisplayID) {
+        colorModeRestoreTasks.removeValue(forKey: displayID)?.task.cancel()
+        guard let display = displays.first(where: { $0.displayID == displayID && !$0.isBuiltin }) else { return }
+
+        let token = UUID()
+        let task = Task { @MainActor in
+            for delay: UInt64 in [1_000_000_000, 2_000_000_000, 3_000_000_000] {
+                try? await Task.sleep(nanoseconds: delay)
+                guard !Task.isCancelled,
+                      displays.contains(where: { $0 === display }),
+                      CGDisplayIsOnline(displayID) != 0 else { break }
+
+                if DisplayColorModeService.shared.restoreSavedModeIfNeeded(for: display) {
+                    NotificationCenter.default.post(name: .crispDisplayColorModeNeedsRefresh, object: nil)
+                    break
+                }
+            }
+            if colorModeRestoreTasks[displayID]?.token == token {
+                colorModeRestoreTasks.removeValue(forKey: displayID)
+            }
+        }
+        colorModeRestoreTasks[displayID] = (token, task)
     }
 
     /// Auto-enables HiDPI plist override for external 2K+ displays that don't have it yet.
