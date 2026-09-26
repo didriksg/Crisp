@@ -21,6 +21,7 @@ final class PanelSectionState: ObservableObject {
     @Published var refreshOpenIDs: Set<CGDirectDisplayID> = []
     @Published var rotationOpenIDs: Set<CGDirectDisplayID> = []
     @Published var profileOpenIDs: Set<CGDirectDisplayID> = []
+    @Published var colorModeOpenIDs: Set<CGDirectDisplayID> = []
     @Published var imageOpenIDs: Set<CGDirectDisplayID> = []
     @Published var inputOpenIDs: Set<CGDirectDisplayID> = []
 
@@ -36,6 +37,7 @@ final class PanelSectionState: ObservableObject {
         refreshOpenIDs.removeAll()
         rotationOpenIDs.removeAll()
         profileOpenIDs.removeAll()
+        colorModeOpenIDs.removeAll()
         imageOpenIDs.removeAll()
         inputOpenIDs.removeAll()
     }
@@ -48,6 +50,7 @@ final class PanelSectionState: ObservableObject {
         refreshOpenIDs.formIntersection(valid)
         rotationOpenIDs.formIntersection(valid)
         profileOpenIDs.formIntersection(valid)
+        colorModeOpenIDs.formIntersection(valid)
         imageOpenIDs.formIntersection(valid)
         inputOpenIDs.formIntersection(valid)
     }
