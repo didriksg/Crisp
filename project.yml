@@ -67,6 +67,7 @@ targets:
     deploymentTarget: "14.0"
     sources:
       - path: CrispTests
+      - path: Crisp/Models/DisplayColorMode.swift
       - path: Crisp/Models/DisplayModeGeometry.swift
       - path: Crisp/Models/DisplayModeCommitScope.swift
       - path: Crisp/Models/DDCServiceMatcher.swift
