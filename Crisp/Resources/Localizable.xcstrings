@@ -212,6 +212,22 @@
         }
       }
     },
+    "%d-bit" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%d 位"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%d 位元"
+          }
+        }
+      }
+    },
     "%lld" : {
       "shouldTranslate" : false
     },
@@ -836,6 +852,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "顏色歷史"
+          }
+        }
+      }
+    },
+    "Color Mode" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "色彩模式"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "色彩模式"
           }
         }
       }
@@ -1577,6 +1609,22 @@
         }
       }
     },
+    "Full Range" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "全范围"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "全範圍"
+          }
+        }
+      }
+    },
     "Gain" : {
       "localizations" : {
         "zh-Hans" : {
@@ -2012,6 +2060,22 @@
         }
       }
     },
+    "Limited Range" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "有限范围"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "有限範圍"
+          }
+        }
+      }
+    },
     "Links crispctl into /usr/local/bin" : {
       "localizations" : {
         "zh-Hans" : {
@@ -2222,6 +2286,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "未偵測到內建顯示器"
+          }
+        }
+      }
+    },
+    "No alternative color modes are available for this display." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这台显示器没有其他可选的色彩模式。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "這台顯示器沒有其他可選的色彩模式。"
+          }
+        }
+      }
+    },
+    "No compatible color modes are available." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "没有兼容的色彩模式。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "沒有相容的色彩模式。"
           }
         }
       }
@@ -3295,6 +3391,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "無法切換到 %@，請重試"
+          }
+        }
+      }
+    },
+    "Unable to switch color mode. Please try again." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法切换色彩模式，请重试。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無法切換色彩模式，請重試。"
           }
         }
       }
