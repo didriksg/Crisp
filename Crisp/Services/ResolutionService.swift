@@ -127,6 +127,9 @@ final class ResolutionService: @unchecked Sendable {
     func setDisplayMode(_ mode: DisplayMode, for displayID: CGDirectDisplayID) async -> Bool {
         PresetService.shared.noteManualChange()
         let (targetID, isMirrorRedirect) = resolvedTargetDisplayID(for: displayID)
+        let scope = DisplayModeCommitScope.forUserSelection(
+            isVirtualDisplay: isMirrorRedirect || VirtualDisplayService.shared.isVirtualDisplay(targetID)
+        )
 
         let options: CFDictionary = [kCGDisplayShowDuplicateLowResolutionModes: true] as CFDictionary
 
@@ -150,18 +153,18 @@ final class ResolutionService: @unchecked Sendable {
         guard let cgMode else {
             // No CGDisplayMode with this id: a CGS-hidden HiDPI variant, or the mirror-source
             // last resort. Both apply through the CGS transaction API.
-            return await cgsFallback(modeID: UInt32(bitPattern: mode.ioDisplayModeID), on: targetID)
+            return await cgsFallback(modeID: UInt32(bitPattern: mode.ioDisplayModeID), on: targetID, scope: scope)
         }
 
         // Apply via standard public CG API (off main thread to avoid blocking the UI)
         let success = await Task.detached(priority: .userInitiated) {
-            await ResolutionService.applyModeSync(cgMode, on: targetID)
+            await ResolutionService.applyModeSync(cgMode, on: targetID, scope: scope)
         }.value
 
         if success { return true }
 
         // Fallback: CGSConfigureDisplayMode
-        return await cgsFallback(modeID: UInt32(bitPattern: cgMode.ioDisplayModeID), on: targetID)
+        return await cgsFallback(modeID: UInt32(bitPattern: cgMode.ioDisplayModeID), on: targetID, scope: scope)
     }
 
     // MARK: - Mirror resolution
@@ -209,7 +212,11 @@ final class ResolutionService: @unchecked Sendable {
 
     /// Applies a mode change off the calling thread; the whole Begin/Configure/Complete
     /// transaction runs inside `CGHelpers.runWithTimeout` so it cannot block WindowServer IPC forever.
-    nonisolated static func applyModeSync(_ cgMode: CGDisplayMode, on displayID: CGDirectDisplayID) async -> Bool {
+    nonisolated static func applyModeSync(
+        _ cgMode: CGDisplayMode,
+        on displayID: CGDirectDisplayID,
+        scope: CGConfigureOption = .forSession
+    ) async -> Bool {
         await CGHelpers.runWithTimeout(seconds: 10, fallback: false) {
             var config: CGDisplayConfigRef?
             guard CGBeginDisplayConfiguration(&config) == .success,
@@ -223,7 +230,7 @@ final class ResolutionService: @unchecked Sendable {
                 return false
             }
 
-            let complete = CGCompleteDisplayConfiguration(cfg, .forSession)
+            let complete = CGCompleteDisplayConfiguration(cfg, scope)
             return complete == .success
         }
     }
@@ -232,7 +239,11 @@ final class ResolutionService: @unchecked Sendable {
 
     /// Applies a mode by raw modeNumber via the private CGS API; reaches GPU-scaled HiDPI
     /// variants CG hides. See docs/display-notes.md (ResolutionService).
-    private func cgsFallback(modeID: UInt32, on displayID: CGDirectDisplayID) async -> Bool {
+    private func cgsFallback(
+        modeID: UInt32,
+        on displayID: CGDirectDisplayID,
+        scope: CGConfigureOption
+    ) async -> Bool {
         let committed = await Task.detached(priority: .userInitiated) {
             var config: CGDisplayConfigRef?
             guard CGBeginDisplayConfiguration(&config) == .success, let cfg = config else {
@@ -245,7 +256,7 @@ final class ResolutionService: @unchecked Sendable {
                 return false
             }
 
-            return CGCompleteDisplayConfiguration(cfg, .forSession) == .success
+            return CGCompleteDisplayConfiguration(cfg, scope) == .success
         }.value
         guard committed else { return false }
         // Commit propagates async; wait for the mode-change event (not a blind sleep) then verify.
