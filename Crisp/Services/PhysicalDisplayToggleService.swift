@@ -196,12 +196,13 @@ final class PhysicalDisplayToggleService: ObservableObject {
     }
 
     /// Ports that can have a display behind them right now (DisplayPort/Thunderbolt hot-plug
-    /// detect or sink count). nil, not 0, when the machine exposes no such nodes: that means
-    /// the signal is unavailable, not that nothing is plugged in.
+    /// detect or sink count). nil, not 0, when the machine exposes no port nodes at all: that
+    /// means the signal is unavailable, not that nothing is plugged in. An empty USB-C port
+    /// keeps only its CC node, which counts as present and never as asserted (#195).
     /// See docs/display-notes.md (liveDisplayPortCount).
     private func liveDisplayPortCount() -> Int? {
         var nodes = 0, asserted = 0
-        for cls in ["IOPortTransportStateDisplayPort", "IOPortTransportStateCIO"] {
+        for cls in ["IOPortTransportStateDisplayPort", "IOPortTransportStateCIO", "IOPortTransportStateCC"] {
             var it: io_iterator_t = 0
             guard IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching(cls), &it) == KERN_SUCCESS else { continue }
             defer { IOObjectRelease(it) }
