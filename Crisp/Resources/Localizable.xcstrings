@@ -710,6 +710,22 @@
         }
       }
     },
+    "Audio Adjustment" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "音频调整"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "音訊調整"
+          }
+        }
+      }
+    },
     "Auto" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -966,6 +982,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "取消"
+          }
+        }
+      }
+    },
+    "Caps the DDC volume scale for finer steps. Slide to the right end for the full range." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "限制 DDC 取值范围，让调节更精细。滑到最右端即完整范围。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "限制 DDC 取值範圍，讓調整更精細。滑到最右端即完整範圍。"
           }
         }
       }
@@ -1494,6 +1526,22 @@
     },
     "DDC" : {
       "shouldTranslate" : false
+    },
+    "DDC Value Range" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "DDC 取值范围"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "DDC 取值範圍"
+          }
+        }
+      }
     },
     "Deactivate" : {
       "localizations" : {

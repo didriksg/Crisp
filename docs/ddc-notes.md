@@ -104,6 +104,13 @@ same subtree, which is what proximity matching relies on instead.
 | Monitor in HDR discards DDC writes (still acks) | 15-100% of slider dead, ack-based detection blind | HDR state routes the whole 0-100 range to software gamma |
 | Firmware fills the high byte of the volume max (Dell S2725DSM replies 0xFF64 for 0 to 100, #162) | Volume keys and slider give only mute or full volume | Volume max taken from the low byte (`DDCVolumeMax`), the byte ddcutil reads 0x62 from |
 
+## DDC volume value range
+
+Audio Adjustment > DDC Value Range sets a maximum raw volume value, saved by
+display UUID (`crisp.volumeMaxOverrides`). Keys and sliders map 0–100% onto
+`0…min(hardwareMax, ceiling)`. The right end restores the full hardware range;
+lowering the ceiling clips the current volume, while raising it preserves it.
+
 ## Recovery, in order of escalation
 
 1. Open the monitor's OSD menu briefly (documented to wake a stale DDC

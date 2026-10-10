@@ -552,33 +552,37 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             }
     }
 
-    /// Builds the block list when its identity changed (display set/order).
+    /// A counted host wired to the canvas height callback. Blocks near the
+    /// window's edges otherwise get a phantom safe-area inset, misplacing
+    /// clicks. See docs/panel-resize.md (failure map #9).
+    private func makeHost<V: View>(_ id: String, @ViewBuilder _ content: () -> V) -> NSView {
+        let h = CountedHostingView(rootView: AnyView(
+            BlockHost(onHeight: { [weak self] h in self?.canvas.contentChanged(id, height: h) }) {
+                content()
+            }
+            .environmentObject(displayManager)
+        ))
+        h.safeAreaRegions = []
+        return h
+    }
+
+    /// Builds the block list when its identity changed (display set/order/IDs).
     /// Rebuild is a snap, not an animation; it only happens on discontinuous
     /// events (connect/disconnect, or a different screen on open).
     private func rebuildBlocksIfNeeded(force: Bool = false) {
         let vis = visibleDisplays()
-        let signature = vis.map(\.displayUUID).joined(separator: "|")
+        // Hosts retain DisplayInfo, whose displayID changes on a reconnect even
+        // when the persistent UUID does not. Rebuild to bind controls to the live ID.
+        let signature = vis.map { "\($0.displayUUID):\($0.displayID)" }.joined(separator: "|")
         guard force || signature != blocksSignature else { return }
         blocksSignature = signature
 
         let dm = displayManager
         let state = sectionState
         let settings = SettingsService.shared
-        func host<V: View>(_ id: String, @ViewBuilder _ content: () -> V) -> NSView {
-            let h = CountedHostingView(rootView: AnyView(
-                BlockHost(onHeight: { [weak self] h in self?.canvas.contentChanged(id, height: h) }) {
-                    content()
-                }
-                .environmentObject(dm)
-            ))
-            // Blocks near the window's edges otherwise get a phantom safe-area
-            // inset, misplacing clicks. See docs/panel-resize.md (failure map #9).
-            h.safeAreaRegions = []
-            return h
-        }
         func block<V: View>(_ id: String, isOpen: @escaping () -> Bool = { true },
                             @ViewBuilder _ content: () -> V) -> PanelBlock {
-            PanelBlock(id: id, host: host(id, content), isOpen: isOpen)
+            PanelBlock(id: id, host: makeHost(id, content), isOpen: isOpen)
         }
 
         var blocks: [PanelBlock] = []
@@ -647,6 +651,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 detailOpen() && state.imageOpenIDs.contains(id)
             }) {
                 ImageBodyBlock(display: display, state: state)
+            })
+            blocks.append(detail("dsnd-head", isOpen: detailOpen, live: true) {
+                SoundHeadBlock(display: display, state: state)
+            })
+            blocks.append(detail("dsnd-body", isOpen: {
+                detailOpen() && state.soundOpenIDs.contains(id)
+            }) {
+                SoundBodyBlock(display: display)
             })
             blocks.append(detail("dinput-head", isOpen: detailOpen, live: true) {
                 InputHeadBlock(display: display, state: state)

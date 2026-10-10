@@ -118,6 +118,38 @@ struct ImageBodyBlock: View {
     }
 }
 
+/// Speaker controls over DDC (VCP 0x62), mirroring the Image Adjustment section.
+/// Only for displays whose volume probe answered (or was forced), so the header
+/// never opens an empty section.
+struct SoundHeadBlock: View {
+    @ObservedObject var display: DisplayInfo
+    @ObservedObject var state: PanelSectionState
+
+    var body: some View {
+        if display.volumeSupported {
+            ExpandableRow(
+                icon: "speaker.wave.2.fill",
+                iconActive: false,
+                label: "Audio Adjustment",
+                isExpanded: state.openBinding(\.soundOpenIDs, display.displayID)
+            )
+        }
+    }
+}
+
+struct SoundBodyBlock: View {
+    @ObservedObject var display: DisplayInfo
+
+    var body: some View {
+        if display.volumeSupported {
+            VStack(alignment: .leading, spacing: 0) {
+                VolumeRangeView(display: display)
+            }
+            .padding(.leading, 8)
+        }
+    }
+}
+
 /// The plain rows below the dropdown sections.
 struct DetailTailBlock: View {
     let display: DisplayInfo

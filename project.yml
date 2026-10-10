@@ -85,6 +85,7 @@ targets:
       - path: Crisp/Models/BrightnessKeySteps.swift
       - path: Crisp/Models/PhantomPortCap.swift
       - path: Crisp/Models/DDCVolumeMax.swift
+      - path: Crisp/Models/DDCVolumeScale.swift
       - path: Crisp/Models/EdgeCrossing.swift
       - path: Crisp/Models/DDCInputSource.swift
     settings:

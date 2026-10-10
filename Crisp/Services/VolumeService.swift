@@ -12,7 +12,11 @@ import os.log
 @MainActor
 final class VolumeService: ObservableObject {
     static let shared = VolumeService()
-    private init() {}
+    private init() {
+        if let stored = UserDefaults.standard.dictionary(forKey: Self.ceilingsKey) {
+            volumeCeilings = stored.compactMapValues { ($0 as? Int).map { UInt16(clamping: $0) } }
+        }
+    }
 
     private static let log = Logger(subsystem: "com.crisp.app", category: "volume")
 
@@ -59,11 +63,56 @@ final class VolumeService: ObservableObject {
     }
 
     /// Drop per-display state for a disconnected display so a reused
-    /// displayID cannot inherit it. rememberedCapable stays: it is UUID-keyed
-    /// and deliberately permanent.
+    /// displayID cannot inherit it. rememberedCapable and volumeCeilings stay:
+    /// both are UUID-keyed and deliberately permanent.
     func invalidate(for displayID: CGDirectDisplayID) {
         ddcMax.removeValue(forKey: displayID)
         preMuteVolume.removeValue(forKey: displayID)
+    }
+
+    // MARK: - Volume range ceiling
+
+    /// Maximum raw volume per display UUID, set by the DDC Value Range row.
+    /// The keyboard's sixteen stops spread over this capped range.
+    private static let ceilingsKey = "crisp.volumeMaxOverrides"
+    @Published private(set) var volumeCeilings: [String: UInt16] = [:] {
+        didSet { UserDefaults.standard.set(volumeCeilings.mapValues(Int.init), forKey: Self.ceilingsKey) }
+    }
+
+    /// The display's hardware top from the probe, or the write-only assumption.
+    func hardwareMax(for display: DisplayInfo) -> UInt16 {
+        ddcMax[display.displayID] ?? 100
+    }
+
+    /// The user's ceiling, or nil while the display runs the full hardware range.
+    func ceiling(for display: DisplayInfo) -> UInt16? {
+        volumeCeilings[display.displayUUID]
+    }
+
+    /// The top every write and readback on this display maps onto.
+    func effectiveMax(for display: DisplayInfo) -> UInt16 {
+        DDCVolumeScale.effectiveMax(hardwareMax: hardwareMax(for: display), ceiling: ceiling(for: display))
+    }
+
+    /// Caps the display's volume scale; the hardware top (or nil) restores the
+    /// full range. Lowering the ceiling under the monitor's current level drops
+    /// it to the ceiling; raising or clearing keeps the raw level and only
+    /// rescales the percentage.
+    func setCeiling(_ value: UInt16?, for display: DisplayInfo) {
+        guard !display.isBuiltin else { return }
+        let oldRaw = DDCVolumeScale.raw(fromPercent: display.volume, effectiveMax: effectiveMax(for: display))
+        let top = hardwareMax(for: display)
+        if let value, Int(value) < Int(top) {
+            volumeCeilings[display.displayUUID] = DDCVolumeScale.clampedCeiling(Int(value), hardwareMax: top)
+        } else {
+            volumeCeilings.removeValue(forKey: display.displayUUID)
+        }
+        let newMax = effectiveMax(for: display)
+        if oldRaw > newMax {
+            setVolume(100, for: display)
+        } else {
+            display.volume = DDCVolumeScale.percent(fromRaw: oldRaw, effectiveMax: newMax)
+        }
     }
 
     // MARK: - Probe
@@ -101,7 +150,11 @@ final class VolumeService: ObservableObject {
                 // Adopt the hardware level only while our writer is idle, so a
                 // stale cached read never fights an in-flight drag.
                 if self.pending[id] == nil, !self.pumpActive.contains(id) {
-                    display.volume = Double(result.current) / Double(volumeMax) * 100.0
+                    let top = DDCVolumeScale.effectiveMax(
+                        hardwareMax: volumeMax,
+                        ceiling: self.volumeCeilings[uuid]
+                    )
+                    display.volume = DDCVolumeScale.percent(fromRaw: result.current, effectiveMax: top)
                 }
             }
         }
@@ -109,17 +162,22 @@ final class VolumeService: ObservableObject {
 
     // MARK: - Set (coalesced)
 
-    /// Latest pending percent per display; only one DDC write in flight each.
-    private var pending: [CGDirectDisplayID: Double] = [:]
+    /// Latest pending write per display; only one DDC write in flight each.
+    /// The UUID rides along so the write maps onto the display's ceiling.
+    private struct PendingWrite {
+        let percent: Double
+        let uuid: String
+    }
+    private var pending: [CGDirectDisplayID: PendingWrite] = [:]
     private var pumpActive: Set<CGDirectDisplayID> = []
 
-    /// Sets speaker volume (0–100). Coalesced like the brightness writer:
-    /// latest value wins, writes paced to the MCCS ~50ms spacing so slider
-    /// drags don't flood the I2C bus that brightness shares.
+    /// Sets speaker volume (0–100 of the display's scale). Coalesced like the
+    /// brightness writer: latest value wins, writes paced to the MCCS ~50ms
+    /// spacing so slider drags don't flood the I2C bus that brightness shares.
     func setVolume(_ percent: Double, for display: DisplayInfo) {
         let clamped = max(0.0, min(100.0, percent))
         display.volume = clamped
-        pending[display.displayID] = clamped
+        pending[display.displayID] = PendingWrite(percent: clamped, uuid: display.displayUUID)
         pump(for: display.displayID)
     }
 
@@ -135,9 +193,13 @@ final class VolumeService: ObservableObject {
     }
 
     private func pump(for id: CGDirectDisplayID) {
-        guard !pumpActive.contains(id), let percent = pending.removeValue(forKey: id) else { return }
+        guard !pumpActive.contains(id), let write = pending.removeValue(forKey: id) else { return }
         pumpActive.insert(id)
-        let raw = UInt16((percent / 100.0 * Double(ddcMax[id] ?? 100)).rounded())
+        let top = DDCVolumeScale.effectiveMax(
+            hardwareMax: ddcMax[id] ?? 100,
+            ceiling: volumeCeilings[write.uuid]
+        )
+        let raw = DDCVolumeScale.raw(fromPercent: write.percent, effectiveMax: top)
         DDCService.shared.writeAsync(displayID: id, command: DDCService.volumeVCP, value: raw) { _ in
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 50_000_000)  // MCCS write spacing
