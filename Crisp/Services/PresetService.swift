@@ -20,6 +20,13 @@ final class PresetService: ObservableObject, @unchecked Sendable {
         if activePresetID != nil { activePresetID = nil }
     }
 
+    /// A display turned on or off outside a preset: only a preset that controls
+    /// connection (#211) stops being the active one.
+    func noteConnectionChange() {
+        guard let id = activePresetID, presets.first(where: { $0.id == id })?.includesConnection == true else { return }
+        noteManualChange()
+    }
+
     private let filename = "presets.json"
 
     private init() {
@@ -97,7 +104,8 @@ final class PresetService: ObservableObject, @unchecked Sendable {
             includeBrightness: existing.includesBrightness,
             includeArrangement: existing.includesArrangement,
             includeImageAdjustment: existing.includesImageAdjustment,
-            includeHDR: existing.includesHDR
+            includeHDR: existing.includesHDR,
+            includeConnection: existing.includesConnection
         )
         presets[index].displays = captured.displays
         savePresets()
@@ -132,6 +140,10 @@ final class PresetService: ObservableObject, @unchecked Sendable {
                 e.clear(capture)
                 return e
             }
+            if capture == .connection, PhysicalDisplayToggleService.shared.isDisconnected(uuid: entry.displayUUID) {
+                e.connected = false
+                return e
+            }
             guard let live = displays.first(where: { $0.displayUUID == entry.displayUUID && $0.isOnline }) else {
                 return e
             }
@@ -151,8 +163,13 @@ final class PresetService: ObservableObject, @unchecked Sendable {
                 e.imageAdjustment = imageAdjustment(of: live)
             case .hdr:
                 e.hdr = hdr(of: live)
+            case .connection:
+                e.connected = true
             }
             return e
+        }
+        if capture == .connection, included {
+            presets[index].displays += offEntries(excluding: presets[index].displays)
         }
         savePresets()
         // What the preset controls changed; it no longer cleanly represents the
@@ -172,7 +189,7 @@ final class PresetService: ObservableObject, @unchecked Sendable {
             applyingPresetID = nil
         }
 
-        let displays = DisplayManagerAccessor.shared.displays
+        let displays = await applyConnection(of: preset)
 
         for entry in preset.displays {
             guard let display = displays.first(where: { $0.displayUUID == entry.displayUUID }) else { continue }
@@ -248,6 +265,35 @@ final class PresetService: ObservableObject, @unchecked Sendable {
         // DisplayManager is not a singleton; callers with a DisplayManager ref can call refreshDisplays().
     }
 
+    /// Turns displays on and off before the other settings (#211), so those land on the
+    /// display set the preset was saved with. Returns the display list after the change.
+    private func applyConnection(of preset: DisplayPreset) async -> [DisplayInfo] {
+        let toggle = PhysicalDisplayToggleService.shared
+        let displays = DisplayManagerAccessor.shared.displays
+        let plan = preset.connectionPlan(
+            online: Set(displays.filter(\.isOnline).map(\.displayUUID)),
+            disconnected: Set(toggle.disconnected.map(\.uuid))
+        )
+        guard plan != PresetConnectionPlan() else { return displays }
+        // Reconnects first, so a swap never trips the last-screen guard.
+        for uuid in plan.reconnect {
+            _ = await InputSwitchService.shared.reconnect(uuid: uuid)
+        }
+        for uuid in plan.disconnect {
+            guard let display = displays.first(where: { $0.displayUUID == uuid }) else { continue }
+            // A refusal (last active display) leaves it on; the other settings still apply.
+            _ = await toggle.disconnect(display, fromPreset: true)
+        }
+        toggle.displayManager?.refreshDisplays()
+        let refreshed = DisplayManagerAccessor.shared.displays
+        // refreshDisplays loads a returning display's modes in the background; the
+        // resolution below needs them now.
+        for display in refreshed where plan.reconnect.contains(display.displayUUID) {
+            await display.loadDetails()
+        }
+        return refreshed
+    }
+
     // MARK: - Capture
 
     /// Snapshots all current online displays into a new preset. The include
@@ -258,9 +304,10 @@ final class PresetService: ObservableObject, @unchecked Sendable {
                              includeBrightness: Bool = true,
                              includeArrangement: Bool = true,
                              includeImageAdjustment: Bool = false,
-                             includeHDR: Bool = false) -> DisplayPreset {
+                             includeHDR: Bool = false,
+                             includeConnection: Bool = false) -> DisplayPreset {
         let displays = DisplayManagerAccessor.shared.displays
-        let entries: [DisplayPresetEntry] = displays.compactMap { display in
+        var entries: [DisplayPresetEntry] = displays.compactMap { display in
             guard display.isOnline else { return nil }
             let mode = display.currentDisplayMode
             return DisplayPresetEntry(
@@ -273,10 +320,19 @@ final class PresetService: ObservableObject, @unchecked Sendable {
                 arrangementX: includeArrangement ? display.bounds.origin.x : nil,
                 arrangementY: includeArrangement ? display.bounds.origin.y : nil,
                 imageAdjustment: includeImageAdjustment ? imageAdjustment(of: display) : nil,
-                hdr: includeHDR ? hdr(of: display) : nil
+                hdr: includeHDR ? hdr(of: display) : nil,
+                connected: includeConnection ? true : nil
             )
         }
+        if includeConnection { entries += offEntries(excluding: entries) }
         return DisplayPreset(name: name, icon: icon, displays: entries)
+    }
+
+    /// A display Crisp disconnected, not already in `entries`, stores only that it is off.
+    private func offEntries(excluding entries: [DisplayPresetEntry]) -> [DisplayPresetEntry] {
+        PhysicalDisplayToggleService.shared.disconnected
+            .filter { record in !entries.contains { $0.displayUUID == record.uuid } }
+            .map { DisplayPresetEntry(displayUUID: $0.uuid, connected: false) }
     }
 
     /// A display's Image Adjustment as a preset stores it: the saved values without
@@ -307,10 +363,12 @@ final class PresetService: ObservableObject, @unchecked Sendable {
     /// Returns the preset ID that matches the current display state, if any.
     func currentPresetMatch() -> UUID? {
         let displays = DisplayManagerAccessor.shared.displays
+        let disconnected = Set(PhysicalDisplayToggleService.shared.disconnected.map(\.uuid))
         for preset in presets {
             // Match is resolution-defined; brightness/arrangement-only presets don't participate.
             guard preset.includesResolution else { continue }
             let matches = preset.displays.allSatisfy { entry in
+                if entry.connected == false { return disconnected.contains(entry.displayUUID) }
                 guard let display = displays.first(where: { $0.displayUUID == entry.displayUUID }),
                       display.isOnline else { return false }
                 // Entry without a resolution doesn't gate on it

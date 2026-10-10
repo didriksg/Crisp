@@ -135,6 +135,22 @@
         }
       }
     },
+    "%@ off" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 已关闭"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 已關閉"
+          }
+        }
+      }
+    },
     "%@, collapsed" : {
       "localizations" : {
         "zh-Hans" : {
@@ -591,6 +607,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "所有已連線的顯示器"
+          }
+        }
+      }
+    },
+    "All displays on" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "所有显示器已开启"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "所有顯示器已開啟"
           }
         }
       }
@@ -1192,6 +1224,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "確認刪除"
+          }
+        }
+      }
+    },
+    "Connection" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "连接"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "連線"
           }
         }
       }

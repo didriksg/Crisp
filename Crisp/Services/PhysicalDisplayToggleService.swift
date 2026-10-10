@@ -256,12 +256,15 @@ final class PhysicalDisplayToggleService: ObservableObject {
     /// Disconnects a physical display and records a snapshot for later reconnect. Refuses if it
     /// would leave zero active displays, so the user can never black out their only screen.
     /// Runs in `connectionQueue`, so the last-screen guard sees every earlier change.
+    /// `fromPreset` (#211): a built-in disconnect leaves no parked record, so it ends at the next
+    /// undock, and the restore of the other displays is awaited, so the preset's own settings
+    /// land after it instead of being undone by it.
     @discardableResult
-    func disconnect(_ display: DisplayInfo, returnInput: UInt16? = nil) async -> Result<Void, ToggleError> {
-        await connectionQueue.run { await self.performDisconnect(display, returnInput: returnInput) }
+    func disconnect(_ display: DisplayInfo, returnInput: UInt16? = nil, fromPreset: Bool = false) async -> Result<Void, ToggleError> {
+        await connectionQueue.run { await self.performDisconnect(display, returnInput: returnInput, fromPreset: fromPreset) }
     }
 
-    private func performDisconnect(_ display: DisplayInfo, returnInput: UInt16?) async -> Result<Void, ToggleError> {
+    private func performDisconnect(_ display: DisplayInfo, returnInput: UInt16?, fromPreset: Bool) async -> Result<Void, ToggleError> {
         guard isSupported else { return .failure(.unsupportedPlatform) }
         // The ID can be reassigned while the call waited its turn.
         let displayID = onlineDisplayIDs().first { uuid(for: $0) == display.displayUUID } ?? display.displayID
@@ -272,7 +275,7 @@ final class PhysicalDisplayToggleService: ObservableObject {
 
         // A new click adds this dock's externals to the ones a parked record already knew.
         var companions: [String]?
-        if display.isBuiltin {
+        if display.isBuiltin, !fromPreset {
             let externals = viewableActiveDisplays().filter { $0 != displayID }.map { uuid(for: $0) }
             let known = parked?.uuid == display.displayUUID ? parked?.companions ?? [] : []
             companions = Array(Set(externals + known))
@@ -295,7 +298,12 @@ final class PhysicalDisplayToggleService: ObservableObject {
         switch result {
         case .success:
             remember(snapshot)
-            Task { [weak self] in await self?.restoreStates(otherStates) }
+            PresetService.shared.noteConnectionChange()
+            if fromPreset {
+                await restoreStates(otherStates)
+            } else {
+                Task { [weak self] in await self?.restoreStates(otherStates) }
+            }
         case .failure(.timedOut):
             // Not proof the change failed (see ToggleError.timedOut). Without the record, a
             // disable that lands late has no Reconnect row and no blackout rescue.
@@ -410,6 +418,7 @@ final class PhysicalDisplayToggleService: ObservableObject {
             }
             disconnected.removeAll { $0.uuid == uuid }
             saveDesired()
+            PresetService.shared.noteConnectionChange()
         } else if case .failure(.timedOut) = result {
             // An enable that lands late would otherwise meet its own record in reconcile and
             // be switched straight back off.
