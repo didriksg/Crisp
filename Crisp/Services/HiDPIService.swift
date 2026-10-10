@@ -120,29 +120,15 @@ final class HiDPIService: @unchecked Sendable {
     /// Writes the override plist with the given scale-resolutions entries via admin auth,
     /// then re-probes so macOS re-enumerates modes. Shared by normal HiDPI and smooth scaling.
     private func writeScaledModesPlist(vendor: UInt32, product: UInt32, scaledModes: [Data]) -> String? {
-        let dirPath = overrideDir(vendor: vendor).path
-        let plistPath = overridePlistURL(vendor: vendor, product: product).path
-
-        let plist: [String: Any] = [
-            "scale-resolutions": scaledModes
-        ]
-
-        guard let data = try? PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0) else {
-            return "Failed to generate plist data"
-        }
-
-        let tmpPath = NSTemporaryDirectory() + "crisp_hidpi_override.plist"
+        let command: String
         do {
-            try data.write(to: URL(fileURLWithPath: tmpPath), options: .atomic)
+            command = try HiDPIOverrideCommand.install(vendor: vendor, product: product, scaledModes: scaledModes)
         } catch {
-            return "Failed to write temp file: \(error.localizedDescription)"
+            return "Failed to generate override: \(error.localizedDescription)"
         }
-
-        if let err = executePrivilegedCommand("mkdir -p '\(dirPath)' && cp '\(tmpPath)' '\(plistPath)'") {
+        if let err = executePrivilegedCommand(HiDPIOverrideCommand.appleScriptLiteral(command)) {
             return err
         }
-
-        try? FileManager.default.removeItem(atPath: tmpPath)
 
         triggerDisplayReenumeration(vendor: vendor, product: product)
 

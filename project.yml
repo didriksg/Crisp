@@ -75,6 +75,7 @@ targets:
       - path: Crisp/Models/DDCTopologyChange.swift
       - path: Crisp/Models/RefreshRateFormat.swift
       - path: Crisp/Models/GammaPersistenceKey.swift
+      - path: Crisp/Models/HiDPIOverrideCommand.swift
       - path: Crisp/Models/VariableRefreshModes.swift
       - path: Crisp/Models/KeyboardShortcut.swift
       - path: Crisp/Models/CombinedBrightnessMath.swift
