@@ -31,6 +31,9 @@ final class PhysicalDisplayToggleService: ObservableObject {
     /// Set by DisplayManager at launch. The restore below needs a DisplayInfo to read and put
     /// back a display's HDR switch, and this service otherwise works from CGDirectDisplayIDs.
     weak var displayManager: DisplayManager?
+    /// Disconnects and the user's reconnects run one at a time: two disconnects that both
+    /// passed the last-screen guard while the DDC hold drained turned every screen off.
+    private let connectionQueue = DisplayConnectionQueue()
 
     /// Snapshot of a display we disconnected, kept because a disconnected display no longer
     /// appears in DisplayManager.displays, so we need its metadata to render a Reconnect row.
@@ -248,11 +251,20 @@ final class PhysicalDisplayToggleService: ObservableObject {
 
     /// Disconnects a physical display and records a snapshot for later reconnect. Refuses if it
     /// would leave zero active displays, so the user can never black out their only screen.
+    /// Runs in `connectionQueue`, so the last-screen guard sees every earlier change.
     @discardableResult
     func disconnect(_ display: DisplayInfo, returnInput: UInt16? = nil) async -> Result<Void, ToggleError> {
+        await connectionQueue.run { await self.performDisconnect(display, returnInput: returnInput) }
+    }
+
+    private func performDisconnect(_ display: DisplayInfo, returnInput: UInt16?) async -> Result<Void, ToggleError> {
         guard isSupported else { return .failure(.unsupportedPlatform) }
-        let displayID = display.displayID
-        if wouldLeaveNoActiveDisplay(displayID) { return .failure(.wouldLeaveNoActiveDisplay) }
+        // The ID can be reassigned while the call waited its turn.
+        let displayID = onlineDisplayIDs().first { uuid(for: $0) == display.displayUUID } ?? display.displayID
+        if wouldLeaveNoActiveDisplay(displayID) {
+            Self.log.notice("disconnect refused: \(display.displayUUID, privacy: .public) id \(displayID, privacy: .public) is the last active display")
+            return .failure(.wouldLeaveNoActiveDisplay)
+        }
 
         // A new click adds this dock's externals to the ones a parked record already knew.
         var companions: [String]?
@@ -359,8 +371,15 @@ final class PhysicalDisplayToggleService: ObservableObject {
     /// Reconnects a previously disconnected display and drops it from the disconnected set.
     /// `byUser` is false only for the blackout rescue; a user's Reconnect of the built-in holds
     /// the Tools switch off until the next undock.
+    /// The blackout rescue (`byUser` false) skips `connectionQueue`: with no screen lit, it
+    /// must not wait behind a change stuck in the DDC hold.
     @discardableResult
     func reconnect(uuid: String, byUser: Bool = true) async -> Result<Void, ToggleError> {
+        guard byUser else { return await performReconnect(uuid: uuid, byUser: false) }
+        return await connectionQueue.run { await self.performReconnect(uuid: uuid, byUser: true) }
+    }
+
+    private func performReconnect(uuid: String, byUser: Bool) async -> Result<Void, ToggleError> {
         guard isSupported else { return .failure(.unsupportedPlatform) }
         guard let record = disconnected.first(where: { $0.uuid == uuid }) else {
             return .failure(.displayNotFound)
