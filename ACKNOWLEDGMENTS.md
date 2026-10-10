@@ -45,6 +45,7 @@ SOFTWARE.
 - [@DEOWL-kan](https://github.com/DEOWL-kan) ([#71](https://github.com/didriksg/Crisp/pull/71))
 - [@Dr8pus](https://github.com/Dr8pus) ([#177](https://github.com/didriksg/Crisp/pull/177))
 - [@Yangmoooo](https://github.com/Yangmoooo) ([#175](https://github.com/didriksg/Crisp/pull/175))
+- [@andrewfoster](https://github.com/andrewfoster) ([#214](https://github.com/didriksg/Crisp/pull/214))
 
 ## Translations
 
