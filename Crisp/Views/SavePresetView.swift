@@ -75,6 +75,7 @@ struct SavePresetForm: View {
     @State private var includeArrangement: Bool = true
     @State private var includeImageAdjustment: Bool = false
     @State private var includeHDR: Bool = false
+    @State private var includeConnection: Bool = false
     /// Edit mode only: when on, Save re-captures current values instead of stored ones.
     @State private var recaptureValues: Bool = false
     /// Global shortcut for this preset, held here until Save like name and icon
@@ -102,12 +103,15 @@ struct SavePresetForm: View {
         _includeImageAdjustment = State(initialValue: editing?.includesImageAdjustment
                                         ?? PresetService.shared.anyImageAdjustment)
         _includeHDR = State(initialValue: editing?.includesHDR ?? false)
+        // On when a display is off now: that is what such a preset is saved for.
+        _includeConnection = State(initialValue: editing?.includesConnection
+                                   ?? !PhysicalDisplayToggleService.shared.disconnected.isEmpty)
         _recordedShortcut = State(initialValue: editing?.shortcut)
     }
 
     private var nothingSelected: Bool {
         !includeResolution && !includeBrightness && !includeArrangement && !includeImageAdjustment
-            && !includeHDR
+            && !includeHDR && !includeConnection
     }
 
     /// Stored resolution shown inline only for a single display (clean and
@@ -123,6 +127,17 @@ struct SavePresetForm: View {
         guard let editing else { return nil }
         let vals = editing.displays.compactMap(\.brightness)
         return vals.count == 1 ? "\(Int((vals[0] * 100).rounded()))%" : nil
+    }
+
+    /// The displays the stored preset turns off, by name.
+    private var connectionDetail: String? {
+        guard let editing else { return nil }
+        let names = editing.displays.filter { $0.connected == false }.compactMap { entry in
+            DisplayManagerAccessor.shared.displays.first { $0.displayUUID == entry.displayUUID }?.name
+                ?? PhysicalDisplayToggleService.shared.disconnected.first { $0.uuid == entry.displayUUID }?.name
+        }
+        guard !names.isEmpty else { return String(localized: "All displays on") }
+        return String(localized: "\(names.formatted(.list(type: .and))) off")
     }
 
     /// The swatch currently picked in the Color picker; the icon button previews it live.
@@ -252,6 +267,8 @@ struct SavePresetForm: View {
                         .padding(.leading, 34)
                         .padding(.trailing, 4)
                 }
+                CaptureToggleRow(icon: "power", color: .green,
+                                 label: "Connection", detail: connectionDetail, isOn: $includeConnection)
                 CaptureToggleRow(icon: "slider.horizontal.3", color: .teal,
                                  label: "Image Adjustment", isOn: $includeImageAdjustment)
                 // Only where it can capture something: a display with the HDR row.
@@ -338,7 +355,8 @@ struct SavePresetForm: View {
                                (.brightness, includeBrightness),
                                (.arrangement, includeArrangement),
                                (.imageAdjustment, includeImageAdjustment),
-                               (.hdr, includeHDR)].filter(\.1).map(\.0))
+                               (.hdr, includeHDR),
+                               (.connection, includeConnection)].filter(\.1).map(\.0))
             )
             // Opt-in: refresh the stored values to the current display state.
             if recaptureValues {
@@ -352,7 +370,8 @@ struct SavePresetForm: View {
                 includeBrightness: includeBrightness,
                 includeArrangement: includeArrangement,
                 includeImageAdjustment: includeImageAdjustment,
-                includeHDR: includeHDR
+                includeHDR: includeHDR,
+                includeConnection: includeConnection
             )
             preset.colorName = selectedColor
             PresetService.shared.addPreset(preset)

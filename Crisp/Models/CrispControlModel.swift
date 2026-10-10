@@ -751,7 +751,7 @@ enum CrispControlCLIModel {
               detail: "The same as Reset All in the menu."),
         Entry(group: .preset, usage: "preset list", summary: "List presets as JSON", detail: """
             Each preset carries id, name, captures (what applying it changes: resolution,
-            brightness, arrangement, imageAdjustment, hdr), displays (the uuids it has
+            brightness, arrangement, imageAdjustment, hdr, connection), displays (the uuids it has
             settings for) and active, which is true for the preset last applied until a
             manual change.
             """),

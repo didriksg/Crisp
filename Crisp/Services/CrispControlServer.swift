@@ -223,7 +223,7 @@ final class CrispControlServer {
             return CrispControlModel.encode(.failure(error))
         }
         if let id = result.presetToApply {
-            return await applyPreset(id: id, among: managedDisplays)
+            return await applyPreset(id: id)
         }
         if let change = result.imageChange {
             guard let display = managedDisplays.first(where: { $0.displayID == change.displayID }) else {
@@ -303,7 +303,7 @@ final class CrispControlServer {
         )
     }
 
-    private func applyPreset(id: String, among managedDisplays: [DisplayInfo]) async -> Data {
+    private func applyPreset(id: String) async -> Data {
         let service = PresetService.shared
         guard let preset = service.presets.first(where: { $0.id.uuidString == id }) else {
             return CrispControlModel.encode(.failure("preset not found"))
@@ -312,11 +312,13 @@ final class CrispControlServer {
         guard !service.isApplying else {
             return CrispControlModel.encode(.failure("another preset is being applied; try again"))
         }
-        // applyPreset also skips a display that is not online without a word; say which.
-        let skipped = preset.displays.map(\.displayUUID).filter { uuid in
-            !managedDisplays.contains { $0.displayUUID == uuid && $0.isOnline }
-        }
         await service.applyPreset(preset)
+        // applyPreset skips a display that is not online without a word; say which. Read after
+        // the apply, which can turn displays on and off (#211); one the preset turns off is not skipped.
+        let online = displayManager.displays.filter(\.isOnline).map(\.displayUUID)
+        let skipped = preset.displays
+            .filter { $0.connected != false && !online.contains($0.displayUUID) }
+            .map(\.displayUUID)
         return CrispControlModel.encode(.success(preset: Self.listed(preset), skippedDisplays: skipped))
     }
 

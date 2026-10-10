@@ -21,6 +21,9 @@ struct DisplayPresetEntry: Codable, Identifiable {
     var imageAdjustment: GammaAdjustment? = nil
     /// The HDR switch (#198). nil = not included, or a display without the HDR row.
     var hdr: Bool? = nil
+    /// Whether the display is on (#211). nil = not included. Off is applied through Crisp's
+    /// Disconnect, and an off display stores nothing else.
+    var connected: Bool? = nil
 
     /// Drops a capture's stored value, so applying the preset leaves it alone.
     mutating func clear(_ capture: PresetCapture) {
@@ -30,6 +33,7 @@ struct DisplayPresetEntry: Codable, Identifiable {
         case .arrangement: arrangementX = nil; arrangementY = nil
         case .imageAdjustment: imageAdjustment = nil
         case .hdr: hdr = nil
+        case .connection: connected = nil
         }
     }
 
@@ -54,6 +58,7 @@ struct DisplayPreset: Codable, Identifiable {
     var includesArrangement: Bool { displays.contains { $0.arrangementX != nil } }
     var includesImageAdjustment: Bool { displays.contains { $0.imageAdjustment != nil } }
     var includesHDR: Bool { displays.contains { $0.hdr != nil } }
+    var includesConnection: Bool { displays.contains { $0.connected != nil } }
 
     func includes(_ capture: PresetCapture) -> Bool {
         switch capture {
@@ -62,13 +67,14 @@ struct DisplayPreset: Codable, Identifiable {
         case .arrangement: includesArrangement
         case .imageAdjustment: includesImageAdjustment
         case .hdr: includesHDR
+        case .connection: includesConnection
         }
     }
 }
 
 /// One toggleable attribute the preset row's ⋯ menu can drop or re-add.
 enum PresetCapture: String, CaseIterable, Identifiable {
-    case resolution, brightness, arrangement, imageAdjustment, hdr
+    case resolution, brightness, arrangement, imageAdjustment, hdr, connection
     var id: String { rawValue }
     var label: String {
         switch self {
@@ -77,6 +83,29 @@ enum PresetCapture: String, CaseIterable, Identifiable {
         case .arrangement: "Arrangement"
         case .imageAdjustment: "Image Adjustment"
         case .hdr: "HDR"
+        case .connection: "Connection"
         }
+    }
+}
+
+/// The displays a preset's Connection capture turns on and off: only those that differ from
+/// now, and never one that is not attached.
+struct PresetConnectionPlan: Equatable {
+    var reconnect: [String] = []
+    var disconnect: [String] = []
+}
+
+extension DisplayPreset {
+    /// `online` are the lit displays' UUIDs, `disconnected` those Crisp has disconnected.
+    func connectionPlan(online: Set<String>, disconnected: Set<String>) -> PresetConnectionPlan {
+        var plan = PresetConnectionPlan()
+        for entry in displays {
+            if entry.connected == true, disconnected.contains(entry.displayUUID) {
+                plan.reconnect.append(entry.displayUUID)
+            } else if entry.connected == false, online.contains(entry.displayUUID) {
+                plan.disconnect.append(entry.displayUUID)
+            }
+        }
+        return plan
     }
 }
