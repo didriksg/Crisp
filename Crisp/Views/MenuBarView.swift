@@ -532,6 +532,8 @@ struct SettingsView: View {
             // group and stays shown with no external connected (can be armed before docking).
             AutoBrightnessView()
 
+            KeepToolsExpandedRow()
+
             // Hidden unless more than one brightness slider exists, or "combined" would
             // just duplicate the single slider.
             if physicalDisplays.count > 1 {

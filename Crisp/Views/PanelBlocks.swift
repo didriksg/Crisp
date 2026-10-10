@@ -23,9 +23,13 @@ final class PanelSectionState: ObservableObject {
     @Published var imageOpenIDs: Set<CGDirectDisplayID> = []
     @Published var inputOpenIDs: Set<CGDirectDisplayID> = []
 
+    init() {
+        showTools = SettingsService.shared.keepToolsExpanded
+    }
+
     /// Collapse every section so the panel reopens fresh; called once hidden.
     func collapseAll() {
-        showTools = false
+        showTools = SettingsService.shared.keepToolsExpanded
         showVirtualDisplays = false
         showArrangement = false
         showSettings = false
