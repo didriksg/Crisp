@@ -97,6 +97,10 @@ final class PhysicalDisplayToggleService: ObservableObject {
     /// reconfig callback firing before setEnabled(true) returns would see the record still in
     /// place and switch the display straight back off.
     private var reconnectInFlight: Set<String> = []
+    /// UUIDs whose disable or enable timed out and may still land (#33 had WindowServer hold
+    /// a commit for 29.5 s). reconcile() leaves them alone until enumeration settles it, so
+    /// it does not send a second change into the pending one.
+    private var awaitingLateCommit: Set<String> = []
 
     private func pendingSoftReconnectUUIDs() -> [String] {
         UserDefaults.standard.stringArray(forKey: softReconnectPendingKey) ?? []
@@ -288,12 +292,17 @@ final class PhysicalDisplayToggleService: ObservableObject {
         Self.log.notice("disconnect requested: \(display.displayUUID, privacy: .public) id \(displayID, privacy: .public)")
         let otherStates = currentStates(excluding: [displayID])
         let result = await setEnabled(false, displayID: displayID)
-        if case .success = result {
-            disconnected.removeAll { $0.uuid == snapshot.uuid }
-            disconnected.append(snapshot)
-            saveDesired()
-            if parked?.uuid == snapshot.uuid { setParked(nil) }
+        switch result {
+        case .success:
+            remember(snapshot)
             Task { [weak self] in await self?.restoreStates(otherStates) }
+        case .failure(.timedOut):
+            // Not proof the change failed (see ToggleError.timedOut). Without the record, a
+            // disable that lands late has no Reconnect row and no blackout rescue.
+            remember(snapshot)
+            watchLateDisconnect(snapshot.uuid, displayID: displayID, otherStates: otherStates)
+        default:
+            break
         }
         return result
     }
@@ -401,6 +410,10 @@ final class PhysicalDisplayToggleService: ObservableObject {
             }
             disconnected.removeAll { $0.uuid == uuid }
             saveDesired()
+        } else if case .failure(.timedOut) = result {
+            // An enable that lands late would otherwise meet its own record in reconcile and
+            // be switched straight back off.
+            watchLateReconnect(uuid)
         }
         return result
     }
@@ -520,7 +533,6 @@ final class PhysicalDisplayToggleService: ObservableObject {
         // in-flight I2C read and freeze the whole machine with it (issue #33).
         // See docs/display-notes.md (PhysicalDisplayToggleService).
         let releaseDDC = await DDCService.shared.hold()
-        defer { releaseDDC() }
         let heldMs = Self.millisSince(waited)
         if heldMs > Self.slowOpThresholdMs {
             Self.log.notice("\(action, privacy: .public) \(displayID, privacy: .public): waited \(Int(heldMs), privacy: .public) ms for DDC to go idle")
@@ -528,6 +540,9 @@ final class PhysicalDisplayToggleService: ObservableObject {
         let result: Result<Void, ToggleError> = await CGHelpers.runWithTimeout(
             seconds: 10, fallback: .failure(.timedOut)
         ) {
+            // Released when the transaction returns, which can be after the wrapper gave up:
+            // DDC must stay parked while a late commit is still in WindowServer.
+            defer { releaseDDC() }
             var config: CGDisplayConfigRef?
             guard CGBeginDisplayConfiguration(&config) == .success, let cfg = config else {
                 Self.log.error("\(action, privacy: .public) \(displayID, privacy: .public): CGBeginDisplayConfiguration failed")
@@ -681,6 +696,7 @@ final class PhysicalDisplayToggleService: ObservableObject {
             !reapplyInFlight.contains($0.uuid)
                 && !softReconnectInFlight.contains($0.uuid)
                 && !reconnectInFlight.contains($0.uuid)
+                && !awaitingLateCommit.contains($0.uuid)
         }
         guard !pending.isEmpty else { return }
         let leaving = Set(onlineIDs.filter { id in
@@ -1018,5 +1034,50 @@ final class PhysicalDisplayToggleService: ObservableObject {
         disconnected = decoded
         // Nothing is disconnected yet; this only seeds the "Disconnected" UI. The first
         // refresh after launch re-applies it through reconcile(), where the safety rails are.
+    }
+}
+
+// MARK: - Late commits
+
+extension PhysicalDisplayToggleService {
+    /// How long a timed-out change is watched before the record is left as it is.
+    private static let lateCommitWindow: TimeInterval = 30
+
+    private func remember(_ snapshot: DisconnectedDisplay) {
+        disconnected.removeAll { $0.uuid == snapshot.uuid }
+        disconnected.append(snapshot)
+        saveDesired()
+        if parked?.uuid == snapshot.uuid { setParked(nil) }
+    }
+
+    /// A timed-out disconnect: decided by enumeration. If it never lands, reconcile re-applies
+    /// the record, or drops it if the display stays lit.
+    private func watchLateDisconnect(_ uuid: String, displayID: CGDirectDisplayID, otherStates: [DisplayState]) {
+        awaitingLateCommit.insert(uuid)
+        Task { [weak self] in
+            guard let self else { return }
+            let landed = await verifyOffline(displayID: displayID, timeout: Self.lateCommitWindow)
+            awaitingLateCommit.remove(uuid)
+            Self.log.notice("timed-out disconnect of \(uuid, privacy: .public): \(landed ? "landed late" : "not landed after the late-commit window", privacy: .public)")
+            if landed { await restoreStates(otherStates) }
+            displayManager?.refreshDisplays()
+        }
+    }
+
+    /// A timed-out reconnect: the record drops once the display is back online. The input is
+    /// not written back after a late landing.
+    private func watchLateReconnect(_ uuid: String) {
+        awaitingLateCommit.insert(uuid)
+        Task { [weak self] in
+            guard let self else { return }
+            let landed = await verifyBackOnline(uuid: uuid, timeout: Self.lateCommitWindow)
+            if landed {
+                disconnected.removeAll { $0.uuid == uuid }
+                saveDesired()
+            }
+            awaitingLateCommit.remove(uuid)
+            Self.log.notice("timed-out reconnect of \(uuid, privacy: .public): \(landed ? "landed late, record dropped" : "not landed after the late-commit window", privacy: .public)")
+            displayManager?.refreshDisplays()
+        }
     }
 }

@@ -44,7 +44,7 @@ final class DDCOperationQueuePool: @unchecked Sendable {
     /// Parks every per-display queue, present and future, until the returned closure
     /// runs; `onIdle` fires once queued work drains, so the caller knows I2C is free.
     /// Each queue gives up after `timeout` so a lost release cannot wedge DDC.
-    func hold(timeout: TimeInterval, onIdle: @escaping () -> Void) -> () -> Void {
+    func hold(timeout: TimeInterval, onIdle: @escaping () -> Void) -> @Sendable () -> Void {
         let hold = Hold(timeout: timeout)
         lock.lock()
         activeHolds.append(hold)

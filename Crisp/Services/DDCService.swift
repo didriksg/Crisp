@@ -728,7 +728,7 @@ final class DDCService: ObservableObject, @unchecked Sendable {
     /// cap). Do not skip this around a display enable/disable: WindowServer's enable waits
     /// behind an in-flight I2C transaction and freezes the whole Mac with it. See
     /// docs/ddc-notes.md (the hold around enable and disable).
-    func hold() async -> () -> Void {
+    func hold() async -> @Sendable () -> Void {
         let idle = DispatchSemaphore(value: 0)
         let release = operationQueues.hold(timeout: 15) { idle.signal() }
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
