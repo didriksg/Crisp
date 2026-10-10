@@ -298,6 +298,7 @@ final class PhysicalDisplayToggleService: ObservableObject {
         switch result {
         case .success:
             remember(snapshot)
+            PresetService.shared.noteConnectionChange()
             if fromPreset {
                 await restoreStates(otherStates)
             } else {
@@ -417,6 +418,7 @@ final class PhysicalDisplayToggleService: ObservableObject {
             }
             disconnected.removeAll { $0.uuid == uuid }
             saveDesired()
+            PresetService.shared.noteConnectionChange()
         } else if case .failure(.timedOut) = result {
             // An enable that lands late would otherwise meet its own record in reconcile and
             // be switched straight back off.

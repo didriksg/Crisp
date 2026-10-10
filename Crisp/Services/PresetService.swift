@@ -20,6 +20,13 @@ final class PresetService: ObservableObject, @unchecked Sendable {
         if activePresetID != nil { activePresetID = nil }
     }
 
+    /// A display turned on or off outside a preset: only a preset that controls
+    /// connection (#211) stops being the active one.
+    func noteConnectionChange() {
+        guard let id = activePresetID, presets.first(where: { $0.id == id })?.includesConnection == true else { return }
+        noteManualChange()
+    }
+
     private let filename = "presets.json"
 
     private init() {
@@ -160,6 +167,9 @@ final class PresetService: ObservableObject, @unchecked Sendable {
                 e.connected = true
             }
             return e
+        }
+        if capture == .connection, included {
+            presets[index].displays += offEntries(excluding: presets[index].displays)
         }
         savePresets()
         // What the preset controls changed; it no longer cleanly represents the
@@ -314,13 +324,15 @@ final class PresetService: ObservableObject, @unchecked Sendable {
                 connected: includeConnection ? true : nil
             )
         }
-        // A display Crisp disconnected stores only that it is off.
-        if includeConnection {
-            entries += PhysicalDisplayToggleService.shared.disconnected
-                .filter { record in !entries.contains { $0.displayUUID == record.uuid } }
-                .map { DisplayPresetEntry(displayUUID: $0.uuid, connected: false) }
-        }
+        if includeConnection { entries += offEntries(excluding: entries) }
         return DisplayPreset(name: name, icon: icon, displays: entries)
+    }
+
+    /// A display Crisp disconnected, not already in `entries`, stores only that it is off.
+    private func offEntries(excluding entries: [DisplayPresetEntry]) -> [DisplayPresetEntry] {
+        PhysicalDisplayToggleService.shared.disconnected
+            .filter { record in !entries.contains { $0.displayUUID == record.uuid } }
+            .map { DisplayPresetEntry(displayUUID: $0.uuid, connected: false) }
     }
 
     /// A display's Image Adjustment as a preset stores it: the saved values without
