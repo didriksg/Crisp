@@ -606,6 +606,25 @@ struct SettingsView: View {
                 .padding(.vertical, 3)
             }
 
+            if PhysicalDisplayToggleService.shared.isSupported {
+                Toggle(isOn: Binding(
+                    get: { settings.showConnectionSwitches },
+                    set: { newValue in withAnimation(.panelResize) { settings.showConnectionSwitches = newValue } }
+                )) {
+                    HStack(spacing: 8) {
+                        MenuItemIcon(systemName: "switch.2", color: .orange, active: settings.showConnectionSwitches)
+                            .accessibilityHidden(true)
+                        Text("Show Connection Switches")
+                            .font(.body)
+                        Spacer()
+                    }
+                }
+                .toggleStyle(.switch)
+                .controlSize(.small)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 3)
+            }
+
             // Which displays the hardware brightness keys adjust (checkmark-list idiom, only
             // once Accessibility is granted, or the target subtitle would read as live before
             // it is). (jv1b)
@@ -723,12 +742,35 @@ struct SettingsView: View {
 struct DisplayRowView: View {
     @ObservedObject var display: DisplayInfo
     @EnvironmentObject var displayManager: DisplayManager
+    @ObservedObject private var settings = SettingsService.shared
+    @ObservedObject private var toggleService = PhysicalDisplayToggleService.shared
+    @ObservedObject private var errors = ConnectionErrors.shared
     @State private var isHovered: Bool = false
+    @State private var busy = false
 
     let isExpanded: Bool
     let onToggleExpand: () -> Void
 
+    /// Same rule as the Disconnect row: never offered for the last viewable screen.
+    private var showsSwitch: Bool {
+        settings.showConnectionSwitches && toggleService.isSupported
+            && !toggleService.wouldLeaveNoActiveDisplay(display.displayID)
+    }
+
     var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            row
+            if let msg = errors.messages[display.displayUUID] {
+                Text(msg)
+                    .font(.caption)
+                    .foregroundColor(.red)
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 4)
+            }
+        }
+    }
+
+    private var row: some View {
         // Native Display panel style: bold name, gray subtitle, chevron, no icon chip.
         HStack {
             VStack(alignment: .leading, spacing: 1) {
@@ -744,11 +786,17 @@ struct DisplayRowView: View {
                 }
             }
             Spacer()
-            Image(systemName: "chevron.right")
-                .font(.system(size: 12, weight: .regular))
-                .foregroundColor(.secondary)
-                .rotationEffect(.degrees(isExpanded ? 90 : 0))
-                .accessibilityHidden(true)
+            if showsSwitch {
+                // Holds the space; the live switch is the overlay below.
+                connectionSwitch.hidden()
+            } else {
+                // The switch takes the chevron's place at the edge, as in the Wi-Fi menu header.
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .regular))
+                    .foregroundColor(.secondary)
+                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                    .accessibilityHidden(true)
+            }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 4)
@@ -782,5 +830,31 @@ struct DisplayRowView: View {
         .accessibilityLabel(Text(verbatim: String(localized: "Display: \(display.name)") + "\(display.isMain ? NSLocalizedString(", main display", comment: "") : "")\(isExpanded ? NSLocalizedString(", expanded", comment: "") : NSLocalizedString(", collapsed", comment: ""))"))
         .accessibilityHint("Click to expand the control panel")
         .accessibilityAddTraits(.isButton)
+        // Laid over the row so the row's tap and VoiceOver label do not reach the switch.
+        .overlay(alignment: .trailing) {
+            if showsSwitch { connectionSwitch.padding(.trailing, 14) }
+        }
+    }
+
+    private var connectionSwitch: some View {
+        Toggle(isOn: Binding(get: { !busy }, set: { if !$0 { disconnect() } })) {
+            Text(verbatim: display.name)
+        }
+        .labelsHidden()
+        .toggleStyle(.switch)
+        .controlSize(.regular)
+        .disabled(busy)
+    }
+
+    private func disconnect() {
+        guard PanelOpenGuard.allowsActivation, !busy else { return }
+        busy = true
+        errors.clear(display.displayUUID)
+        Task { @MainActor in
+            let result = await toggleService.disconnect(display)
+            displayManager.refreshDisplays()
+            if case .failure(let err) = result { errors.show(err.description, for: display.displayUUID) }
+            busy = false
+        }
     }
 }

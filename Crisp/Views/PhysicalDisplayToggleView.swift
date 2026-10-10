@@ -72,10 +72,15 @@ struct DisconnectDisplayRow: View {
 struct ReconnectDisplaysSection: View {
     @EnvironmentObject var displayManager: DisplayManager
     @ObservedObject private var service = PhysicalDisplayToggleService.shared
+    @ObservedObject private var settings = SettingsService.shared
     @State private var busyUUIDs: Set<String> = []
 
     var body: some View {
-        if !service.disconnected.isEmpty {
+        if settings.showConnectionSwitches {
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(service.disconnected) { DisconnectedSwitchRow(record: $0) }
+            }
+        } else if !service.disconnected.isEmpty {
             VStack(alignment: .leading, spacing: 0) {
                 Text("Disconnected")
                     .font(.caption)
@@ -157,5 +162,82 @@ private struct DisconnectedDisplayRow: View {
         .accessibilityLabel("\(record.name), disconnected")
         .accessibilityHint("Reconnect this display")
         .accessibilityAddTraits(.isButton)
+    }
+}
+
+/// The last failed switch change per display UUID, shown under its row for 3 s. Kept out of
+/// the rows' own state: the display change that a disconnect makes rebuilds the rows, and the
+/// message of a change refused in the same moment would be lost with them.
+@MainActor
+final class ConnectionErrors: ObservableObject {
+    static let shared = ConnectionErrors()
+    @Published private(set) var messages: [String: String] = [:]
+
+    func show(_ message: String, for uuid: String) {
+        messages[uuid] = message
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            if messages[uuid] == message { messages[uuid] = nil }
+        }
+    }
+
+    func clear(_ uuid: String) { messages[uuid] = nil }
+}
+
+/// With Show Connection Switches on, a disconnected display gets a dimmed display row
+/// with its switch off, in place of the Reconnect row (#103). It sits after the live
+/// displays: a disconnected display has no position in the arrangement.
+struct DisconnectedSwitchRow: View {
+    let record: PhysicalDisplayToggleService.DisconnectedDisplay
+    @EnvironmentObject var displayManager: DisplayManager
+    @ObservedObject private var errors = ConnectionErrors.shared
+    @State private var busy = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(record.name)
+                        .fontWeight(.semibold)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    Text("Disconnected")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                .opacity(0.5)
+                Spacer()
+                Toggle(isOn: Binding(get: { busy }, set: { if $0 { reconnect() } })) {
+                    Text(verbatim: record.name)
+                }
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .controlSize(.regular)
+                .disabled(busy)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 4)
+
+            if let msg = errors.messages[record.uuid] {
+                Text(msg)
+                    .font(.caption)
+                    .foregroundColor(.red)
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 4)
+            }
+        }
+        .padding(.top, 8)
+    }
+
+    private func reconnect() {
+        guard PanelOpenGuard.allowsActivation, !busy else { return }
+        busy = true
+        errors.clear(record.uuid)
+        Task { @MainActor in
+            let result = await InputSwitchService.shared.reconnect(uuid: record.uuid)
+            displayManager.refreshDisplays()
+            if case .failure(let err) = result { errors.show(err.description, for: record.uuid) }
+            busy = false
+        }
     }
 }

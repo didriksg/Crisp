@@ -71,6 +71,7 @@ targets:
       - path: Crisp/Models/DisplayModeCommitScope.swift
       - path: Crisp/Models/DDCServiceMatcher.swift
       - path: Crisp/Models/DDCOperationQueuePool.swift
+      - path: Crisp/Models/DisplayConnectionQueue.swift
       - path: Crisp/Models/DDCOperationGeneration.swift
       - path: Crisp/Models/DDCTopologyChange.swift
       - path: Crisp/Models/RefreshRateFormat.swift
