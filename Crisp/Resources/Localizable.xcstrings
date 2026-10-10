@@ -3697,6 +3697,22 @@
         }
       }
     },
+    "Show Connection Switches" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示连接开关"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "顯示連線開關"
+          }
+        }
+      }
+    },
     "Show Volume Sliders" : {
       "localizations" : {
         "zh-Hans" : {

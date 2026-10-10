@@ -55,6 +55,7 @@ final class SettingsService: ObservableObject, @unchecked Sendable {
         static let showCombinedBrightness = "crisp.showCombinedBrightness"
         static let combinedBuiltinFactor  = "crisp.combinedBuiltinBrightnessAdjustment"
         static let showVolumeSliders      = "crisp.showVolumeSliders"
+        static let showConnectionSwitches = "crisp.showConnectionSwitches"
         static let crossDisplayGaps       = "crisp.crossDisplayGaps"
         static let disconnectBuiltinWhenDocked = "crisp.disconnectBuiltinWhenDocked"
         static let ddcCacheTTL            = "crisp.ddcCacheTTL"
@@ -98,6 +99,12 @@ final class SettingsService: ObservableObject, @unchecked Sendable {
     /// panel; the volume keys keep routing to the monitor.
     @Published var showVolumeSliders: Bool = true {
         didSet { defaults.set(showVolumeSliders, forKey: Keys.showVolumeSliders) }
+    }
+
+    /// A switch on each display row that disconnects and reconnects it (#103). Off by
+    /// default: a control that blanks a screen does not belong under a stray click.
+    @Published var showConnectionSwitches: Bool = false {
+        didSet { defaults.set(showConnectionSwitches, forKey: Keys.showConnectionSwitches) }
     }
 
     /// Pointer moves past display edges with no display behind them. Also starts and stops
@@ -255,6 +262,7 @@ final class SettingsService: ObservableObject, @unchecked Sendable {
         }
         showVolumeSliders = defaults.object(forKey: Keys.showVolumeSliders) != nil
             ? defaults.bool(forKey: Keys.showVolumeSliders) : true
+        showConnectionSwitches = defaults.bool(forKey: Keys.showConnectionSwitches)
         crossDisplayGaps = defaults.bool(forKey: Keys.crossDisplayGaps)
         disconnectBuiltinWhenDocked = defaults.bool(forKey: Keys.disconnectBuiltinWhenDocked)
         ddcCacheTTL = defaults.object(forKey: Keys.ddcCacheTTL) != nil
