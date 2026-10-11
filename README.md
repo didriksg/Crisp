@@ -44,10 +44,10 @@ Installed from `didriksg/tap` earlier? `brew upgrade` moves you to the main cask
 - **Brightness everywhere**: the real backlight of external monitors over DDC, software dimming where that isn't supported and below the hardware minimum, and brightness keys that follow the pointer, all displays, or a chosen few, or shortcuts of your own
 - **Extra Brightness**: push XDR MacBook panels and HDR monitors past 100% into their HDR headroom; one toggle per display, then the slider and keys reach further. It draws more power, and HDR video can look overblown while it's on
 - **Volume**: monitor speaker volume over DDC, with a slider per display and the volume keys mapped to the monitor when it's your audio output
-- **Presets**: save resolution, brightness, arrangement, image adjustment and HDR under a name and icon, and apply them with one click, from Shortcuts, or from crispctl
+- **Presets**: save resolution, brightness, arrangement, image adjustment, HDR and which displays are on under a name and icon, and apply them with one click, from Shortcuts, or from crispctl
 - **Shortcuts**: apply a preset, set brightness, HDR, Extra Brightness, image adjustment or a monitor's input, and disconnect or reconnect a display, as actions in the Shortcuts app, so an automation can switch your displays between a day and a night setup
 - **Display arrangement**: drag-to-arrange canvas, main display switching, and a pointer that crosses edges where displays of different sizes don't line up
-- **Disconnect displays**: turn physical displays off and back on from the menu, remembered across sleep and reboot, and keep the built-in off while you're docked (Apple Silicon)
+- **Disconnect displays**: turn physical displays off and back on from the menu or a switch on each display row, remembered across sleep and reboot, and keep the built-in off while you're docked (Apple Silicon)
 - **Input switching**: switch a monitor to another input over DDC, a second computer on HDMI for instance, and back from the menu
 - **System toggles**: Dark Mode, Night Shift, and True Tone, one click from the menu bar
 - **Color**: ICC profile switching, XDR reference presets, HDR on/off per display, and image adjustment (gamma, contrast, gain, invert colors)
