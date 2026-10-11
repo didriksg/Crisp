@@ -71,22 +71,23 @@ final class ResolutionService: @unchecked Sendable {
     /// Restores the pre-sleep mode if macOS brought the display back on a different one; skips
     /// rather than forces a fallback when the exact size no longer exists. (w18z)
     /// See docs/display-notes.md (ResolutionService).
-    func restoreModeAfterWakeIfNeeded(for displayID: CGDirectDisplayID) {
+    /// Returns nil when no restore is attempted, or the result of an attempted restore.
+    func restoreModeAfterWakeIfNeeded(for displayID: CGDirectDisplayID) async -> Bool? {
         // A mirrored beyond-cap size (#65) belongs to MirroredModeService to restore, not us.
-        guard !MirroredModeService.shared.isActive(for: displayID) else { return }
+        guard !MirroredModeService.shared.isActive(for: displayID) else { return nil }
         guard let snapshot = sleepModes, let key = Self.uuidKey(for: displayID),
-              let saved = snapshot[key] else { return }
+              let saved = snapshot[key] else { return nil }
 
         // Display set changed while asleep (different desk); skip rather than clear, since
         // a later wake pass may still see the old set again.
-        guard Set(snapshot.keys) == Set(Self.onlineDisplayIDs().compactMap(Self.uuidKey(for:))) else { return }
+        guard Set(snapshot.keys) == Set(Self.onlineDisplayIDs().compactMap(Self.uuidKey(for:))) else { return nil }
 
         // Already at the saved resolution? Nothing to do.
         if let cur = CGDisplayCopyDisplayMode(displayID),
            cur.width == saved.width, cur.height == saved.height,
            (cur.pixelWidth > cur.width) == saved.hidpi,
            Self.refreshMatches(cur.refreshRate, saved.refresh) {
-            return
+            return nil
         }
 
         // Mirror targets can't take CGConfigureDisplayWithDisplayMode; apply to the source
@@ -100,14 +101,13 @@ final class ResolutionService: @unchecked Sendable {
                   ($0.pixelWidth > $0.width) == saved.hidpi &&
                   Self.refreshMatches($0.refreshRate, saved.refresh)
               })
-        else { return }
+        else { return nil }
 
         let now = CGDisplayCopyDisplayMode(displayID)
         Self.log.notice("display \(displayID, privacy: .public): came back from sleep on \(now?.width ?? 0, privacy: .public)x\(now?.height ?? 0, privacy: .public), restoring the pre-sleep \(saved.width, privacy: .public)x\(saved.height, privacy: .public) @\(Int(saved.refresh), privacy: .public)")
-        Task.detached(priority: .userInitiated) {
-            let ok = await ResolutionService.applyModeSync(cgMode, on: targetID)
-            ResolutionService.log.notice("display \(displayID, privacy: .public): mode restore after wake \(ok ? "ok" : "failed", privacy: .public)")
-        }
+        let ok = await Self.applyModeSync(cgMode, on: targetID)
+        Self.log.notice("display \(displayID, privacy: .public): mode restore after wake \(ok ? "ok" : "failed", privacy: .public)")
+        return ok
     }
 
     // MARK: - Query
