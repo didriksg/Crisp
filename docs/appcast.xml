@@ -6,6 +6,42 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>Crisp</title>
         <item>
+            <title>1.7.1</title>
+            <pubDate>Sun, 11 Oct 2026 02:13:54 +0200</pubDate>
+            <link>https://github.com/didriksg/Crisp/releases</link>
+            <sparkle:fullReleaseNotesLink>https://github.com/didriksg/Crisp/releases</sparkle:fullReleaseNotesLink>
+            <sparkle:version>1.7.1</sparkle:version>
+            <sparkle:shortVersionString>1.7.1</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <description sparkle:format="markdown"><![CDATA[Crisp 1.7.1 makes the HiDPI and Smooth Scaling override install safer, adds connection switches on the display rows, lets presets turn displays on and off, and fixes a few things around disconnects, wakes and presets.
+
+## Security
+
+- The override file used to wait in your temp folder while the admin prompt was open, and the prompt then copied it into the system folder. A program already running as you could have swapped it in that moment. Crisp now writes it inside the protected system folder. This was found in code review, it needs something already running on your Mac, and I know of no case where it was used. (#214)
+
+## New
+
+- **Connection switches.** Settings > Show Connection Switches puts a switch on each display row in the panel, where the chevron is. Turning it off disconnects the display, which stays in the list with its switch off so you can turn it back on from there. The switch is hidden on your last screen. It's off by default. (#103)
+- **Presets can turn displays on and off.** Turn on the new Connection switch when you save a preset and it remembers which displays are off. Applying the preset disconnects or reconnects them before the other settings. A preset's disconnect ends when you undock, so unlike Auto-Disconnect it won't come back by itself at the next dock. (#211)
+
+## Fixed
+
+- Right after a wake, the blackout rescue waits about six seconds for a monitor coming out of deep standby, instead of one, so the built-in no longer comes back on too early. (#168)
+- Clicking the checked preset, or pressing its shortcut, applies it again. After a change made outside Crisp, such as an arrangement change in System Settings, the click did nothing. (#212)
+- Two disconnects started at nearly the same moment can no longer both pass the check that keeps one screen on, which left every screen dark.
+- A disconnect or reconnect that macOS finishes after Crisp has stopped waiting for it now ends right: a late disconnect keeps its Reconnect row, and a late reconnect is no longer switched back off.
+
+## Contributors
+
+- @andrewfoster: the safer HiDPI override install (#214)
+
+## Supporting Crisp
+
+Crisp is free and always will be. The nicest thank-you costs nothing: star the repo or tell a friend. If you'd like to help cover the $99/year Apple fee that keeps every build signed and notarized, there's [GitHub Sponsors](https://github.com/sponsors/didriksg), [Ko-fi](https://ko-fi.com/didriksg), or [Afdian (爱发电)](https://ifdian.net/a/didriksg). Thank you @rebelvg, @kuldipmaharjan, @arnor-ingthorsson and @BarryBarrywu for chipping in toward keeping Crisp signed and notarized.
+]]></description>
+            <enclosure url="https://github.com/didriksg/Crisp/releases/download/v1.7.1/Crisp.dmg" length="5140511" type="application/octet-stream" sparkle:edSignature="NDLGOkIr/Cja2dpW9weF6brkswGsZCQMTDqSX8wrXz7HkwlSzg+rNZtj2fRVWsNYN8FuRxmLSW2J5eDXRtMzDw=="/>
+        </item>
+        <item>
             <title>1.7.0</title>
             <pubDate>Tue, 06 Oct 2026 00:47:17 +0200</pubDate>
             <link>https://github.com/didriksg/Crisp/releases</link>
@@ -113,6 +149,6 @@ Crisp is free and always will be. The nicest thank-you costs nothing: star the r
     </channel>
 </rss>
 <!-- sparkle-signatures:
-edSignature: dGJDnJrBN751fbnYRb16OBlwfpAG9Vnnm2PpKtUmkWkNuqyolTEKecYDXw1SSawAZ7T2Ql08EuY6Ttj3IU/FDg==
-length: 15196
+edSignature: KVZYIco3ucR4h9uQhs+lbPxsSPHR2FtnZPuWpki8GqWXsMY2BZSBsZdNOUR47+tCoJhQY2CjcIKg5kv2D4DcCw==
+length: 18666
 -->
