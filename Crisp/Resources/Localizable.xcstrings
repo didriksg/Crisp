@@ -2366,6 +2366,22 @@
         }
       }
     },
+    "Keep Tools Expanded" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保持工具展开"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保持工具展開"
+          }
+        }
+      }
+    },
     "Keep Awake" : {
       "localizations" : {
         "zh-Hans" : {

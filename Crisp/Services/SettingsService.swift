@@ -58,6 +58,7 @@ final class SettingsService: ObservableObject, @unchecked Sendable {
         static let showConnectionSwitches = "crisp.showConnectionSwitches"
         static let crossDisplayGaps       = "crisp.crossDisplayGaps"
         static let disconnectBuiltinWhenDocked = "crisp.disconnectBuiltinWhenDocked"
+        static let keepToolsExpanded      = "crisp.keepToolsExpanded"
         static let ddcCacheTTL            = "crisp.ddcCacheTTL"
         static let colorPickerHistory     = "crisp.colorPickerHistory"
         static let brightnessKeyTarget    = "crisp.brightnessKeyTarget"
@@ -120,6 +121,10 @@ final class SettingsService: ObservableObject, @unchecked Sendable {
     /// ends it (PhysicalDisplayToggleService), not this didSet, which also runs in loadAll.
     @Published var disconnectBuiltinWhenDocked: Bool = false {
         didSet { defaults.set(disconnectBuiltinWhenDocked, forKey: Keys.disconnectBuiltinWhenDocked) }
+    }
+
+    @Published var keepToolsExpanded: Bool = false {
+        didSet { defaults.set(keepToolsExpanded, forKey: Keys.keepToolsExpanded) }
     }
 
     @Published var ddcCacheTTL: Double = 5.0 {
@@ -265,6 +270,7 @@ final class SettingsService: ObservableObject, @unchecked Sendable {
         showConnectionSwitches = defaults.bool(forKey: Keys.showConnectionSwitches)
         crossDisplayGaps = defaults.bool(forKey: Keys.crossDisplayGaps)
         disconnectBuiltinWhenDocked = defaults.bool(forKey: Keys.disconnectBuiltinWhenDocked)
+        keepToolsExpanded = defaults.bool(forKey: Keys.keepToolsExpanded)
         ddcCacheTTL = defaults.object(forKey: Keys.ddcCacheTTL) != nil
             ? defaults.double(forKey: Keys.ddcCacheTTL) : 5.0
         colorPickerHistory = defaults.stringArray(forKey: Keys.colorPickerHistory) ?? []

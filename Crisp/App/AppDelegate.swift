@@ -684,8 +684,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let toolshead = block("toolshead") {
             VStack(alignment: .leading, spacing: 0) {
                 SectionDivider()
-                ExpandableRowStateful(icon: "wrench.and.screwdriver.fill", iconActive: false,
-                                      label: "Tools", state: state, key: \.showTools)
+                ToolsHeaderRow(state: state)
             }
         }
         toolshead.liveInFlight = true
@@ -759,6 +758,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         SettingsService.shared.$showCombinedBrightness
             .dropFirst()
             .sink { [weak self] _ in self?.canvas.requestApply() }
+            .store(in: &canvasCancellables)
+        SettingsService.shared.$keepToolsExpanded
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] expanded in
+                guard let self else { return }
+                self.sectionState.showTools = expanded
+                self.canvas.requestApply()
+            }
             .store(in: &canvasCancellables)
         displayManager.$displays
             .dropFirst()
