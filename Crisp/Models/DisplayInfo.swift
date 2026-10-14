@@ -46,6 +46,12 @@ class DisplayInfo: ObservableObject, Identifiable {
         Self.cgDisplayUUID(displayID) ?? "v\(vendorNumber)-m\(modelNumber)-s\(serialNumber)"
     }
 
+    /// A mirrored panel's desktop geometry belongs to its rendering source.
+    var renderingDisplayID: CGDirectDisplayID {
+        let source = CGDisplayMirrorsDisplay(displayID)
+        return source == kCGNullDirectDisplay ? displayID : source
+    }
+
     /// nil while offline. Static because init needs it before `self` is fully formed.
     static func cgDisplayUUID(_ displayID: CGDirectDisplayID) -> String? {
         guard let cfUUID = CGDisplayCreateUUIDFromDisplayID(displayID),

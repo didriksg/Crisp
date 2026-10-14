@@ -306,13 +306,12 @@ final class BrightnessKeyService: @unchecked Sendable {
         // stale external Crisp has already dropped, and consuming there swallowed
         // the press (built-in dead until macOS settled, ~30s). Fail safe: pass
         // through if we can't confirm a live external. (issue #12)
-        let displayID = screenNumber
-        let isControllableExternal = MainActor.assumeIsolated {
-            guard let display = DisplayManagerAccessor.shared.displays.first(where: { $0.displayID == displayID })
-            else { return false }
-            return !display.isBuiltin
+        let displayID: CGDirectDisplayID? = MainActor.assumeIsolated {
+            guard let display = self.displayForBrightness(screenID: screenNumber), !display.isBuiltin
+            else { return nil }
+            return display.displayID
         }
-        guard isControllableExternal else {
+        guard let displayID else {
             return Unmanaged.passRetained(event)
         }
 
@@ -381,6 +380,26 @@ final class BrightnessKeyService: @unchecked Sendable {
         }
     }
 
+    /// NSScreen reports the hidden rendering source while a looks-like size is
+    /// active; DDC and native brightness still belong to the physical panel.
+    /// Only accept Crisp-owned sources that are actually mirrored right now.
+    private func displayForBrightness(screenID: CGDirectDisplayID) -> DisplayInfo? {
+        let displays = DisplayManagerAccessor.shared.displays
+        let routes = displays.map { display -> BrightnessDisplayRouting.Route in
+            let virtualID = MirroredModeService.shared.virtualDisplayID(for: display.displayID)
+            let sourceID: CGDirectDisplayID?
+            if let virtualID, CGDisplayMirrorsDisplay(display.displayID) == virtualID {
+                sourceID = virtualID
+            } else {
+                sourceID = nil
+            }
+            return BrightnessDisplayRouting.Route(physicalID: display.displayID, mirrorSourceID: sourceID)
+        }
+        guard let physicalID = BrightnessDisplayRouting.physicalID(for: screenID, routes: routes)
+        else { return nil }
+        return displays.first(where: { $0.displayID == physicalID })
+    }
+
     /// Steps brightness for a shortcut bound in Settings > Keyboard Shortcuts
     /// (issue #160), for keyboards whose brightness keys are missing or taken.
     /// Same stops, fades, banner and targets as the keys, except it moves the
@@ -393,7 +412,7 @@ final class BrightnessKeyService: @unchecked Sendable {
         let mouse = NSEvent.mouseLocation
         guard let screen = NSScreen.screens.first(where: { NSMouseInRect(mouse, $0.frame, false) }),
               let displayID = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID,
-              let display = DisplayManagerAccessor.shared.displays.first(where: { $0.displayID == displayID })
+              let display = displayForBrightness(screenID: displayID)
         else { return }
         adjustDisplays([display], up: up)
     }
@@ -413,7 +432,8 @@ final class BrightnessKeyService: @unchecked Sendable {
                                              BrightnessKeySteps.next(from: from, up: up, fine: fine)))
             BrightnessService.shared.setBrightnessSmooth(newBrightness, for: display)
             if let screen = screens.first(where: {
-                ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID) == display.displayID
+                ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID)
+                    == display.renderingDisplayID
             }) {
                 BrightnessHUDService.shared.show(brightness: newBrightness / display.maxBrightness * 100.0, on: screen)
             }
