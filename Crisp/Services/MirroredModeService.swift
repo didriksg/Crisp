@@ -59,8 +59,11 @@ final class MirroredModeService: ObservableObject {
             // Re-arm if a wake or WindowServer reset collapsed the mirror set without telling us.
             if CGDisplayMirrorsDisplay(physicalID) != vdID {
                 Self.log.info("apply \(width)x\(height): reused virtual \(vdID), re-arming mirror")
-                return await MirrorService.shared.enableMirror(source: vdID, target: physicalID)
+                let mirrored = await MirrorService.shared.enableMirror(source: vdID, target: physicalID)
+                syncCursorRefresh()
+                return mirrored
             }
+            syncCursorRefresh()
             Self.log.info("apply \(width)x\(height): reused virtual \(vdID)")
             return true
         }
@@ -86,6 +89,7 @@ final class MirroredModeService: ObservableObject {
             return false
         }
         Self.log.info("apply \(width)x\(height): mirrored physical \(physicalID) onto virtual \(virtualDisplay.displayID)")
+        syncCursorRefresh()
         return true
     }
 
@@ -109,6 +113,7 @@ final class MirroredModeService: ObservableObject {
         // Dropping the last reference starts WindowServer's async teardown.
         active.removeValue(forKey: physicalID)
         activePhysicalIDs.remove(physicalID)
+        syncCursorRefresh()
         await waitForDisplayOffline(vdID)
         return true
     }
@@ -122,6 +127,15 @@ final class MirroredModeService: ObservableObject {
             active.removeValue(forKey: physicalID)
             activePhysicalIDs.remove(physicalID)
         }
+        syncCursorRefresh()
+    }
+
+    private func syncCursorRefresh() {
+        let sources = active.compactMap { physicalID, virtualDisplay in
+            CGDisplayMirrorsDisplay(physicalID) == virtualDisplay.displayID
+                ? virtualDisplay.displayID : nil
+        }
+        MirroredCursorRefreshService.shared.setSources(Set(sources))
     }
 
     /// A Crisp mirror virtual, ours or a stray from a crashed session (shared vendor stamp
@@ -167,6 +181,7 @@ final class MirroredModeService: ObservableObject {
     /// Quit-path teardown: applicationWillTerminate can't await, so this unmirrors
     /// synchronously rather than leaving the panel mirrored.
     func teardownAll() {
+        MirroredCursorRefreshService.shared.setSources([])
         for physicalID in active.keys {
             var config: CGDisplayConfigRef?
             guard CGBeginDisplayConfiguration(&config) == .success, let cfg = config else { continue }
