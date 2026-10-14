@@ -68,6 +68,8 @@ final class DDCService: ObservableObject, @unchecked Sendable {
 
 #if arch(arm64)
     private var avServiceCache: [CGDirectDisplayID: IOAVServiceRef] = [:]
+    /// Negotiated alongside the channel, invalidated with its topology.
+    private var avServiceChipAddresses: [CGDirectDisplayID: (address: UInt32, retryAfter: Date?)] = [:]
     /// Caches a recent "no channel" miss so a slow/wedged display isn't re-probed on every
     /// op (issue #33). See docs/ddc-notes.md (the hold around enable and disable).
     /// Under avServiceLock.
@@ -283,7 +285,43 @@ final class DDCService: ObservableObject, @unchecked Sendable {
         avServiceLock.lock()
         avServiceTopology &+= 1
         avServiceCache.removeValue(forKey: displayID)
+        avServiceChipAddresses.removeValue(forKey: displayID)
         avServiceLock.unlock()
+    }
+
+    /// The M1 HDMI bridge acknowledges ordinary DDC writes but returns NULL
+    /// frames. A read-only negotiation selects IOAVService's bridge flag after
+    /// validating a real brightness reply. Runs on the existing per-display
+    /// queue, so negotiation and writes cannot interleave for the same panel.
+    private func arm64ChipAddress(for displayID: CGDirectDisplayID, service: IOAVServiceRef) -> UInt32 {
+        if let cached = avServiceLock.withLock({ avServiceChipAddresses[displayID] }),
+           cached.retryAfter.map({ $0 > Date() }) ?? true { return cached.address }
+        let selection = DDCTransport.select { address in
+            // Also pace failed probes before the caller retries the bus.
+            defer { Thread.sleep(forTimeInterval: 0.05) }
+            var request: [UInt8] = [0x82, 0x01, Self.brightnessVCP]
+            request.append(request.reduce(UInt8(0x6E ^ 0x51), ^))
+            guard IOAVServiceWriteI2C(service, address, 0x51, &request, UInt32(request.count)) == kIOReturnSuccess
+            else { return nil }
+            Thread.sleep(forTimeInterval: 0.04)
+            var reply = [UInt8](repeating: 0, count: 12)
+            guard IOAVServiceReadI2C(service, address, 0x51, &reply, UInt32(reply.count)) == kIOReturnSuccess
+            else { return nil }
+            return reply
+        }
+        avServiceLock.withLock {
+            // A reconfiguration may have replaced the channel during the probe.
+            if avServiceCache[displayID] == service {
+                // Wake-time failures must not lock an HDMI bridge to the
+                // ineffective standard path. Rate-limit inconclusive probes.
+                let retryAfter = selection.verified ? nil : Date().addingTimeInterval(noChannelRetryInterval)
+                avServiceChipAddresses[displayID] = (selection.address, retryAfter)
+            }
+        }
+        if selection.address == DDCTransport.hdmiBridge {
+            Self.log.notice("display \(displayID, privacy: .public): verified HDMI bridge DDC transport")
+        }
+        return selection.address
     }
 
     /// ARM64 DDC write: Set VCP Feature over IOAVService.
@@ -302,7 +340,8 @@ final class DDCService: ObservableObject, @unchecked Sendable {
         for b in payload { checksum ^= b }
 
         var buf: [UInt8] = payload + [checksum]
-        let ret = IOAVServiceWriteI2C(avService, 0x37, 0x51, &buf, UInt32(buf.count))
+        let address = arm64ChipAddress(for: displayID, service: avService)
+        let ret = IOAVServiceWriteI2C(avService, address, 0x51, &buf, UInt32(buf.count))
         if ret != kIOReturnSuccess {
             Self.log.debug("write \(Self.hex(command), privacy: .public)=\(value, privacy: .public) display \(displayID, privacy: .public): I2C error \(String(format: "0x%08X", ret), privacy: .public)")
         }
@@ -328,7 +367,8 @@ final class DDCService: ObservableObject, @unchecked Sendable {
         for b in requestPayload { requestChecksum ^= b }
         var requestBuf: [UInt8] = requestPayload + [requestChecksum]
 
-        let writeRet = IOAVServiceWriteI2C(avService, 0x37, 0x51, &requestBuf, UInt32(requestBuf.count))
+        let address = arm64ChipAddress(for: displayID, service: avService)
+        let writeRet = IOAVServiceWriteI2C(avService, address, 0x51, &requestBuf, UInt32(requestBuf.count))
         guard writeRet == kIOReturnSuccess else {
             return fail("request write I2C error \(String(format: "0x%08X", writeRet))")
         }
@@ -337,7 +377,7 @@ final class DDCService: ObservableObject, @unchecked Sendable {
         Thread.sleep(forTimeInterval: 0.04)
 
         var replyBuf = [UInt8](repeating: 0, count: 12)
-        let readRet = IOAVServiceReadI2C(avService, 0x37, 0x51, &replyBuf, UInt32(replyBuf.count))
+        let readRet = IOAVServiceReadI2C(avService, address, 0x51, &replyBuf, UInt32(replyBuf.count))
         guard readRet == kIOReturnSuccess else {
             return fail("reply read I2C error \(String(format: "0x%08X", readRet))")
         }
@@ -381,13 +421,14 @@ final class DDCService: ObservableObject, @unchecked Sendable {
     /// One chunk of the capabilities string (DDCCapabilities has the framing).
     private func arm64CapabilitiesChunk(displayID: CGDirectDisplayID, offset: Int) -> CapabilitiesChunk {
         guard let avService = findAVService(for: displayID) else { return .noChannel }
+        let address = arm64ChipAddress(for: displayID, service: avService)
         var request = DDCCapabilities.request(offset: offset)
-        guard IOAVServiceWriteI2C(avService, 0x37, 0x51, &request, UInt32(request.count)) == kIOReturnSuccess else {
+        guard IOAVServiceWriteI2C(avService, address, 0x51, &request, UInt32(request.count)) == kIOReturnSuccess else {
             return .bad
         }
         Thread.sleep(forTimeInterval: 0.05)
         var reply = [UInt8](repeating: 0, count: DDCCapabilities.replyLength)
-        guard IOAVServiceReadI2C(avService, 0x37, 0x51, &reply, UInt32(reply.count)) == kIOReturnSuccess,
+        guard IOAVServiceReadI2C(avService, address, 0x51, &reply, UInt32(reply.count)) == kIOReturnSuccess,
               let data = DDCCapabilities.data(fromReply: reply, offset: offset) else { return .bad }
         return .data(data)
     }
@@ -717,6 +758,7 @@ final class DDCService: ObservableObject, @unchecked Sendable {
         avServiceLock.lock()
         avServiceTopology &+= 1
         avServiceCache.removeAll()
+        avServiceChipAddresses.removeAll()
         noChannelSince.removeAll()
         allExternalAVServices.removeAll()
         lastPairingSummary = ""
