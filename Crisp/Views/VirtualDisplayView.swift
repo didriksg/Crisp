@@ -44,7 +44,9 @@ struct VirtualDisplayView: View {
                             isActive: service.isActive(config.id),
                             isActivating: activatingID == config.id,
                             onActivate: { handleActivate(config) },
-                            onDeactivate: { service.destroy(configID: config.id) },
+                            onDeactivate: {
+                                if !service.destroy(configID: config.id) { showUpdateError() }
+                            },
                             onEdit: {
                                 withAnimation(.panelResize) {
                                     editingID = config.id
@@ -109,8 +111,8 @@ struct VirtualDisplayView: View {
             set: { if !$0 { configToDelete = nil } }
         )) {
             Button("Delete", role: .destructive) {
-                if let id = configToDelete {
-                    service.removeConfig(id: id)
+                if let id = configToDelete, !service.removeConfig(id: id) {
+                    showUpdateError()
                 }
                 configToDelete = nil
             }
@@ -166,12 +168,16 @@ struct VirtualDisplayView: View {
             if ok {
                 withAnimation(.panelResize) { editingID = nil }
             } else {
-                createError = String(localized: "Failed to update virtual display. Please try again.")
-                Task { @MainActor in
-                    try? await Task.sleep(nanoseconds: 3_000_000_000)
-                    createError = nil
-                }
+                showUpdateError()
             }
+        }
+    }
+
+    private func showUpdateError() {
+        createError = String(localized: "Failed to update virtual display. Please try again.")
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            createError = nil
         }
     }
 

@@ -1,10 +1,5 @@
 import CoreGraphics
 import Foundation
-import IOKit
-
-@_silgen_name("CGDisplayIOServicePort")
-private func CGDisplayIOServicePort(_ display: CGDirectDisplayID) -> io_service_t
-
 // CGVirtualDisplay and CGVirtualDisplaySettings are ObjC objects without Sendable
 // conformance, but we only use them sequentially (create on main → pass to background
 // for apply → use result on main), so @unchecked Sendable is safe here.
@@ -23,26 +18,7 @@ final class VirtualDisplayService: ObservableObject, @unchecked Sendable {
 
     // MARK: - Config Model
 
-    struct VirtualDisplayConfig: Codable, Identifiable, Equatable {
-        let id: UUID
-        var name: String
-        var width: Int
-        var height: Int
-        var refreshRate: Double
-        var hiDPI: Bool
-        var autoCreate: Bool
-
-        init(id: UUID = UUID(), name: String, width: Int, height: Int,
-             refreshRate: Double = 60.0, hiDPI: Bool = true, autoCreate: Bool = true) {
-            self.id = id
-            self.name = name
-            self.width = width
-            self.height = height
-            self.refreshRate = refreshRate
-            self.hiDPI = hiDPI
-            self.autoCreate = autoCreate
-        }
-    }
+    typealias VirtualDisplayConfig = CrispControlVirtualDisplayConfig
 
     // MARK: - State
 
@@ -52,6 +28,12 @@ final class VirtualDisplayService: ObservableObject, @unchecked Sendable {
 
     /// Strong references to live CGVirtualDisplay objects; releasing an entry destroys it.
     private var activeDisplayObjects: [UUID: CGVirtualDisplay] = [:]
+
+    private var creationGate = VirtualDisplayCreationGate()
+    /// A timed-out CLI release still needs offline read-back on a later disable.
+    private var pendingRemovals: [UUID: CGDirectDisplayID] = [:]
+    private var enableRequests: [UUID: Bool] = [:]
+    private var lastErrors: [UUID: String] = [:]
 
     private let configsKey = "crisp.VirtualDisplayConfigs"
 
@@ -79,6 +61,23 @@ final class VirtualDisplayService: ObservableObject, @unchecked Sendable {
     /// block on WindowServer IPC. See docs/display-notes.md (VirtualDisplayService.create).
     @discardableResult
     func create(config: VirtualDisplayConfig) async -> Bool {
+        switch creationGate.begin(config.id, retained: activeDisplayObjects[config.id] != nil) {
+        case .inProgress: return false
+        case .retained:
+            enableRequests[config.id] = true
+            return controlSnapshot(config, online: onlineDisplayIDs()).ready
+        case .create: break
+        }
+        defer { creationGate.finish(config.id) }
+        return await createReserved(config)
+    }
+
+    /// The caller holds the config's reservation, including any preceding teardown.
+    private func createReserved(_ config: VirtualDisplayConfig) async -> Bool {
+        enableRequests[config.id] = true
+        lastErrors.removeValue(forKey: config.id)
+        guard creationPreflight(config) else { return false }
+
         // Registration pops macOS's own "what to show" picker, which steals key focus and
         // would trip the panel's auto-dismiss; harmless at launch since the panel isn't open then.
         PanelOpenGuard.suppressAutoDismiss = true
@@ -108,14 +107,18 @@ final class VirtualDisplayService: ObservableObject, @unchecked Sendable {
         descriptor.vendorID = Self.crispVirtualVendorID  // must be non-zero or init returns nil
         // Must be unique per config AND stable across recreations (macOS keys per-display
         // settings, including "what to show", on this identity). Both halves from the config UUID.
-        let ident = config.id.uuid
-        descriptor.productID = UInt32(ident.0) << 24 | UInt32(ident.1) << 16 | UInt32(ident.2) << 8 | UInt32(ident.3)
-        descriptor.serialNum = UInt32(ident.4) << 24 | UInt32(ident.5) << 16 | UInt32(ident.6) << 8 | UInt32(ident.7)
+        descriptor.productID = config.productID
+        descriptor.serialNum = config.serialNumber
         // DO NOT set queue or color primaries: not needed, and may interfere with creation.
 
         guard let virtualDisplay = CGVirtualDisplay(descriptor: descriptor) else {
+            lastErrors[config.id] = "CGVirtualDisplay creation failed"
             return false
         }
+        // Retain before apply: the background call can outlive its bounded wait.
+        activeDisplayObjects[config.id] = virtualDisplay
+        pendingRemovals.removeValue(forKey: config.id)
+        activeConfigIDs.insert(config.id)
 
         let settings = CGVirtualDisplaySettings()
         settings.hiDPI = hiDPI
@@ -144,18 +147,52 @@ final class VirtualDisplayService: ObservableObject, @unchecked Sendable {
         // Blocks on WindowServer IPC.
         let vd = virtualDisplay
         let s = settings
+        creationGate.beginApply(config.id)
         let applyResult: Bool = await CGHelpers.runWithTimeout(seconds: 10, fallback: false) {
-            vd.apply(s)
+            let applied = vd.apply(s)
+            Task { @MainActor in self.creationGate.finishApply(config.id) }
+            return applied
         }
-        guard applyResult else { return false }
-        guard virtualDisplay.displayID != kCGNullDirectDisplay else { return false }
-
-        activeDisplayObjects[config.id] = virtualDisplay
-        activeConfigIDs.insert(config.id)
+        if applyResult { creationGate.finishApply(config.id) }
+        guard applyResult, virtualDisplay.displayID != kCGNullDirectDisplay else {
+            lastErrors[config.id] = "settings apply failed or timed out; WindowServer outcome may still change"
+            return false
+        }
 
         // macOS auto-adds a scaled looks-like-1080p default for high-resolution displays
         // regardless of the modes supplied; force native 1x so it reads as its real resolution.
         await applyNativeResolution(virtualDisplay.displayID, width: w, height: h)
+        for _ in 0..<10 {
+            let snapshot = controlSnapshot(config, online: onlineDisplayIDs())
+            if snapshot.active, snapshot.resolution != nil { return true }
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        lastErrors[config.id] = "display retained but active enumeration did not settle"
+        return false
+    }
+
+    private func creationPreflight(_ config: VirtualDisplayConfig) -> Bool {
+        guard config.isValid else {
+            lastErrors[config.id] = "invalid saved configuration"
+            return false
+        }
+        guard let online = onlineDisplayIDs() else {
+            lastErrors[config.id] = "online display enumeration failed"
+            return false
+        }
+        guard !configs.contains(where: {
+            $0.id != config.id && $0.productID == config.productID && $0.serialNumber == config.serialNumber
+        }) else {
+            lastErrors[config.id] = "descriptor identity collides with another saved config"
+            return false
+        }
+        guard !online.contains(where: {
+            matchesIdentity($0, config: config)
+        }) else {
+            lastErrors[config.id] = "matching descriptor identity is online but is not owned by this session"
+            return false
+        }
+
         return true
     }
 
@@ -187,6 +224,14 @@ final class VirtualDisplayService: ObservableObject, @unchecked Sendable {
 
     @discardableResult
     func destroy(configID: UUID) -> Bool {
+        guard !creationGate.isBusy(configID) else { return false }
+        return release(configID: configID)
+    }
+
+    /// The caller either checked or holds the config's reservation.
+    @discardableResult
+    private func release(configID: UUID) -> Bool {
+        enableRequests[configID] = false
         guard activeDisplayObjects[configID] != nil else {
             return false
         }
@@ -204,29 +249,48 @@ final class VirtualDisplayService: ObservableObject, @unchecked Sendable {
         guard !configs.contains(where: { $0.id == config.id }) else {
             return await create(config: config)
         }
-        // Create first; only persist on success to avoid stale config if process crashes.
-        if await create(config: config) {
-            configs.append(config)
-            saveConfigs()
-            return true
+        guard creationGate.begin(config.id, retained: false) == .create else { return false }
+        defer { creationGate.finish(config.id) }
+        let created = await createReserved(config)
+        // A failed/timed-out apply may still own a live object. Keep its config visible
+        // for read-back and cleanup instead of leaving an unaddressable virtual screen.
+        guard created || activeDisplayObjects[config.id] != nil else { return false }
+        configs.append(config)
+        guard saveConfigs() else {
+            lastErrors[config.id] = "configuration persistence read-back failed"
+            return false
         }
-        return false
+        return created
     }
 
-    func removeConfig(id: UUID) {
+    @discardableResult
+    func removeConfig(id: UUID) -> Bool {
+        guard !creationGate.isBusy(id), pendingRemovals[id] == nil else { return false }
         destroy(configID: id)
+        let previous = configs
         configs.removeAll { $0.id == id }
-        saveConfigs()
+        guard saveConfigs() else {
+            configs = previous
+            saveConfigs()
+            return false
+        }
+        return true
     }
 
     /// Name/autoCreate update in place; resolution/HiDPI changes are baked into the live
     /// CGVirtualDisplay, so those destroy and recreate it.
     @discardableResult
     func updateConfig(_ updated: VirtualDisplayConfig) async -> Bool {
-        guard let idx = configs.firstIndex(where: { $0.id == updated.id }) else { return false }
+        guard !creationGate.isBusy(updated.id), pendingRemovals[updated.id] == nil,
+              let idx = configs.firstIndex(where: { $0.id == updated.id }) else { return false }
         let old = configs[idx]
         configs[idx] = updated
-        saveConfigs()
+        guard saveConfigs() else {
+            configs[idx] = old
+            saveConfigs()
+            lastErrors[updated.id] = "configuration persistence read-back failed"
+            return false
+        }
 
         let geometryChanged = old.width != updated.width
             || old.height != updated.height
@@ -235,9 +299,11 @@ final class VirtualDisplayService: ObservableObject, @unchecked Sendable {
             // Identity is stable, so must wait for the old display to actually leave the
             // online list, or the recreate races WindowServer's async teardown of it.
             let oldDisplayID = activeDisplayObjects[updated.id]?.displayID
-            destroy(configID: updated.id)
+            _ = creationGate.begin(updated.id, retained: false)
+            defer { creationGate.finish(updated.id) }
+            release(configID: updated.id)
             if let oldDisplayID { await waitForDisplayOffline(oldDisplayID) }
-            return await create(config: updated)
+            return await createReserved(updated)
         }
         return true
     }
@@ -261,43 +327,127 @@ final class VirtualDisplayService: ObservableObject, @unchecked Sendable {
         else { return }
         configs = decoded
 
+    }
+
+    func restoreAutoCreate() {
         // Delay lets WindowServer stabilise before re-creating autoCreate virtual displays.
         let autoCreateConfigs = configs.filter { $0.autoCreate }
         if !autoCreateConfigs.isEmpty {
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 800_000_000)
-                for config in autoCreateConfigs {
-                    // A virtual display from a crashed previous session may still be registered.
-                    guard !virtualDisplayAlreadyExists(width: config.width, height: config.height) else {
-                        continue
-                    }
+                for saved in autoCreateConfigs {
+                    guard let config = configs.first(where: { $0.id == saved.id }), config.autoCreate,
+                          enableRequests[config.id] != false else { continue }
                     _ = await create(config: config)
                 }
             }
         }
     }
 
-    /// True if an online display already matches these dimensions with no IOKit service port
-    /// (virtual displays have none); used by autoCreate to avoid duplicating a crash survivor.
-    private func virtualDisplayAlreadyExists(width: Int, height: Int) -> Bool {
-        var displayCount: UInt32 = 0
-        CGGetOnlineDisplayList(0, nil, &displayCount)
-        guard displayCount > 0 else { return false }
-        var displayIDs = [CGDirectDisplayID](repeating: 0, count: Int(displayCount))
-        CGGetOnlineDisplayList(displayCount, &displayIDs, &displayCount)
-        for id in displayIDs {
-            // No service port means virtual; physical displays always have one.
-            let servicePort = CGDisplayIOServicePort(id)
-            guard servicePort == 0 || servicePort == MACH_PORT_NULL else { continue }
-            let w = Int(CGDisplayPixelsWide(id))
-            let h = Int(CGDisplayPixelsHigh(id))
-            if w == width && h == height { return true }
-        }
-        return false
+    private func onlineDisplayIDs() -> [CGDirectDisplayID]? {
+        var count: UInt32 = 0
+        guard CGGetOnlineDisplayList(0, nil, &count) == .success else { return nil }
+        if count == 0 { return [] }
+        var ids = [CGDirectDisplayID](repeating: 0, count: Int(count))
+        guard CGGetOnlineDisplayList(count, &ids, &count) == .success else { return nil }
+        return Array(ids.prefix(Int(count)))
     }
 
-    private func saveConfigs() {
-        guard let data = try? JSONEncoder().encode(configs) else { return }
-        UserDefaults.standard.set(data, forKey: configsKey)
+    private func matchesIdentity(_ displayID: CGDirectDisplayID, config: VirtualDisplayConfig) -> Bool {
+        config.matchesDescriptor(vendor: CGDisplayVendorNumber(displayID),
+                                 product: CGDisplayModelNumber(displayID), serial: CGDisplaySerialNumber(displayID))
+    }
+
+    // MARK: - CLI
+
+    func controlSnapshots() -> [CrispControlVirtualDisplay] {
+        let online = onlineDisplayIDs()
+        return configs.sorted { $0.id.uuidString < $1.id.uuidString }.map { controlSnapshot($0, online: online) }
+    }
+
+    private func controlSnapshot(_ config: VirtualDisplayConfig, online: [CGDirectDisplayID]?) -> CrispControlVirtualDisplay {
+        let retainedID = activeDisplayObjects[config.id]?.displayID
+        let id = retainedID ?? pendingRemovals[config.id]
+        let isOnline = online.map { ids in id.map { ids.contains($0) && matchesIdentity($0, config: config) } ?? false }
+        let active = isOnline == true && id.map { CGDisplayIsActive($0) != 0 } == true
+        let mode = isOnline == true ? id.flatMap { CGDisplayCopyDisplayMode($0) } : nil
+        let saved = (try? UserDefaults.standard.data(forKey: configsKey).map {
+            try JSONDecoder().decode([VirtualDisplayConfig].self, from: $0).contains(config)
+        }) == true
+        let resolution = mode.map {
+            CrispControlResolution(logicalWidth: $0.width, logicalHeight: $0.height,
+                                   pixelWidth: $0.pixelWidth, pixelHeight: $0.pixelHeight,
+                                   refreshRate: $0.refreshRate, isHiDPI: $0.pixelWidth > $0.width)
+        }
+        let creating = creationGate.isBusy(config.id)
+        return CrispControlVirtualDisplay(
+            config: config, saved: saved, enableRequested: enableRequests[config.id], creating: creating,
+            retained: retainedID != nil, online: isOnline, active: active,
+            ready: saved && retainedID != nil && active && resolution != nil && !creating, displayID: id, resolution: resolution,
+            lastError: online == nil ? "online display enumeration failed" : lastErrors[config.id]
+        )
+    }
+
+    private func controlFailure(_ config: VirtualDisplayConfig, _ message: String) -> CrispControlResponse {
+        CrispControlResponse(ok: false, virtualDisplay: controlSnapshot(config, online: onlineDisplayIDs()),
+                             error: message + "; read 'virtual list' before deciding; do not retry automatically")
+    }
+
+    func configureForControl(_ config: VirtualDisplayConfig) -> CrispControlResponse {
+        guard config.isValid else { return controlFailure(config, "invalid configuration") }
+        guard !creationGate.isBusy(config.id) else { return controlFailure(config, "creation is in progress") }
+        let existing = configs.first { $0.id == config.id }
+        if let existing, activeDisplayObjects[config.id] != nil || pendingRemovals[config.id] != nil,
+           existing.width != config.width || existing.height != config.height || existing.hiDPI != config.hiDPI {
+            return controlFailure(existing, "disable this config before changing its geometry")
+        }
+        guard !configs.contains(where: {
+            $0.id != config.id && $0.productID == config.productID && $0.serialNumber == config.serialNumber
+        }) else { return controlFailure(config, "descriptor identity collides with another saved config") }
+        let previous = configs
+        configs.removeAll { $0.id == config.id }
+        configs.append(config)
+        guard saveConfigs() else {
+            configs = previous
+            saveConfigs()
+            return controlFailure(config, "configuration persistence read-back failed")
+        }
+        return CrispControlResponse(ok: true, virtualDisplay: controlSnapshot(config, online: onlineDisplayIDs()))
+    }
+
+    func setEnabledForControl(configID: UUID, enabled: Bool) async -> CrispControlResponse {
+        guard let config = configs.first(where: { $0.id == configID }) else {
+            return .failure("saved config \(configID.uuidString) not found")
+        }
+        guard !creationGate.isBusy(configID) else { return controlFailure(config, "creation is in progress") }
+        if enabled {
+            guard await create(config: config) else {
+                return controlFailure(config, lastErrors[configID] ?? "creation outcome is uncertain")
+            }
+        } else {
+            _ = creationGate.begin(configID, retained: false)
+            defer { creationGate.finish(configID) }
+            let oldID = activeDisplayObjects[configID]?.displayID ?? pendingRemovals[configID]
+            pendingRemovals[configID] = oldID
+            release(configID: configID)
+            if let oldID {
+                await waitForDisplayOffline(oldID)
+                guard let online = onlineDisplayIDs(),
+                      !online.contains(oldID) || (CGDisplayVendorNumber(oldID) != 0 && !matchesIdentity(oldID, config: config)) else {
+                    lastErrors[configID] = "display removal outcome is uncertain"
+                    return controlFailure(config, "display removal outcome is uncertain")
+                }
+            }
+            pendingRemovals.removeValue(forKey: configID)
+            lastErrors.removeValue(forKey: configID)
+        }
+        let snapshot = controlSnapshot(config, online: onlineDisplayIDs())
+        if enabled, !snapshot.ready { return controlFailure(config, "activation read-back is not ready") }
+        return CrispControlResponse(ok: true, virtualDisplay: snapshot)
+    }
+
+    @discardableResult
+    private func saveConfigs() -> Bool {
+        VirtualDisplayConfig.save(configs, to: .standard, key: configsKey)
     }
 }

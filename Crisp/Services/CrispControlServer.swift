@@ -108,6 +108,7 @@ final class CrispControlServer {
     private var connectionChain: Task<Void, Never>?
 
     private func response(to request: Data) async -> Data {
+        if let virtual = await virtualResponse(to: request) { return CrispControlModel.encode(virtual) }
         guard Self.changesConnection(request) else { return await reply(to: request) }
         let previous = connectionChain
         let task = Task { @MainActor in
@@ -245,6 +246,28 @@ final class CrispControlServer {
             return await switchInput(change, among: managedDisplays, listed: displays)
         }
         return CrispControlModel.encode(result.response)
+    }
+
+    private func virtualResponse(to data: Data) async -> CrispControlResponse? {
+        guard let request = try? JSONDecoder().decode(CrispControlRequest.self, from: data) else { return nil }
+        switch request.command {
+        case .status, .listVirtualDisplays:
+            return CrispControlResponse(ok: true, running: request.command == .status ? true : nil,
+                                        virtualDisplays: VirtualDisplayService.shared.controlSnapshots())
+        case .configureVirtualDisplay, .ensureVirtualDisplay, .disableVirtualDisplay:
+            guard let id = request.virtualConfigID else {
+                return .failure("a valid configuration UUID and matching configuration are required")
+            }
+            let service = VirtualDisplayService.shared
+            if request.command == .configureVirtualDisplay {
+                guard let config = request.virtualConfig, config.id == id else {
+                    return .failure("configuration and selector UUID must match")
+                }
+                return service.configureForControl(config)
+            }
+            return await service.setEnabledForControl(configID: id, enabled: request.command == .ensureVirtualDisplay)
+        default: return nil
+        }
     }
 
     private func inputList(displayID: UInt32, among managedDisplays: [DisplayInfo]) async -> Data {
