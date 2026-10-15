@@ -381,6 +381,22 @@
         }
       }
     },
+    "Restore the physical screen before changing this virtual display." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请先恢复物理屏幕，再修改此虚拟显示器。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "請先恢復實體螢幕，再修改此虛擬顯示器。"
+          }
+        }
+      }
+    },
     "Set Display Input" : {
       "localizations" : {
         "zh-Hans" : {
