@@ -135,6 +135,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             BrightnessBoostService.shared.reapplyAll()
         }
 
+        DisplayColorModeService.shared.restoreAtLaunchIfNeeded(using: displayManager)
+
         // Record every display's mode as the screens go down, so the wake passes
         // below can put back what macOS moved and nothing else. Both notifications:
         // a display idle timeout posts screensDidSleep with no system sleep at all.
@@ -294,7 +296,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 try? await Task.sleep(nanoseconds: 500_000_000)
                 // WindowServer keeps settling for seconds after wake: ICC restore and
                 // link retraining can clobber a freshly applied transfer table (#25).
-                // Three passes with increasing delays, each an idempotent no-op.
+                // Three passes with increasing delays; services reapply state as needed.
                 for delay: UInt64 in [0, 4_000_000_000, 8_000_000_000] {
                     try? await Task.sleep(nanoseconds: delay)
                     for display in dm.displays {
@@ -303,7 +305,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                         BrightnessService.shared.reapplySoftwareBrightnessIfNeeded(for: display)
                         GammaService.shared.reapplyIfNeeded(for: display)
                         // Re-apply any custom resolution that macOS may have reset on wake
-                        ResolutionService.shared.restoreModeAfterWakeIfNeeded(for: display.displayID)
+                        DisplayColorModeService.shared.restoreAfterWakeIfNeeded(for: display)
                     }
                     // Once an external is back after a full wake, toggle True Tone so macOS
                     // recomputes it with that display present (issue #131). Once per wake,
@@ -564,21 +566,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let dm = displayManager
         let state = sectionState
         let settings = SettingsService.shared
-        func host<V: View>(_ id: String, @ViewBuilder _ content: () -> V) -> NSView {
-            let h = CountedHostingView(rootView: AnyView(
-                BlockHost(onHeight: { [weak self] h in self?.canvas.contentChanged(id, height: h) }) {
-                    content()
-                }
-                .environmentObject(dm)
-            ))
-            // Blocks near the window's edges otherwise get a phantom safe-area
-            // inset, misplacing clicks. See docs/panel-resize.md (failure map #9).
-            h.safeAreaRegions = []
-            return h
-        }
         func block<V: View>(_ id: String, isOpen: @escaping () -> Bool = { true },
                             @ViewBuilder _ content: () -> V) -> PanelBlock {
-            PanelBlock(id: id, host: host(id, content), isOpen: isOpen)
+            PanelBlock(id: id, host: hostPanelBlock(id, content), isOpen: isOpen)
         }
 
         var blocks: [PanelBlock] = []
@@ -594,6 +584,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             // rendered once at natural height (the 120Hz fix; docs/panel-resize.md).
             // Each detail block paints its shaded band on the clip layer (banded).
             let modeC = DisplayModeController(display: display, displayManager: dm)
+            let colorModeC = DisplayColorModeController(display: display)
             let profC = DisplayProfileController(display: display)
             let detailOpen = { state.expandedDisplayIDs.contains(id) }
             func detail<V: View>(_ sub: String, isOpen: @escaping () -> Bool,
@@ -632,6 +623,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             blocks.append(detail("dmode-tail", isOpen: detailOpen) {
                 ModeTailBlock(controller: modeC)
             })
+            blocks.append(detail("dcolor-head", isOpen: detailOpen, live: true) {
+                ColorModeHeadBlock(controller: colorModeC, state: state)
+            })
+            blocks.append(detail("dcolor-body", isOpen: {
+                detailOpen() && state.colorModeOpenIDs.contains(id)
+            }) {
+                ColorModeListBlock(controller: colorModeC)
+            })
+            blocks.append(detail("dcolor-tail", isOpen: detailOpen) {
+                ColorModeTailBlock(controller: colorModeC)
+            })
             blocks.append(detail("dprof-head", isOpen: detailOpen, live: true) {
                 ProfileHeadBlock(controller: profC, state: state)
             })
@@ -661,9 +663,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             })
         }
         blocks.append(block("reconnect") { ReconnectDisplaysSection() })
-        let visCount = vis.count
         blocks.append(block("combined",
-                            isOpen: { settings.showCombinedBrightness && visCount > 1 }) {
+                            isOpen: { settings.showCombinedBrightness && vis.count > 1 }) {
             VStack(spacing: 0) {
                 SectionDivider()
                 CombinedBrightnessView(displays: vis)
@@ -1004,6 +1005,19 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 // MARK: - Panel window
 
 extension AppDelegate {
+    private func hostPanelBlock<V: View>(_ id: String, @ViewBuilder _ content: () -> V) -> NSView {
+        let h = CountedHostingView(rootView: AnyView(
+            BlockHost(onHeight: { [weak self] h in self?.canvas.contentChanged(id, height: h) }) {
+                content()
+            }
+            .environmentObject(displayManager)
+        ))
+        // Blocks near the window's edges otherwise get a phantom safe-area
+        // inset, misplacing clicks. See docs/panel-resize.md (failure map #9).
+        h.safeAreaRegions = []
+        return h
+    }
+
     private func makePanel() -> MenuPanel {
         let p = MenuPanel(
             contentRect: .zero,

@@ -23,6 +23,10 @@ private func displayReconfigCallback(
         } else {
             // refreshExistingDisplayModes doesn't re-read bounds, so add/remove/move needs a rebuild.
             manager.refreshDisplays()
+            if flags.contains(.addFlag),
+               let display = manager.displays.first(where: { $0.displayID == displayID }) {
+                DisplayColorModeService.shared.restoreAfterConnectionIfNeeded(for: display)
+            }
         }
     }
 }
