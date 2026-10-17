@@ -324,6 +324,7 @@ enum CrispControlModel {
         case true: return .ddc
         case false: return .software
         case nil: return .unknown
+        default: return .unknown
         }
     }
 

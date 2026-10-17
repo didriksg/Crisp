@@ -779,7 +779,7 @@ struct DisplayRowView: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                 if let mode = display.currentDisplayMode {
-                    Text(mode.resolutionString)
+                    Text(verbatim: "\(mode.resolutionString)\(mode.isHiDPI ? " · HiDPI" : "")")
                         .font(.caption)
                         .foregroundColor(.secondary)
                         .lineLimit(1)

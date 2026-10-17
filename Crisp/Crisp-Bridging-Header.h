@@ -11,7 +11,7 @@
 
 #import <Foundation/Foundation.h>
 #import <CoreGraphics/CoreGraphics.h>
-
+#import <AppKit/AppKit.h>
 // MARK: - CGVirtualDisplay Private API (macOS 14+)
 
 @interface CGVirtualDisplayDescriptor : NSObject
@@ -47,6 +47,11 @@
 - (instancetype)initWithDescriptor:(CGVirtualDisplayDescriptor *)descriptor;
 - (BOOL)applySettings:(CGVirtualDisplaySettings *)settings;
 @property (nonatomic, readonly) CGDirectDisplayID displayID;
+@end
+
+@interface NSGlassEffectView : NSView
+@property (nonatomic) CGFloat cornerRadius;
+- (instancetype)initWithFrame:(NSRect)frameRect;
 @end
 
 // MARK: - CGSDisplayMode (advanced resolution switching)
