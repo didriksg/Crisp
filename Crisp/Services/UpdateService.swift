@@ -38,7 +38,7 @@ final class UpdateService: NSObject, ObservableObject {
 }
 
 // Sparkle calls these on the main thread; conformance says so outright.
-extension UpdateService: @MainActor SPUStandardUserDriverDelegate {
+extension UpdateService:  @preconcurrency SPUStandardUserDriverDelegate {
 
     /// Without this a dockless app gets Sparkle's focus-stealing default UI plus a log warning.
     var supportsGentleScheduledUpdateReminders: Bool { true }

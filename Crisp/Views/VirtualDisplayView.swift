@@ -29,6 +29,7 @@ struct VirtualDisplayView: View {
                     if editingID == config.id {
                         CreateVirtualDisplayForm(
                             editing: config,
+                            existingConfigs: service.configs,
                             isCreating: $isSavingEdit,
                             nameFocused: $nameFocused,
                             onCancel: { withAnimation(.panelResize) { editingID = nil } },
@@ -70,6 +71,7 @@ struct VirtualDisplayView: View {
             // Trigger row fades into a bounded card (mirrors the New Preset flow).
             if showCreateForm {
                 CreateVirtualDisplayForm(
+                    existingConfigs: service.configs,
                     isCreating: $isCreating,
                     nameFocused: $nameFocused,
                     onCancel: { withAnimation(.panelResize) { showCreateForm = false } },
@@ -215,7 +217,7 @@ struct VirtualDisplayRow: View {
                 Text(config.name)
                     .font(.body)
                     .lineLimit(1)
-                Text(verbatim: "\(config.width)×\(config.height)")
+                Text(verbatim: "\(config.width)×\(config.height)\(config.hiDPI ? " · HiDPI" : "")")
                     .font(.caption2)
                     .foregroundColor(.secondary)
             }
@@ -316,6 +318,7 @@ struct CreateVirtualDisplayForm: View {
     @State private var customWidth: String
     @State private var customHeight: String
     @State private var autoCreate: Bool
+    @State private var hiDPI: Bool
 
     static let presetOptions: [(label: String, width: Int, height: Int)] = [
         ("1920×1080 (FHD)", 1920, 1080),
@@ -329,8 +332,22 @@ struct CreateVirtualDisplayForm: View {
     private var presets: [(label: String, width: Int, height: Int)] { Self.presetOptions }
     /// The tag used by the "Custom…" picker entry (one past the last preset).
     private var customTag: Int { Self.presetOptions.count }
+    
+    private static func defaultNextName(from existingConfigs: [VirtualDisplayService.VirtualDisplayConfig]) -> String {
+            let baseName = String(localized: "Virtual Display") // 自动适配系统语言（中文下为“虚拟显示器”，英文下为“Virtual Display”）
+            let existingNames = Set(existingConfigs.map { $0.name })
+            
+            var index = 1
+            var candidate = "\(baseName) \(index)"
+            while existingNames.contains(candidate) {
+                index += 1
+                candidate = "\(baseName) \(index)"
+            }
+            return candidate
+    }
 
     init(editing: VirtualDisplayService.VirtualDisplayConfig? = nil,
+         existingConfigs: [VirtualDisplayService.VirtualDisplayConfig] = [],
          isCreating: Binding<Bool>,
          nameFocused: FocusState<Bool>.Binding,
          onCancel: @escaping () -> Void,
@@ -340,7 +357,9 @@ struct CreateVirtualDisplayForm: View {
         self._nameFocused = nameFocused
         self.onCancel = onCancel
         self.onConfirm = onConfirm
-        _name = State(initialValue: editing?.name ?? String(localized: "Virtual Display"))
+        let initialName = editing?.name ?? Self.defaultNextName(from: existingConfigs)
+        _name = State(initialValue: initialName)
+        //_name = State(initialValue: editing?.name ?? String(localized: "Virtual Display"))
         _autoCreate = State(initialValue: editing?.autoCreate ?? true)
         // A non-preset size selects "Custom" and prefills width/height.
         let presetIdx = editing.flatMap { e in
@@ -349,6 +368,7 @@ struct CreateVirtualDisplayForm: View {
         _selectedPreset = State(initialValue: presetIdx ?? (editing == nil ? 0 : Self.presetOptions.count))
         _customWidth = State(initialValue: presetIdx == nil ? (editing.map { String($0.width) } ?? "") : "")
         _customHeight = State(initialValue: presetIdx == nil ? (editing.map { String($0.height) } ?? "") : "")
+        _hiDPI = State(initialValue: editing?.hiDPI ?? true)
     }
 
     var body: some View {
@@ -405,6 +425,8 @@ struct CreateVirtualDisplayForm: View {
                     .foregroundColor(.secondary)
                 CaptureToggleRow(icon: "bolt.fill", color: .green,
                                  label: "Create at launch", isOn: $autoCreate)
+                CaptureToggleRow(icon: "sparkles.tv", color: .blue,
+                                 label: "HiDPI (Retina)", isOn: $hiDPI)
             }
 
             HStack(spacing: 10) {
@@ -449,8 +471,11 @@ struct CreateVirtualDisplayForm: View {
             let p = presets[selectedPreset]
             return (p.width, p.height)
         }
+        
+        let maxLimit = hiDPI ? 4096 : 8192
+            
         guard let w = Int(customWidth), let h = Int(customHeight),
-              (640...8192).contains(w), (480...8192).contains(h) else { return nil }
+             (640...maxLimit).contains(w), (480...maxLimit).contains(h) else { return nil }
         return (w, h)
     }
 
@@ -480,7 +505,7 @@ struct CreateVirtualDisplayForm: View {
             width: res.width,
             height: res.height,
             refreshRate: editing?.refreshRate ?? 60,
-            hiDPI: true,
+            hiDPI: hiDPI,
             autoCreate: autoCreate
         )
         onConfirm(config)

@@ -1,7 +1,7 @@
 import SwiftUI
 import AppKit
 import ImageIO
-
+import UniformTypeIdentifiers
 /// Shows all active displays as scaled, drag-to-reposition thumbnails. The
 /// main display is cued by a thin strip on its thumbnail; "Set as Main
 /// Display" lives in MainDisplayView.
@@ -450,32 +450,105 @@ struct DisplayThumbnailView: View {
 enum DesktopWallpaper {
     private static var cache: [CGDirectDisplayID: NSImage] = [:]
 
-    static func image(for displayID: CGDirectDisplayID, maxPixel: Int = 400) async -> NSImage? {
-        if let cached = cache[displayID] { return cached }
-        let key = NSDeviceDescriptionKey("NSScreenNumber")
-        guard let screen = NSScreen.screens.first(where: {
-            ($0.deviceDescription[key] as? NSNumber)?.uint32Value == displayID
-        }), let url = NSWorkspace.shared.desktopImageURL(for: screen) else {
+    static func image(
+        for displayID: CGDirectDisplayID,
+        maxPixel: Int = 400
+    ) async -> NSImage? {
+        guard maxPixel > 0 else {
             return nil
         }
-        let image = await Task.detached(priority: .userInitiated) {
-            downsample(url: url, maxPixel: maxPixel)
+
+        if let cached = cache[displayID] {
+            return cached
+        }
+
+        let key = NSDeviceDescriptionKey("NSScreenNumber")
+
+        guard
+            let screen = NSScreen.screens.first(where: {
+                ($0.deviceDescription[key] as? NSNumber)?.uint32Value == displayID
+            }),
+            let url = NSWorkspace.shared.desktopImageURL(for: screen)
+        else {
+            return nil
+        }
+
+        let data = await Task.detached(priority: .utility) {
+            Self.downsample(
+                url: url,
+                maxPixel: maxPixel
+            )
         }.value
-        if let image { cache[displayID] = image }
+
+        guard
+            let data,
+            let image = NSImage(data: data)
+        else {
+            return nil
+        }
+
+        cache[displayID] = image
         return image
     }
 
-    nonisolated private static func downsample(url: URL, maxPixel: Int) -> NSImage? {
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
-        let options: [CFString: Any] = [
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceThumbnailMaxPixelSize: maxPixel
-        ]
-        guard let cg = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+    nonisolated private static func downsample(
+        url: URL,
+        maxPixel: Int
+    ) -> Data? {
+        guard maxPixel > 0 else {
             return nil
         }
-        return NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
+
+        return autoreleasepool {
+            let sourceOptions: [CFString: Any] = [
+                kCGImageSourceShouldCache: false
+            ]
+
+            guard let source = CGImageSourceCreateWithURL(
+                url as CFURL,
+                sourceOptions as CFDictionary
+            ) else {
+                return nil
+            }
+
+            let thumbnailOptions: [CFString: Any] = [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceThumbnailMaxPixelSize: maxPixel,
+                kCGImageSourceShouldCacheImmediately: true
+            ]
+
+            guard let cgImage = CGImageSourceCreateThumbnailAtIndex(
+                source,
+                0,
+                thumbnailOptions as CFDictionary
+            ) else {
+                return nil
+            }
+
+            let output = NSMutableData()
+
+            guard let destination = CGImageDestinationCreateWithData(
+                output,
+                UTType.png.identifier as CFString,
+                1,
+                nil
+            ) else {
+                return nil
+            }
+
+            CGImageDestinationAddImage(
+                destination,
+                cgImage,
+                nil
+            )
+
+            guard CGImageDestinationFinalize(destination) else {
+                return nil
+            }
+
+            return output as Data
+        }
     }
 }
 

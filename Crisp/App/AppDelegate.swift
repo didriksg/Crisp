@@ -491,21 +491,18 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // materialize bloom plays only once, here during hidden warm-up; the
         // panel never orders out afterwards.
         let backdrop: NSView
-        if #available(macOS 26.0, *) {
-            let glass = NSGlassEffectView(frame: shell.bounds)
-            glass.cornerRadius = 16
-            backdrop = glass
-        } else {
-            // Pre-Tahoe: .popover is the translucent grade native menus and
-            // Control Center panels show on macOS 15.
-            let material = NSVisualEffectView(frame: shell.bounds)
-            material.material = .popover
-            material.state = .active
-            material.wantsLayer = true
-            material.layer?.cornerRadius = 16
-            material.layer?.masksToBounds = true
-            backdrop = material
-        }
+        
+  
+        // Pre-Tahoe: .popover is the translucent grade native menus and
+        // Control Center panels show on macOS 15.
+        let material = NSVisualEffectView(frame: shell.bounds)
+        material.material = .popover
+        material.state = .active
+        material.wantsLayer = true
+        material.layer?.cornerRadius = 16
+        material.layer?.masksToBounds = true
+        backdrop = material
+        
         // Oversized fixed canvas glued to the shell top, clipped by the shell's
         // rounded mask: resizing the shell only MOVES the glass layer.
         let backdropHeight: CGFloat = 2200
@@ -543,7 +540,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func visibleDisplays() -> [DisplayInfo] {
         let active = displayManager.activePanelDisplayID
         return displayManager.displays
-            .filter { !VirtualDisplayService.shared.isVirtualDisplay($0.displayID) }
+            //.filter { !VirtualDisplayService.shared.isVirtualDisplay($0.displayID) }
             .sorted {
                 if ($0.displayID == active) != ($1.displayID == active) { return $0.displayID == active }
                 if $0.isBuiltin != $1.isBuiltin { return $0.isBuiltin }
