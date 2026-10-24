@@ -75,6 +75,21 @@ was showing. Also: it applies each brightness write with an internal
 fade, so rapid write streams (long slider drags) visibly flash as each
 write restarts the fade. Seen on other Dells too; accepted as a quirk.
 
+**Alienware AW2725DF and AW3423DWF** (DP through a Thunderbolt 4 dock, M3
+Max): both monitors ignore the first copy of every DDC/CI message. A
+single Get VCP gets only null replies (`6E 80 BE`) at any delay from 40 to
+200 ms, and a single Set VCP changes nothing. Two copies gave 30 of 30
+valid replies, with or without a 10 ms gap. A read between the two copies
+undoes the effect. On the AW3423DWF, back-to-back copies stop its DDC (no
+I2C ack) after about 20 reads or 54 writes, at 50 ms and at 200 ms pacing.
+Only a replug of the dock brought it back. So `DDCMessage` repeats only for
+the AW2725DF, which ran 80 of 80 clean. The AW2725DF still stalls under the
+fast chunk requests of a capabilities read (stopped at byte 208), so Crisp
+skips that read for it and offers the standard input list. Single copies
+did no harm to either monitor (about 700 requests). Only tested through
+the dock, not on a direct cable. Long brightness drags on the AW2725DF
+(more than about 80 doubled writes in a row) are not tested.
+
 ## AVService pairing (Apple Silicon)
 
 The DDC channel (DCPAVServiceProxy) and a display's identity (DisplayAttributes ->

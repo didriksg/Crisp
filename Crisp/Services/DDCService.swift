@@ -286,6 +286,10 @@ final class DDCService: ObservableObject, @unchecked Sendable {
         avServiceLock.unlock()
     }
 
+    private func send(_ displayID: CGDirectDisplayID, _ write: () -> IOReturn) -> IOReturn {
+        DDCMessage.send(vendor: CGDisplayVendorNumber(displayID), model: CGDisplayModelNumber(displayID), write)
+    }
+
     /// ARM64 DDC write: Set VCP Feature over IOAVService.
     /// Payload: [0x84, 0x03, vcpCode, valueHigh, valueLow, checksum], checksum XORed
     /// from 0x50 (0x6E DDC dest ^ 0x51 sub-address) over the payload bytes.
@@ -302,7 +306,7 @@ final class DDCService: ObservableObject, @unchecked Sendable {
         for b in payload { checksum ^= b }
 
         var buf: [UInt8] = payload + [checksum]
-        let ret = IOAVServiceWriteI2C(avService, 0x37, 0x51, &buf, UInt32(buf.count))
+        let ret = send(displayID) { IOAVServiceWriteI2C(avService, 0x37, 0x51, &buf, UInt32(buf.count)) }
         if ret != kIOReturnSuccess {
             Self.log.debug("write \(Self.hex(command), privacy: .public)=\(value, privacy: .public) display \(displayID, privacy: .public): I2C error \(String(format: "0x%08X", ret), privacy: .public)")
         }
@@ -328,7 +332,9 @@ final class DDCService: ObservableObject, @unchecked Sendable {
         for b in requestPayload { requestChecksum ^= b }
         var requestBuf: [UInt8] = requestPayload + [requestChecksum]
 
-        let writeRet = IOAVServiceWriteI2C(avService, 0x37, 0x51, &requestBuf, UInt32(requestBuf.count))
+        let writeRet = send(displayID) {
+            IOAVServiceWriteI2C(avService, 0x37, 0x51, &requestBuf, UInt32(requestBuf.count))
+        }
         guard writeRet == kIOReturnSuccess else {
             return fail("request write I2C error \(String(format: "0x%08X", writeRet))")
         }
@@ -825,10 +831,15 @@ final class DDCService: ObservableObject, @unchecked Sendable {
     /// The capabilities string, one chunk per queue turn so brightness and volume keep
     /// flowing between chunks. Some monitors fail most chunk replies (about 9 in 10 on
     /// the AOC Q27G3XMN, docs/ddc-notes.md), so a bad chunk is asked again within a
-    /// budget. nil when the budget runs out, when there is no channel, and on Intel,
-    /// where the input list falls back to the standard one.
+    /// budget. nil when the budget runs out, when there is no channel, for a monitor that
+    /// gets two copies of each message, and on Intel, where the input list falls back to
+    /// the standard one.
     func readCapabilities(displayID: CGDirectDisplayID) async -> String? {
 #if arch(arm64)
+        // Doubled chunk requests stop the AW2725DF's DDC until a replug (docs/ddc-notes.md).
+        guard !DDCMessage.repeats(vendor: CGDisplayVendorNumber(displayID), model: CGDisplayModelNumber(displayID)) else {
+            return nil
+        }
         var bytes: [UInt8] = []
         var bad = 0
         while bytes.count < 4096 {
