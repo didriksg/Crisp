@@ -153,6 +153,12 @@ do {
         response = try receive(from: client)
     } catch {
         switch request.command {
+        case .headlessStart, .headlessConfirm, .headlessRestore:
+            fail("headless response timed out or was lost; read 'crispctl headless status --json'; "
+                 + "do not retry automatically; an unconfirmed session rolls back", code: 1)
+        case .configureVirtualDisplay, .ensureVirtualDisplay, .disableVirtualDisplay:
+            fail("virtual display response timed out or was lost for config \(request.selector ?? "unknown"); "
+                 + "outcome is uncertain; run 'crispctl virtual list --json' before deciding; do not retry automatically", code: 1)
         case .setHDR:
             fail("HDR response timed out or was lost; \(CrispControlModel.hdrUncertainRecovery)", code: 1)
         case .toggleDisplay:

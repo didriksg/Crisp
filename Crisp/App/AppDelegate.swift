@@ -126,6 +126,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // Built here rather than at first use so its init runs on every launch: it
         // drops the orphaned saved-resolution key.
         _ = ResolutionService.shared
+        VirtualDisplayService.shared.restoreAutoCreate()
 
         // Re-establish Extra Brightness (EDR upscaling) for displays whose
         // toggle is persisted on. Deferred a beat so DisplayManager's initial
@@ -253,6 +254,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             if display.isBuiltin || autoBrightnessOn { continue }
             Task { await BrightnessService.shared.refreshBrightness(for: display) }
         }
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard HeadlessDisplayService.shared.needsRecovery else { return .terminateNow }
+        Task { @MainActor in
+            let restored = await HeadlessDisplayService.shared.restore()
+            sender.reply(toApplicationShouldTerminate: restored)
+        }
+        return .terminateLater
     }
 
     func applicationWillTerminate(_ notification: Notification) {

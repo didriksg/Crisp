@@ -53,6 +53,10 @@ swiftc -O -swift-version 6 -target arm64-apple-macos14.0 \
 
 With full Xcode, `xcodegen generate && xcodebuild -scheme crispctl -configuration Release` does the same.
 
+For virtual-display testing, build without running `dev.sh` or replacing the installed app.
+Use a separate test bundle and follow [the controlled acceptance and recovery steps](crispctl-virtual-displays.md).
+The commands in this section compile only; they do not establish hardware acceptance.
+
 ## Before opening a PR
 
 Run `make check`: it runs SwiftLint (strict), the unit tests, the x86_64

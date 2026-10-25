@@ -107,6 +107,10 @@ crispctl preset apply Night
 
 The same controls are actions in the Shortcuts app: Apply Crisp Preset, Set and Get Display Brightness, Set Extra Brightness, Set Display HDR, Set Display Input, Disconnect and Reconnect Display, and Set and Reset Image Adjustment. A Time of Day automation that runs Apply Crisp Preset switches your displays between a day and a night setup.
 
+`crispctl virtual list --json` and `crispctl status --json` separate saved virtual-display configurations from actual online state and resolution. `virtual configure` saves a config by UUID, `virtual ensure` activates or reuses it, and `virtual disable` releases its Crisp-owned screen. `autoCreate` restores on the next Crisp start; launch at login and system sleep settings remain separate. See [virtual-display commands and hardware acceptance](docs/crispctl-virtual-displays.md). Acceptance for this iteration passed on a MacBook Pro, including creation, restart and UI checks. Mac mini HDMI-disconnected use has not been tested and is not a merge prerequisite.
+
+For a virtual-only desktop while the physical screen remains cabled, `crispctl headless start <physical-uuid> <config-id> --json` explicitly disconnects the last physical screen only with a ready Crisp virtual screen. Verify screenshot and input, then confirm the returned session ID within 30 seconds; otherwise it restores the physical screen. `headless restore <session-id>` restores it manually. This session-only mode preserves ordinary last-screen protection. See [headless control and recovery](docs/crispctl-headless.md).
+
 `crispctl help` lists every command, and `--help` on any command gives its details. To let an AI agent drive it, `crispctl skill install claude` or `crispctl skill install codex` adds a skill for Claude Code or Codex; for another agent, `crispctl skill show` prints it. Run the install again after updating Crisp.
 
 ## Building
