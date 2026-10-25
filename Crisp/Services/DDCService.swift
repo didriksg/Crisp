@@ -289,7 +289,6 @@ final class DDCService: ObservableObject, @unchecked Sendable {
     private func send(_ displayID: CGDirectDisplayID, _ write: () -> IOReturn) -> IOReturn {
         DDCMessage.send(vendor: CGDisplayVendorNumber(displayID), model: CGDisplayModelNumber(displayID), write)
     }
-
     /// ARM64 DDC write: Set VCP Feature over IOAVService.
     /// Payload: [0x84, 0x03, vcpCode, valueHigh, valueLow, checksum], checksum XORed
     /// from 0x50 (0x6E DDC dest ^ 0x51 sub-address) over the payload bytes.
@@ -340,9 +339,10 @@ final class DDCService: ObservableObject, @unchecked Sendable {
         }
 
         // Wait for the display to prepare its DDC/CI reply (~40ms per spec)
-        Thread.sleep(forTimeInterval: 0.04)
+        let shape = DDCMessage.replyShape(vendor: CGDisplayVendorNumber(displayID), model: CGDisplayModelNumber(displayID))
+        Thread.sleep(forTimeInterval: shape.wait)
 
-        var replyBuf = [UInt8](repeating: 0, count: 12)
+        var replyBuf = [UInt8](repeating: 0, count: shape.length)
         let readRet = IOAVServiceReadI2C(avService, 0x37, 0x51, &replyBuf, UInt32(replyBuf.count))
         guard readRet == kIOReturnSuccess else {
             return fail("reply read I2C error \(String(format: "0x%08X", readRet))")
@@ -487,6 +487,15 @@ final class DDCService: ObservableObject, @unchecked Sendable {
 
     // MARK: - Synchronous DDC I/O (called on a per-display queue)
 
+    /// Measured on Apple Silicon only, where the messages also go out twice.
+    private func allows(_ displayID: CGDirectDisplayID, _ command: UInt8) -> Bool {
+#if arch(arm64)
+        DDCMessage.allows(vendor: CGDisplayVendorNumber(displayID), model: CGDisplayModelNumber(displayID), command: command)
+#else
+        true
+#endif
+    }
+
     /// Synchronous DDC write (VCP Set). Returns true on success.
     /// On ARM64 uses the IOAVService path; on x86_64 uses the IOFramebuffer I2C path.
     private func writeSynchronous(displayID: CGDirectDisplayID, command: UInt8, value: UInt16) -> Bool {
@@ -531,6 +540,8 @@ final class DDCService: ObservableObject, @unchecked Sendable {
         displayID: CGDirectDisplayID,
         command: UInt8
     ) -> (current: UInt16, max: UInt16)? {
+        // Before the quarantine count, so refused codes never quarantine input reads.
+        guard allows(displayID, command) else { return nil }
         var quarantineExpired = false
         let quarantined = readStateLock.withLock { () -> Bool in
             guard let until = readQuarantineUntil[displayID] else { return false }
@@ -757,6 +768,12 @@ final class DDCService: ObservableObject, @unchecked Sendable {
         completion: (@Sendable (Bool) -> Void)? = nil
     ) {
         operationQueues.queue(for: displayID).async {
+            // On the queue: the brightness pump calls this under a lock its completion takes.
+            guard self.allows(displayID, command) else {
+                Self.log.debug("write \(Self.hex(command), privacy: .public) display \(displayID, privacy: .public): code refused for this monitor")
+                completion?(false)
+                return
+            }
             for attempt in 0..<3 {
                 if self.writeSynchronous(displayID: displayID, command: command, value: value) {
                     // Invalidate cached value so next read reflects the new setting.
@@ -791,6 +808,11 @@ final class DDCService: ObservableObject, @unchecked Sendable {
         cacheLock.unlock()
 
         operationQueues.queue(for: displayID).async {
+            guard self.allows(displayID, command) else {
+                Self.log.debug("read \(Self.hex(command), privacy: .public) display \(displayID, privacy: .public): code refused for this monitor")
+                completion(nil)
+                return
+            }
             for attempt in 0..<3 {
                 if let r = self.readSynchronous(displayID: displayID, command: command) {
                     self.cacheLock.lock()
@@ -836,7 +858,7 @@ final class DDCService: ObservableObject, @unchecked Sendable {
     /// the standard one.
     func readCapabilities(displayID: CGDirectDisplayID) async -> String? {
 #if arch(arm64)
-        // Doubled chunk requests stop the AW2725DF's DDC until a replug (docs/ddc-notes.md).
+        // Doubled chunk requests stop these monitors' DDC until a replug (docs/ddc-notes.md).
         guard !DDCMessage.repeats(vendor: CGDisplayVendorNumber(displayID), model: CGDisplayModelNumber(displayID)) else {
             return nil
         }
@@ -943,7 +965,7 @@ final class DDCService: ObservableObject, @unchecked Sendable {
                             current: r.current, max: r.max, timestamp: Date()
                         )
                         self.cacheLock.unlock()
-                        // No extra delay here, arm64Read already waits 40ms per DDC/CI spec
+                        // No extra delay here, arm64Read already waits for the reply
                     } else {
                         result[code] = nil
                     }

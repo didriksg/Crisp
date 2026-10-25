@@ -7,6 +7,7 @@ final class DDCMessageTests: XCTestCase {
     private let dell: UInt32 = 0x10AC
     private let aw2725df: UInt32 = 0xA252
     private let aw3423dwf: UInt32 = 0xA212
+    private let otherModel: UInt32 = 0x1234
 
     private func calls(model: UInt32, results: [IOReturn]) -> (calls: Int, result: IOReturn) {
         var calls = 0
@@ -17,22 +18,37 @@ final class DDCMessageTests: XCTestCase {
         return (calls, result)
     }
 
-    /// The AW2725DF acts only on the second copy.
-    func testAW2725DFGetsTwoCopies() {
-        let sent = calls(model: aw2725df, results: [kIOReturnSuccess])
-        XCTAssertEqual(sent.calls, 2)
-        XCTAssertEqual(sent.result, kIOReturnSuccess)
+    /// Both Alienwares act only on the second copy.
+    func testAlienwaresGetTwoCopies() {
+        for model in [aw2725df, aw3423dwf] {
+            let sent = calls(model: model, results: [kIOReturnSuccess])
+            XCTAssertEqual(sent.calls, 2)
+            XCTAssertEqual(sent.result, kIOReturnSuccess)
+        }
     }
 
-    /// Repeats stop the AW3423DWF's DDC until a replug.
-    func testAW3423DWFGetsOneCopy() {
-        XCTAssertEqual(calls(model: aw3423dwf, results: [kIOReturnSuccess]).calls, 1)
+    func testOtherMonitorGetsOneCopy() {
+        XCTAssertEqual(calls(model: otherModel, results: [kIOReturnSuccess]).calls, 1)
     }
 
-    /// Only the AW2725DF repeats, so only it skips the capabilities read.
-    func testOnlyAW2725DFRepeats() {
-        XCTAssertTrue(DDCMessage.repeats(vendor: dell, model: aw2725df))
-        XCTAssertFalse(DDCMessage.repeats(vendor: dell, model: aw3423dwf))
+    /// Writes stop the Alienwares' DDC, so only input select reaches them.
+    func testAlienwaresAllowOnlyInputSelect() {
+        for model in [aw2725df, aw3423dwf] {
+            XCTAssertTrue(DDCMessage.allows(vendor: dell, model: model, command: 0x60))
+            XCTAssertFalse(DDCMessage.allows(vendor: dell, model: model, command: 0x10))
+            XCTAssertFalse(DDCMessage.allows(vendor: dell, model: model, command: 0x62))
+        }
+        XCTAssertTrue(DDCMessage.allows(vendor: dell, model: otherModel, command: 0x10))
+    }
+
+    /// The Alienwares stopped answering doubled reads with the default shape.
+    func testAlienwaresGetLongerReplyWaitAndExactLength() {
+        let alienware = DDCMessage.replyShape(vendor: dell, model: aw3423dwf)
+        XCTAssertEqual(alienware.wait, 0.05)
+        XCTAssertEqual(alienware.length, 11)
+        let other = DDCMessage.replyShape(vendor: dell, model: otherModel)
+        XCTAssertEqual(other.wait, 0.04)
+        XCTAssertEqual(other.length, 12)
     }
 
     /// A deaf channel can take seconds per call, so it gets only one.
