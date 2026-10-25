@@ -66,6 +66,7 @@ struct CrispControlHDRState: Codable, Equatable {
 struct CrispControlRequest: Codable, Equatable {
     enum Command: String, Codable {
         case list
+        case status, listVirtualDisplays, configureVirtualDisplay, ensureVirtualDisplay, disableVirtualDisplay
         case getBrightness
         case setBrightness
         case getBrightnessBoost
@@ -97,6 +98,7 @@ struct CrispControlRequest: Codable, Equatable {
     let value: Double?
     /// `setInput`: the input as a person typed it, a name or a number.
     let input: String?
+    let virtualConfig: CrispControlVirtualDisplayConfig?
     init(
         command: Command,
         display: UInt32? = nil,
@@ -105,7 +107,8 @@ struct CrispControlRequest: Codable, Equatable {
         enabled: Bool? = nil,
         setting: CrispControlImageSetting? = nil,
         value: Double? = nil,
-        input: String? = nil
+        input: String? = nil,
+        virtualConfig: CrispControlVirtualDisplayConfig? = nil
     ) {
         self.command = command
         self.display = display
@@ -115,7 +118,17 @@ struct CrispControlRequest: Codable, Equatable {
         self.setting = setting
         self.value = value
         self.input = input
+        self.virtualConfig = virtualConfig
     }
+
+    var virtualConfigID: UUID? {
+        guard let selector, selector.count == 36, let id = UUID(uuidString: selector) else { return nil }
+        if command == .configureVirtualDisplay {
+            guard virtualConfig?.id == id, virtualConfig?.isValid == true else { return nil }
+        }
+        return id
+    }
+
 }
 /// One input of a monitor (#196): the VCP 0x60 value and its connector name.
 struct CrispControlInput: Codable, Equatable {
@@ -215,6 +228,9 @@ struct CrispControlResponse: Codable, Equatable {
     let skippedDisplays: [String]?
     let image: CrispControlImageAdjustment?
     let inputs: CrispControlInputs?
+    let running: Bool?
+    let virtualDisplays: [CrispControlVirtualDisplay]?
+    let virtualDisplay: CrispControlVirtualDisplay?
     let error: String?
 
     init(
@@ -228,6 +244,9 @@ struct CrispControlResponse: Codable, Equatable {
         skippedDisplays: [String]? = nil,
         image: CrispControlImageAdjustment? = nil,
         inputs: CrispControlInputs? = nil,
+        running: Bool? = nil,
+        virtualDisplays: [CrispControlVirtualDisplay]? = nil,
+        virtualDisplay: CrispControlVirtualDisplay? = nil,
         error: String? = nil
     ) {
         self.ok = ok
@@ -240,6 +259,9 @@ struct CrispControlResponse: Codable, Equatable {
         self.skippedDisplays = skippedDisplays
         self.image = image
         self.inputs = inputs
+        self.running = running
+        self.virtualDisplays = virtualDisplays
+        self.virtualDisplay = virtualDisplay
         self.error = error
     }
     static func success() -> Self { Self(ok: true) }
@@ -374,6 +396,8 @@ enum CrispControlModel {
         switch request.command {
         case .list:
             return .init(.success(displays: displays), nil, nil, nil)
+        case .status, .listVirtualDisplays, .configureVirtualDisplay, .ensureVirtualDisplay, .disableVirtualDisplay:
+            return .init(.failure("virtual display requests require the app service"), nil, nil, nil)
         case .getBrightness:
             guard hasDisplaySelector(request) else {
                 return .init(.failure("display is required"), nil, nil, nil)
@@ -642,7 +666,7 @@ enum CrispControlModel {
 }
 enum CrispControlCLIModel {
     enum Group: String, CaseIterable {
-        case display, brightness, hdr, image, preset
+        case display, brightness, hdr, image, preset, virtual
         var title: String {
             switch self {
             case .display: return "Display commands"
@@ -650,6 +674,7 @@ enum CrispControlCLIModel {
             case .hdr: return "HDR commands"
             case .image: return "Image Adjustment commands"
             case .preset: return "Preset commands"
+            case .virtual: return "Virtual display commands"
             }
         }
         var description: String {
@@ -659,6 +684,7 @@ enum CrispControlCLIModel {
             case .hdr: return "Read and switch HDR on external displays."
             case .image: return "Read and set Image Adjustment: contrast, gamma, color temperature and the other sliders."
             case .preset: return "List and apply the presets saved in Crisp."
+            case .virtual: return "Save, activate and inspect Crisp-owned virtual displays by configuration UUID."
             }
         }
     }
@@ -687,6 +713,28 @@ enum CrispControlCLIModel {
     }
 
     static let entries: [Entry] = [
+        Entry(group: .virtual, usage: "virtual list", summary: "Read saved and live virtual display state", detail: """
+            Each entry separates saved configuration, enableRequested, creating, retained,
+            online, active, ready, runtime displayID and actual resolution. A read changes nothing.
+            ready does not prove screenshot/input permissions or an unlocked desktop.
+            """),
+        Entry(group: .virtual, usage: "virtual configure <config-id> <name> <width> <height> <hidpi> <auto-create>",
+              summary: "Save a configuration without creating a screen", detail: """
+            Use one caller-chosen UUID (uuidgen) for every operation. Toggles take on or off,
+            hiDPI first, then autoCreate. Width 320–8192, height 200–8192, integer pixels.
+            autoCreate restores at the next Crisp start in a logged-in session. It does not
+            enable launch at login. Disable an active config before changing its geometry.
+            """),
+        Entry(group: .virtual, usage: "virtual ensure <config-id>", summary: "Activate or reuse a saved virtual display", detail: """
+            Repeated enable reuses the retained screen. Creating the same config concurrently
+            is refused. A same-size third-party screen does not count as this config.
+            On failure or timeout, read 'virtual list' before deciding what to do; do not retry automatically.
+            """),
+        Entry(group: .virtual, usage: "virtual disable <config-id>", summary: "Release only this config's owned screen", detail: """
+            Keeps the saved configuration and its autoCreate choice. Configure autoCreate off
+            as well to prevent next-start restoration. In-flight creation blocks disable.
+            Saved configuration deletion remains in the menu.
+            """),
         Entry(group: .display, usage: "display list", summary: "List displays", detail: """
             Each display carries id, uuid, name, resolution, brightness, maxBrightness,
             brightnessBackend and connected, which is false while Crisp holds it off.
@@ -765,6 +813,7 @@ enum CrispControlCLIModel {
     ]
     static let otherRows: [(usage: String, arguments: String, summary: String)] = [
         ("help", "", "Show this help (also -h, --help)"),
+        ("status", "", "Read app and virtual display readiness"),
         ("version", "", "Show the Crisp version this tool ships with (also --version)"),
         ("skill show", "", "Print the agent skill for crispctl"),
         ("skill install", "claude|codex", "Install that skill for Claude Code or Codex")
@@ -852,6 +901,7 @@ enum CrispControlCLIModel {
     enum ResponseResult: Equatable { case success, serverFailure, invalid }
     static func receiveTimeoutSeconds(for command: CrispControlRequest.Command) -> Int {
         switch command {
+        case .configureVirtualDisplay, .ensureVirtualDisplay, .disableVirtualDisplay: return 67
         case .setBrightnessBoost: return 5
         case .setHDR: return 6
         // The window server answers inside the app's 10 s wrapper, but the DDC hold
@@ -911,6 +961,8 @@ enum CrispControlCLIModel {
         return "usage: " + matches.map { "crispctl " + $0.usage }.joined(separator: " or ")
     }
     private static func matchedRequest(_ arguments: [String]) -> CrispControlRequest? {
+        if arguments == ["status"] { return .init(command: .status) }
+        if let request = virtualRequest(arguments) { return request }
         if arguments == ["display", "list"] {
             return .init(command: .list)
         }
@@ -945,6 +997,26 @@ enum CrispControlCLIModel {
         }
         return imageRequest(arguments) ?? presetRequest(arguments) ?? connectionRequest(arguments)
     }
+    private static func virtualRequest(_ arguments: [String]) -> CrispControlRequest? {
+        if arguments == ["virtual", "list"] { return .init(command: .listVirtualDisplays) }
+        guard arguments.first == "virtual", arguments.count >= 3,
+              let id = UUID(uuidString: arguments[2]), arguments[2].count == 36 else { return nil }
+        if arguments.count == 3 {
+            switch arguments[1] {
+            case "ensure": return .init(command: .ensureVirtualDisplay, selector: id.uuidString)
+            case "disable": return .init(command: .disableVirtualDisplay, selector: id.uuidString)
+            default: return nil
+            }
+        }
+        guard arguments.count == 8, arguments[1] == "configure",
+              let width = Int(arguments[4]), let height = Int(arguments[5]),
+              ["on", "off"].contains(arguments[6]), ["on", "off"].contains(arguments[7]) else { return nil }
+        let config = CrispControlVirtualDisplayConfig(id: id, name: arguments[3], width: width, height: height,
+                                                     hiDPI: arguments[6] == "on", autoCreate: arguments[7] == "on")
+        guard config.isValid else { return nil }
+        return .init(command: .configureVirtualDisplay, selector: id.uuidString, virtualConfig: config)
+    }
+
     private static func presetRequest(_ arguments: [String]) -> CrispControlRequest? {
         if arguments == ["preset", "list"] { return .init(command: .listPresets) }
         guard arguments.count == 3, arguments[0...1] == ["preset", "apply"], !arguments[2].isEmpty else { return nil }
@@ -999,6 +1071,8 @@ enum CrispControlCLIModel {
 enum CrispControlText {
     static func render(_ response: CrispControlResponse, for command: CrispControlRequest.Command) -> String {
         switch command {
+        case .status, .listVirtualDisplays, .configureVirtualDisplay, .ensureVirtualDisplay, .disableVirtualDisplay:
+            return virtualTable(response.virtualDisplays ?? response.virtualDisplay.map { [$0] } ?? [])
         case .list: return displayTable(response.displays ?? [])
         case .getBrightness: return displayTable(response.display.map { [$0] } ?? [])
         case .getBrightnessBoost:
@@ -1019,6 +1093,15 @@ enum CrispControlText {
         case .applyPreset: return (response.skippedDisplays ?? []).map { "skipped \($0): not connected" }.joined(separator: "\n")
         case .setBrightness, .setBrightnessBoost, .setHDR, .setImage, .resetImage: return ""
         }
+    }
+
+    private static func virtualTable(_ displays: [CrispControlVirtualDisplay]) -> String {
+        guard !displays.isEmpty else { return "no saved virtual displays" }
+        return table([["CONFIG ID", "NAME", "SAVED", "ONLINE", "READY", "RESOLUTION", "ERROR"]] + displays.map { display in
+            let resolution = display.resolution.map { "\($0.logicalWidth)x\($0.logicalHeight)" } ?? "-"
+            return [display.config.id.uuidString, display.config.name, onOff(display.saved),
+                    display.online.map(onOff) ?? "unknown", onOff(display.ready), resolution, display.lastError ?? "-"]
+        })
     }
 
     private static func displayTable(_ displays: [CrispControlDisplay]) -> String {
@@ -1070,4 +1153,90 @@ enum CrispControlText {
     private static func onOff(_ value: Bool) -> String { value ? "on" : "off" }
     private static func percent(_ value: Double) -> String { "\(Int(value.rounded()))%" }
     private static func number(_ value: Double) -> String { String(format: "%g", value) }
+}
+
+struct CrispControlVirtualDisplayConfig: Codable, Identifiable, Equatable, Sendable {
+    let id: UUID
+    var name: String
+    var width: Int
+    var height: Int
+    var refreshRate: Double
+    var hiDPI: Bool
+    var autoCreate: Bool
+
+    init(id: UUID = UUID(), name: String, width: Int, height: Int,
+         refreshRate: Double = 60, hiDPI: Bool = true, autoCreate: Bool = true) {
+        self.id = id
+        self.name = name
+        self.width = width
+        self.height = height
+        self.refreshRate = refreshRate
+        self.hiDPI = hiDPI
+        self.autoCreate = autoCreate
+    }
+
+    var isValid: Bool {
+        !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && name.utf8.count <= 256
+            && (320...8192).contains(width) && (200...8192).contains(height)
+            && refreshRate.isFinite && refreshRate > 0 && refreshRate <= 120
+    }
+
+    /// UserDefaults read-back verifies the saved value, not an fsync guarantee.
+    static func save(_ configs: [Self], to defaults: UserDefaults, key: String) -> Bool {
+        guard let data = try? JSONEncoder().encode(configs) else { return false }
+        defaults.set(data, forKey: key)
+        guard let readback = defaults.data(forKey: key),
+              let decoded = try? JSONDecoder().decode([Self].self, from: readback) else { return false }
+        return decoded == configs
+    }
+
+    static let vendorID: UInt32 = 0xEEEE
+
+    func matchesDescriptor(vendor: UInt32, product: UInt32, serial: UInt32) -> Bool {
+        vendor == Self.vendorID && product == productID && serial == serialNumber
+    }
+
+    var productID: UInt32 {
+        let bytes = id.uuid
+        return UInt32(bytes.0) << 24 | UInt32(bytes.1) << 16 | UInt32(bytes.2) << 8 | UInt32(bytes.3)
+    }
+
+    var serialNumber: UInt32 {
+        let bytes = id.uuid
+        return UInt32(bytes.4) << 24 | UInt32(bytes.5) << 16 | UInt32(bytes.6) << 8 | UInt32(bytes.7)
+    }
+}
+
+/// Main-actor callers reserve before their first await, including GUI and startup callers.
+struct VirtualDisplayCreationGate: Sendable {
+    private(set) var pending: Set<UUID> = []
+    private var applying: Set<UUID> = []
+    init() {}
+
+    enum Decision { case create, retained, inProgress }
+
+    mutating func begin(_ id: UUID, retained: Bool) -> Decision {
+        if isBusy(id) { return .inProgress }
+        if retained { return .retained }
+        pending.insert(id)
+        return .create
+    }
+    mutating func finish(_ id: UUID) { pending.remove(id) }
+    mutating func beginApply(_ id: UUID) { applying.insert(id) }
+    mutating func finishApply(_ id: UUID) { applying.remove(id) }
+    func isBusy(_ id: UUID) -> Bool { pending.contains(id) || applying.contains(id) }
+}
+
+struct CrispControlVirtualDisplay: Codable, Equatable {
+    let config: CrispControlVirtualDisplayConfig
+    let saved: Bool
+    let enableRequested: Bool?
+    let creating: Bool
+    let retained: Bool
+    let online: Bool?
+    let active: Bool
+    let ready: Bool
+    let displayID: UInt32?
+    let resolution: CrispControlResolution?
+    let lastError: String?
 }
