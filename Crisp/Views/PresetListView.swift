@@ -145,6 +145,14 @@ struct PresetRow: View {
 
             Spacer()
 
+            if preset.autoApplyDisplayUUIDs != nil {
+                Image(systemName: "bolt.fill")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .accessibilityLabel("Automatically Apply")
+                    .help("Automatically Apply")
+            }
+
             // Right-aligned like a native menu key equivalent (#61).
             if let combo = preset.shortcut?.display {
                 Text(verbatim: combo)

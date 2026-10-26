@@ -54,6 +54,9 @@ struct DisplayPreset: Codable, Identifiable {
     var displays: [DisplayPresetEntry]
     /// Applies this preset; old presets decode as nil (#61).
     var shortcut: KeyboardShortcut? = nil
+    /// Opt-in trigger, independent of the values the preset captures. nil keeps legacy
+    /// presets manual. Built-in and virtual displays never participate in this set.
+    var autoApplyDisplayUUIDs: [String]? = nil
 
     // Which attributes this preset controls (derived from whether any entry stores one).
     var includesResolution: Bool { displays.contains { $0.width != nil } }
@@ -74,6 +77,47 @@ struct DisplayPreset: Codable, Identifiable {
         case .connection: includesConnection
         case .color: includesColor
         }
+    }
+}
+
+/// Pure policy shared by the editor and the event-driven auto-apply service.
+enum PresetAutoApplyPolicy {
+    static func match(in presets: [DisplayPreset], externalDisplays: Set<String>) -> DisplayPreset? {
+        guard !externalDisplays.isEmpty else { return nil }
+        let matches = presets.filter { preset in
+            guard let trigger = preset.autoApplyDisplayUUIDs, !trigger.isEmpty else { return false }
+            return Set(trigger) == externalDisplays
+        }
+        // Refuse ambiguous data rather than depending on the preset's order or name.
+        return matches.count == 1 ? matches[0] : nil
+    }
+
+    /// Selecting a default replaces only the default for the same display setup.
+    /// Renaming, updating values and adding other setups need no separate registry.
+    static func setting(_ id: UUID, in presets: [DisplayPreset], externalDisplays: Set<String>?) -> [DisplayPreset] {
+        guard presets.contains(where: { $0.id == id }) else { return presets }
+        let trigger = externalDisplays.flatMap { $0.isEmpty ? nil : $0.sorted() }
+        return presets.map { preset in
+            var result = preset
+            if preset.id == id {
+                result.autoApplyDisplayUUIDs = trigger
+            } else if let trigger, Set(preset.autoApplyDisplayUUIDs ?? []) == Set(trigger) {
+                result.autoApplyDisplayUUIDs = nil
+            }
+            return result
+        }
+    }
+}
+
+/// Ignore resolution/arrangement notifications produced by applying a preset, and
+/// leave manual changes alone until the physical setup changes or the Mac wakes.
+struct PresetAutoApplyState {
+    private var lastDisplays: Set<String>?
+
+    mutating func observe(_ displays: Set<String>, force: Bool = false) -> Bool {
+        guard force || displays != lastDisplays else { return false }
+        lastDisplays = displays
+        return true
     }
 }
 

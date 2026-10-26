@@ -1,6 +1,38 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Automatically Apply" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自动应用"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自動套用"
+          }
+        }
+      }
+    },
+    "Use the current external display setup at launch and reconnect. Replaces its previous automatic preset." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "启动或重新连接时按当前外接显示器组合应用。同一组合只保留一个自动预设。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "啟動或重新連接時依目前外接顯示器組合套用。同一組合只保留一個自動預設。"
+          }
+        }
+      }
+    },
     "" : {
 
     },

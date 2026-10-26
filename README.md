@@ -109,6 +109,23 @@ The same controls are actions in the Shortcuts app: Apply Crisp Preset, Set and 
 
 `crispctl help` lists every command, and `--help` on any command gives its details. To let an AI agent drive it, `crispctl skill install claude` or `crispctl skill install codex` adds a skill for Claude Code or Codex; for another agent, `crispctl skill show` prints it. Run the install again after updating Crisp.
 
+## Automatic display presets
+
+In a preset's **Edit** form (or **New Preset**), enable **Automatically Apply**
+to bind it to the current physical external display setup. Crisp applies the
+preset at launch, after a reconnect, and after wake once the displays settle.
+The built-in display and Crisp virtual displays do not affect the match.
+
+Each setup has one automatic preset. Enabling another for the same setup replaces
+the previous default; other setups keep theirs. Unknown, partial or mixed setups
+are left alone. Existing presets remain manual until you opt in.
+
+Edits use the latest saved values. **Update to Current Settings** also updates an
+enabled preset's display binding to the current setup. Renaming alone preserves
+the binding. Manual adjustments cancel a queued automatic change, and resolution
+notifications do not repeatedly restore brightness. The feature runs inside Crisp
+and stops when Crisp quits; it adds no helper, polling timer or network request.
+
 ## Building
 
 ```sh

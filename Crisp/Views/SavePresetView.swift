@@ -77,6 +77,7 @@ struct SavePresetForm: View {
     @State private var includeHDR: Bool = false
     @State private var includeConnection: Bool = false
     @State private var includeColor: Bool = false
+    @State private var automaticallyApply: Bool = false
     /// Edit mode only: when on, Save re-captures current values instead of stored ones.
     @State private var recaptureValues: Bool = false
     /// Global shortcut for this preset, held here until Save like name and icon
@@ -105,6 +106,7 @@ struct SavePresetForm: View {
                                         ?? PresetService.shared.anyImageAdjustment)
         _includeHDR = State(initialValue: editing?.includesHDR ?? false)
         _includeColor = State(initialValue: editing?.includesColor ?? false)
+        _automaticallyApply = State(initialValue: editing?.autoApplyDisplayUUIDs != nil)
         // On when a display is off now: that is what such a preset is saved for.
         _includeConnection = State(initialValue: editing?.includesConnection
                                    ?? !PhysicalDisplayToggleService.shared.disconnected.isEmpty)
@@ -285,6 +287,21 @@ struct SavePresetForm: View {
             ShortcutRecorderRow(label: "Shortcut", shortcut: $recordedShortcut)
                 .padding(.horizontal, -12)  // recorder row pads itself; cancel the form's inset
 
+            Toggle(isOn: $automaticallyApply) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Automatically Apply")
+                        .font(.callout)
+                    Text("Use the current external display setup at launch and reconnect. Replaces its previous automatic preset.")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .toggleStyle(.switch)
+            .controlSize(.small)
+            .tint(.accentColor)
+            .disabled(!automaticallyApply && PhysicalDisplayToggleService.shared.attachedExternalDisplayUUIDs.isEmpty)
+
             // Edit mode only; new presets always capture fresh values.
             if editing != nil {
                 Toggle(isOn: $recaptureValues) {
@@ -368,6 +385,9 @@ struct SavePresetForm: View {
                 PresetService.shared.updatePreset(id: editing.id)
             }
             PresetService.shared.commitShortcut(recordedShortcut, forPresetID: editing.id)
+            if automaticallyApply != (editing.autoApplyDisplayUUIDs != nil) {
+                PresetService.shared.setAutoApply(id: editing.id, enabled: automaticallyApply)
+            }
         } else {
             var preset = PresetService.shared.captureCurrentState(
                 name: name, icon: selectedIcon,
@@ -382,6 +402,7 @@ struct SavePresetForm: View {
             preset.colorName = selectedColor
             PresetService.shared.addPreset(preset)
             PresetService.shared.commitShortcut(recordedShortcut, forPresetID: preset.id)
+            if automaticallyApply { PresetService.shared.setAutoApply(id: preset.id, enabled: true) }
         }
 
         isSaving = false

@@ -1078,3 +1078,21 @@ extension PhysicalDisplayToggleService {
         }
     }
 }
+
+// MARK: - Physical setup identity
+
+extension PhysicalDisplayToggleService {
+    /// The physical dock, including panels Crisp has temporarily turned off. Counting
+    /// those keeps a preset's Connection capture from changing its own auto-apply trigger.
+    var attachedExternalDisplayUUIDs: Set<String> {
+        let ids = allDisplaysIncludingDisabled()
+        return Set(ids.compactMap { id in
+            let displayUUID = uuid(for: id)
+            let builtin = disconnected.first { $0.uuid == displayUUID }?.isBuiltin
+                ?? (CGDisplayIsBuiltin(id) != 0)
+            guard !builtin, !VirtualDisplayService.shared.isVirtualDisplay(id),
+                  !MirroredModeService.isMirrorVirtual(id) else { return nil }
+            return displayUUID
+        })
+    }
+}

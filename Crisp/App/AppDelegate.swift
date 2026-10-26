@@ -119,6 +119,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // Register all global shortcuts (preset shortcuts + Toggle HiDPI, issue #61).
         // Carbon hotkey: needs no Accessibility grant, so no gating like above.
         HotkeyService.shared.syncRegistrations()
+        PresetAutoApplyService.shared.start(displayManager: displayManager)
 
         // Touch the singleton so auto-brightness polling starts at launch; otherwise
         // it only starts the first time the menu panel is opened (its only other ref).
@@ -256,6 +257,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        PresetAutoApplyService.shared.stop()
         controlServer.stop()
         for obs in wakeObservers {
             NSWorkspace.shared.notificationCenter.removeObserver(obs)

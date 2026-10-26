@@ -19,6 +19,7 @@ final class PresetService: ObservableObject, @unchecked Sendable {
     /// Called by services when the user manually changes something a preset controls.
     func noteManualChange() {
         guard !isApplying else { return }
+        PresetAutoApplyService.shared.cancelPending()
         if activePresetID != nil { activePresetID = nil }
     }
 
@@ -58,6 +59,13 @@ final class PresetService: ObservableObject, @unchecked Sendable {
         guard let index = presets.firstIndex(where: { $0.id == id }) else { return }
         presets.remove(at: index)
         if activePresetID == id { activePresetID = nil }
+        savePresets()
+    }
+
+    func setAutoApply(id: UUID, enabled: Bool) {
+        let displays = PhysicalDisplayToggleService.shared.attachedExternalDisplayUUIDs
+        guard !enabled || !displays.isEmpty else { return }
+        presets = PresetAutoApplyPolicy.setting(id, in: presets, externalDisplays: enabled ? displays : nil)
         savePresets()
     }
 
@@ -111,6 +119,11 @@ final class PresetService: ObservableObject, @unchecked Sendable {
             includeColor: existing.includesColor
         )
         presets[index].displays = captured.displays
+        if existing.autoApplyDisplayUUIDs != nil {
+            presets = PresetAutoApplyPolicy.setting(
+                id, in: presets, externalDisplays: PhysicalDisplayToggleService.shared.attachedExternalDisplayUUIDs
+            )
+        }
         savePresets()
         // The preset now matches the current state by definition.
         activePresetID = id
@@ -184,11 +197,17 @@ final class PresetService: ObservableObject, @unchecked Sendable {
 
     // MARK: - Apply
 
-    /// Applies a preset: for each entry, finds the matching display and applies settings.
-    func applyPreset(_ preset: DisplayPreset) async {
-        guard !isApplying else { return }
+    private func beginApplying(_ preset: DisplayPreset, automatically: Bool) -> Bool {
+        guard !isApplying else { return false }
+        if !automatically { PresetAutoApplyService.shared.cancelPending() }
         isApplying = true
         applyingPresetID = preset.id
+        return true
+    }
+
+    /// Applies a preset: for each entry, finds the matching display and applies settings.
+    func applyPreset(_ preset: DisplayPreset, automatically: Bool = false) async {
+        guard beginApplying(preset, automatically: automatically) else { return }
         defer {
             isApplying = false
             applyingPresetID = nil
