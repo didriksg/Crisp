@@ -32,7 +32,8 @@ struct BrightnessOverrideView: View {
             .padding(.vertical, 3)
             .menuRowHover(isHovered)
             .onHover { isHovered = $0 }
-            .help("Dim in the picture instead of the monitor's backlight, for a monitor that ignores brightness commands. Raise the monitor's own brightness to full first: the dimmer can only go darker than the backlight it is stuck at.")
+            .help("Dim in the picture instead of the monitor's backlight, for a monitor that ignores brightness commands. "
+                + "Raise the monitor's own brightness to full first: the dimmer can only go darker than the backlight it is stuck at.")
         }
     }
 }
