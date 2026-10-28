@@ -198,6 +198,11 @@ struct BrightnessSliderView: View {
             localBrightness = display.brightness
             updateDDCStatus()
         }
+        .onReceive(display.objectWillChange) { _ in
+            // Re-read the caption when the forced-software toggle flips
+            // without the slider itself being touched.
+            updateDDCStatus()
+        }
         .onChange(of: display.brightness) { _, newValue in
             // Holds at the click target until the fade catches up (see click-glide above).
             if clickGliding {
@@ -240,6 +245,13 @@ struct BrightnessSliderView: View {
     }
 
     private func updateDDCStatus() {
+        // The caption reads the DDC latch only; a forced-software display
+        // with acking writes would show a green "DDC" while really writing
+        // gamma — fold the forced route in, like the HDR case above.
+        if BrightnessService.shared.isSoftwareBrightnessForced(display) {
+            ddcStatus = .some(false)
+            return
+        }
         ddcStatus = BrightnessService.shared.isDDCAvailable(for: display.displayID)
     }
 

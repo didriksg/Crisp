@@ -173,7 +173,9 @@ final class BrightnessAnimator: @unchecked Sendable {
 
 final class BrightnessService: @unchecked Sendable {
     static let shared = BrightnessService()
-    private init() {}
+    private init() {
+        forcedSoftwareUUIDs = Set(UserDefaults.standard.stringArray(forKey: Self.forcedSoftwareKey) ?? [])
+    }
 
     private let queue = DispatchQueue(label: "com.crisp.brightness", qos: .userInitiated)
 
@@ -282,6 +284,59 @@ final class BrightnessService: @unchecked Sendable {
     /// Per-display DDC max brightness value reported by the monitor.
     /// Used to denormalize 0–100% into the display's native DDC range.
     private var ddcMaxBrightness: [CGDirectDisplayID: UInt16] = [:]
+
+    /// UUIDs the user routed onto software brightness for good. A monitor that
+    /// acks DDC brightness writes but never applies them (and answers every
+    /// capability read with garbage) can never trip the three-failed-writes
+    /// latch, so the top of its slider just dies with nothing to detect. The
+    /// forced display's whole 0–100 range takes the gamma path, exactly like
+    /// an HDR-dimmed display. Guarded by ddcAvailableLock like hdrDimmedDisplays:
+    /// the write path reads it per coalesced write, off-main.
+    private static let forcedSoftwareKey = "crisp.brightnessForcedSoftware"
+    private var forcedSoftwareUUIDs: Set<String> = []
+
+    @MainActor
+    func isSoftwareBrightnessForced(_ display: DisplayInfo) -> Bool {
+        ddcAvailableLock.withLock { forcedSoftwareUUIDs.contains(display.displayUUID) }
+    }
+
+    private func isSoftwareForced(displayID: CGDirectDisplayID) -> Bool {
+        guard let uuid = Self.displayUUIDString(for: displayID) else { return false }
+        return ddcAvailableLock.withLock { forcedSoftwareUUIDs.contains(uuid) }
+    }
+
+    @MainActor
+    func setSoftwareBrightnessForced(_ on: Bool, for display: DisplayInfo) {
+        let uuids = ddcAvailableLock.withLock {
+            if on {
+                forcedSoftwareUUIDs.insert(display.displayUUID)
+            } else {
+                forcedSoftwareUUIDs.remove(display.displayUUID)
+            }
+            return forcedSoftwareUUIDs
+        }
+        UserDefaults.standard.set(Array(uuids), forKey: Self.forcedSoftwareKey)
+        Self.log.notice("display \(display.displayID, privacy: .public): software brightness forced \(on ? "on" : "off", privacy: .public)")
+        // Invalidate any in-flight coalesced DDC write so a stale hardware
+        // write can't land after the route flip.
+        ddcPumpLock.withLock { _ = ddcOperationGeneration.nextRequest(for: display.displayID) }
+        if on {
+            // Apply the current level through gamma right away, so the panel
+            // doesn't sit on the last hardware write the monitor ignored.
+            // Off-main like every other gamma write: the table write is a
+            // WindowServer round trip that can stall behind a wedged DCP.
+            applyLatestSoftwareBrightness(display.brightness, for: display.displayID)
+        } else {
+            // Hand the current level back to hardware: resetting gamma alone
+            // would leave the panel at whatever backlight DDC last set.
+            // Hardware only ever sees 0...100; the region above is boost's.
+            queue.async { [weak self] in
+                self?.resetSoftwareBrightness(for: display.displayID)
+            }
+            writeDDCBrightnessCoalesced(percent: min(display.brightness, 100.0), for: display.displayID)
+        }
+        display.objectWillChange.send()
+    }
 
     // MARK: - Public API
 
@@ -590,10 +645,11 @@ final class BrightnessService: @unchecked Sendable {
 
     private func writeDDCBrightnessCoalesced(percent: Double, for displayID: CGDirectDisplayID) {
         // Single choke point for every DDC brightness write: routes the full
-        // range to gamma while the monitor is in HDR mode. DDC resumes
-        // automatically when HDR goes off.
+        // range to gamma while the monitor is in HDR mode or the user forced
+        // software brightness for it. DDC resumes automatically when HDR goes
+        // off (the forced route needs the row turned back off by hand).
         let hdrDimmed = ddcAvailableLock.withLock { hdrDimmedDisplays.contains(displayID) }
-        if hdrDimmed {
+        if hdrDimmed || isSoftwareForced(displayID: displayID) {
             applyLatestSoftwareBrightness(percent, for: displayID)
             return
         }
@@ -917,8 +973,11 @@ final class BrightnessService: @unchecked Sendable {
         }
         return CrispControlModel.brightnessBackend(
             // `builtin` is the route through macOS, which Apple externals share.
+            // The forced-software route folds into hdrSoftwareDimming: the mapper
+            // only uses it to pick .software, and no consumer distinguishes WHY
+            // the route is software from this snapshot.
             isBuiltin: display.hasNativeBrightness,
-            hdrSoftwareDimming: state.0,
+            hdrSoftwareDimming: state.0 || isSoftwareForced(displayID: displayID),
             ddcAvailable: state.1
         )
     }

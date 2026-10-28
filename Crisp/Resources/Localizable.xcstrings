@@ -333,6 +333,11 @@
         }
       }
     },
+    "Dim in the picture instead of the monitor's backlight, for a monitor that ignores brightness commands. Raise the monitor's own brightness to full first: the dimmer can only go darker than the backlight it is stuck at." : {
+      "localizations" : {
+
+      }
+    },
     "Input" : {
       "localizations" : {
         "zh-Hans" : {
@@ -395,6 +400,11 @@
             "value" : "設定顯示器輸入來源"
           }
         }
+      }
+    },
+    "Software Brightness" : {
+      "localizations" : {
+
       }
     },
     "Stays disconnected until you reconnect it here." : {
