@@ -1143,10 +1143,22 @@ extension BrightnessService {
             // would leave the panel at whatever backlight DDC last set.
             // Hardware only ever sees 0...100; the region above is boost's.
             queue.async { [weak self] in
-                self?.resetSoftwareBrightness(for: display.displayID)
+                guard let self else { return }
+                // An identity reset would clobber GammaService's table while
+                // it still owns the display; reapply restores its adjustment
+                // (the same ownership check setSoftwareBrightness makes).
+                if GammaService.shared.hasActiveAdjustment(for: display.displayID) {
+                    GammaService.shared.reapply(for: display.displayID)
+                } else {
+                    self.resetSoftwareBrightness(for: display.displayID)
+                }
             }
             writeDDCBrightnessCoalesced(percent: min(display.brightness, 100.0), for: display.displayID)
         }
+        // Keep the boost overlay in step with the route change, like
+        // setBrightness does: a display un-forced above 100% must regain its
+        // overlay on top of the hardware write (no-op for maxBrightness <= 100).
+        BrightnessBoostService.shared.syncOverlay(for: display)
         display.objectWillChange.send()
     }
 
