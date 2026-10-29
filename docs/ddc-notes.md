@@ -45,8 +45,9 @@ ships as a result. Read this before touching DDCService or chasing a
 - In-app tell for a user's Mac (no scripts): `defaults write com.crisp.app
   crisp.showBrightnessControlMode -bool true`, relaunch Crisp. A caption
   above each brightness slider then reads DDC (green, a write or read
-  succeeded), Software (orange, the three-failure latch flipped to gamma),
-  or System for the built-in; nothing until the first write settles it.
+  succeeded), Software (orange, the three-failure latch flipped to gamma,
+  or the Software Brightness override forced on), or System for the
+  built-in; nothing until the first write settles it.
   `-bool false` or `defaults delete` puts it back. Not in 1.5.0.
 - `scripts/ddc-write-probe.swift [aoc|dell] <value ... | burst>`: sends
   real brightness writes (visible on the monitor). `burst` simulates a
@@ -102,6 +103,7 @@ same subtree, which is what proximity matching relies on instead.
 | One display's I2C blocks for seconds | Every other display's slider stalls with it | Per-display serial queues; coalesced latest-wins writes; immediate software preview while the write is outstanding |
 | Channel goes deaf (no ack) | Writes fail cleanly | 3-failure latch to full-range software gamma; recovery on reconnect |
 | Monitor in HDR discards DDC writes (still acks) | 15-100% of slider dead, ack-based detection blind | HDR state routes the whole 0-100 range to software gamma |
+| Monitor acks brightness writes but never applies them (firmware; seen on a LEN Y27q-20 whose reads are all NULL frames) | Whole slider dead above the gamma-blend region, ack-based detection blind, reads give garbage so even max is unknowable | `Software Brightness` row on the display's detail forces the whole 0-100 range to software gamma (uuid-persisted, `crisp.brightnessForcedSoftware`) |
 | Firmware fills the high byte of the volume max (Dell S2725DSM replies 0xFF64 for 0 to 100, #162) | Volume keys and slider give only mute or full volume | Volume max taken from the low byte (`DDCVolumeMax`), the byte ddcutil reads 0x62 from |
 
 ## Recovery, in order of escalation
