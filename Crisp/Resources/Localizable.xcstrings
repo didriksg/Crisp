@@ -231,6 +231,22 @@
         }
       }
     },
+    "%d-bit" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%d 位"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%d 位元"
+          }
+        }
+      }
+    },
     "%lld" : {
       "shouldTranslate" : false
     },
@@ -775,6 +791,22 @@
         }
       }
     },
+    "Automatic" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自动"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自動"
+          }
+        }
+      }
+    },
     "Automatically adjust brightness" : {
       "localizations" : {
         "zh-Hans" : {
@@ -1143,6 +1175,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "顏色歷史"
+          }
+        }
+      }
+    },
+    "Color Mode" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "色彩模式"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "色彩模式"
           }
         }
       }
@@ -1980,6 +2028,22 @@
         }
       }
     },
+    "Full Range" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "全范围"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "全範圍"
+          }
+        }
+      }
+    },
     "Gain" : {
       "localizations" : {
         "zh-Hans" : {
@@ -2459,6 +2523,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "命令列工具"
+          }
+        }
+      }
+    },
+    "Limited Range" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "有限范围"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "有限範圍"
           }
         }
       }
@@ -4098,6 +4178,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "無法切換到 %@，請重試"
+          }
+        }
+      }
+    },
+    "Unable to switch color mode. Please try again." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法切换色彩模式，请重试。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無法切換色彩模式，請重試。"
           }
         }
       }
