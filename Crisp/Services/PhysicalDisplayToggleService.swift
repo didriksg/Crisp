@@ -16,14 +16,7 @@ final class PhysicalDisplayToggleService: ObservableObject {
     private init() {
         loadDesired()
         loadParked()
-        // didWake and screensDidWake both: the blackout restore waits longer near a wake (#168).
-        for name in [NSWorkspace.didWakeNotification, NSWorkspace.screensDidWakeNotification] {
-            wakeObservers.append(NSWorkspace.shared.notificationCenter.addObserver(
-                forName: name, object: nil, queue: .main
-            ) { [weak self] _ in
-                MainActor.assumeIsolated { self?.noteWake() }
-            })
-        }
+        observeSleepAndWake()
     }
 
     private var wakeObservers: [NSObjectProtocol] = []
@@ -851,11 +844,9 @@ final class PhysicalDisplayToggleService: ObservableObject {
 
     /// Stamped on every didWake and screensDidWake.
     private var lastWake: DispatchTime?
-
-    private func noteWake() {
-        lastWake = .now()
-        Self.log.notice("wake noted: the blackout restore allows \(Self.wakeSettleRepolls, privacy: .public) re-polls for \(Int(Self.wakeSettleSpan), privacy: .public) s")
-    }
+    /// Set by willSleep and screensDidSleep, cleared by the next wake. A DarkWake posts
+    /// neither wake notification, so the rescue stays down through it too.
+    private var screensAsleep = false
 
     /// Read on every pass rather than once: the wake notification can land after the
     /// first callback of that wake has already started the settle.
@@ -903,6 +894,12 @@ final class PhysicalDisplayToggleService: ObservableObject {
                 Self.log.notice("restore settled: \(settled, privacy: .public) active display(s) after 2 s and \(repolls, privacy: .public) re-poll(s), standing down")
                 return
             }
+            // A lid close takes the built-in away about 5 s before Clamshell Sleep: an enable
+            // then reports success and WindowServer keeps the display off until logout (#246).
+            guard !self.screensAsleep else {
+                Self.log.notice("screens asleep, restore stands down: \(self.disconnected.count, privacy: .public) record(s) kept")
+                return
+            }
             // Logged because every screen is black here: distinguishes a Crisp restore from
             // macOS re-probing on its own (#91).
             Self.log.notice("no active display, restoring from \(self.disconnected.count, privacy: .public) record(s) after 2 s and \(repolls, privacy: .public) re-poll(s)")
@@ -915,7 +912,7 @@ final class PhysicalDisplayToggleService: ObservableObject {
                 .sorted { self.wasBuiltin($0.0, id: $0.1) && !self.wasBuiltin($1.0, id: $1.1) }
             for (record, _) in candidates {
                 // macOS re-probes on its own and often wins the race; stop as soon as anything's back.
-                guard self.phantomAwareActiveDisplayCount() == 0 else { return }
+                guard !self.screensAsleep, self.phantomAwareActiveDisplayCount() == 0 else { return }
                 guard case .success = await self.reconnect(uuid: record.uuid, byUser: false) else { continue }
                 self.park(record)
                 // Not proof of recovery (see verifyBackOnline): only enumeration ends the
@@ -1076,5 +1073,38 @@ extension PhysicalDisplayToggleService {
             Self.log.notice("timed-out reconnect of \(uuid, privacy: .public): \(landed ? "landed late, record dropped" : "not landed after the late-commit window", privacy: .public)")
             displayManager?.refreshDisplays()
         }
+    }
+}
+
+// MARK: - Sleep and wake
+
+extension PhysicalDisplayToggleService {
+    /// didWake and screensDidWake both: the blackout restore waits longer near a wake (#168).
+    /// willSleep and screensDidSleep: a display enabled while macOS takes the screens down
+    /// stays off until logout, so the restore stands down until the next wake (#246).
+    private func observeSleepAndWake() {
+        for name in [NSWorkspace.didWakeNotification, NSWorkspace.screensDidWakeNotification] {
+            wakeObservers.append(NSWorkspace.shared.notificationCenter.addObserver(
+                forName: name, object: nil, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.noteWake() }
+            })
+        }
+        for name in [NSWorkspace.willSleepNotification, NSWorkspace.screensDidSleepNotification] {
+            wakeObservers.append(NSWorkspace.shared.notificationCenter.addObserver(
+                forName: name, object: nil, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.screensAsleep = true }
+            })
+        }
+    }
+
+    private func noteWake() {
+        lastWake = .now()
+        screensAsleep = false
+        Self.log.notice("wake noted: the blackout restore allows \(Self.wakeSettleRepolls, privacy: .public) re-polls for \(Int(Self.wakeSettleSpan), privacy: .public) s")
+        // A rescue that stood down while the screens were asleep gets no callback to re-ask it
+        // when only the screens wake (a display sleep, or a keyboard wake in clamshell).
+        restoreIfNoActiveDisplay()
     }
 }
