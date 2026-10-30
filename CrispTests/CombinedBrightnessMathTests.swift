@@ -200,4 +200,48 @@ final class CombinedBrightnessMathTests: XCTestCase {
             accuracy: 0.001
         )
     }
+
+    func testForcedSoftwareMappingKeepsCurveWithoutNitsMetadata() {
+        // The square root belongs to the gamma route, not to the metadata:
+        // 1:1 scale fallback instead of the DDC-linear mapping.
+        XCTAssertEqual(
+            CombinedBrightnessMath.forcedSoftwareTargetBrightness(
+                combined: 25,
+                maxBrightness: 100,
+                displayMaxNits: nil,
+                referenceMaxNits: nil
+            ),
+            50,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            CombinedBrightnessMath.forcedSoftwareControlValue(
+                brightness: 50,
+                displayMaxNits: nil,
+                referenceMaxNits: nil
+            ),
+            25,
+            accuracy: 0.001
+        )
+    }
+
+    func testForcedSoftwareRoundTripWithAsymmetricNits() {
+        for combined in [0.0, 3, 15, 30, 50, 77, 100] {
+            let percent = CombinedBrightnessMath.forcedSoftwareTargetBrightness(
+                combined: combined,
+                maxBrightness: 100,
+                displayMaxNits: 300,
+                referenceMaxNits: 400
+            )
+            XCTAssertEqual(
+                CombinedBrightnessMath.forcedSoftwareControlValue(
+                    brightness: percent,
+                    displayMaxNits: 300,
+                    referenceMaxNits: 400
+                ),
+                min(combined, 75),  // the dimmer panel saturates at its 300-nit ceiling
+                accuracy: 0.001
+            )
+        }
+    }
 }

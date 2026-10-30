@@ -289,15 +289,14 @@ struct CombinedBrightnessView: View {
             .reduce(0, +) / Double(referenceDisplays.count)
     }
 
-    /// The combined handle's position for one reference display. A forced-
-    /// software external reports luminance through the gamma square, every
-    /// other route through its DDC-linear percent.
+    /// The combined handle's position for one reference display. A display the
+    /// Brightness Control row shows as Software reports luminance through the
+    /// gamma square, every other route through its DDC-linear percent.
     private func combinedControlValue(for display: DisplayInfo) -> Double {
-        if BrightnessService.shared.brightnessControlRow(for: display).shown == .software,
-           let displayMaxNits = display.nominalMaxNits, let referenceMaxNits {
+        if BrightnessService.shared.brightnessControlRow(for: display).shown == .software {
             return CombinedBrightnessMath.forcedSoftwareControlValue(
                 brightness: display.brightness,
-                displayMaxNits: displayMaxNits,
+                displayMaxNits: display.nominalMaxNits,
                 referenceMaxNits: referenceMaxNits)
         }
         return CombinedBrightnessMath.controlValue(
@@ -311,12 +310,11 @@ struct CombinedBrightnessView: View {
         guard !display.isBuiltin else {
             return combined / 100.0 * display.maxBrightness
         }
-        if BrightnessService.shared.brightnessControlRow(for: display).shown == .software,
-           let displayMaxNits = display.nominalMaxNits, let referenceMaxNits {
+        if BrightnessService.shared.brightnessControlRow(for: display).shown == .software {
             return CombinedBrightnessMath.forcedSoftwareTargetBrightness(
                 combined: combined,
                 maxBrightness: display.maxBrightness,
-                displayMaxNits: displayMaxNits,
+                displayMaxNits: display.nominalMaxNits,
                 referenceMaxNits: referenceMaxNits)
         }
         return CombinedBrightnessMath.targetBrightness(

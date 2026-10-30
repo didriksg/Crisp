@@ -54,34 +54,44 @@ enum CombinedBrightnessMath {
     /// through the gamma table, whose linear factors the panel curves into
     /// luminance ∝ factor², so the percent for a desired luminance fraction is
     /// its square root — the DDC-linear mapping leaves such a display far
-    /// darker than the combined handle asks for.
+    /// darker than the combined handle asks for. Without nits metadata the
+    /// square root stays on a 1:1 scale (the curve belongs to the route, not
+    /// to the metadata).
     static func forcedSoftwareTargetBrightness(
         combined: Double,
         maxBrightness: Double,
-        displayMaxNits: Double,
-        referenceMaxNits: Double
+        displayMaxNits: Double?,
+        referenceMaxNits: Double?
     ) -> Double {
-        guard maxBrightness.isFinite, maxBrightness > 0,
-              displayMaxNits.isFinite, displayMaxNits > 0,
-              referenceMaxNits.isFinite, referenceMaxNits > 0 else {
-            return min(maxBrightness, max(0.0, combined / 100.0 * maxBrightness))
+        guard maxBrightness.isFinite, maxBrightness > 0 else { return 0 }
+        let fraction: Double
+        if let displayMaxNits, displayMaxNits.isFinite, displayMaxNits > 0,
+           let referenceMaxNits, referenceMaxNits.isFinite, referenceMaxNits > 0 {
+            fraction = targetNits(combined: combined, referenceMaxNits: referenceMaxNits) / displayMaxNits
+            let percent = sqrt(min(1.0, max(0.0, fraction))) * 100.0
+            return min(maxBrightness, max(0.0, percent))
         }
-        let fraction = targetNits(combined: combined, referenceMaxNits: referenceMaxNits) / displayMaxNits
-        let percent = sqrt(min(1.0, max(0.0, fraction))) * 100.0
+        // No nits metadata: keep the route's curve on the display's own scale,
+        // like targetBrightness's proportional fallback.
+        let proportional = combined.isFinite ? combined / 100.0 : 0
+        let percent = sqrt(min(1.0, max(0.0, proportional))) * maxBrightness
         return min(maxBrightness, max(0.0, percent))
     }
 
     /// Forced-software counterpart of `controlValue`: brightness percent back
     /// to the combined scale through the gamma square instead of the DDC-
-    /// linear percent.
+    /// linear percent. Without nits metadata the square stays on a 1:1 scale.
     static func forcedSoftwareControlValue(
         brightness: Double,
-        displayMaxNits: Double,
-        referenceMaxNits: Double
+        displayMaxNits: Double?,
+        referenceMaxNits: Double?
     ) -> Double {
-        guard brightness.isFinite, displayMaxNits.isFinite, displayMaxNits > 0,
-              referenceMaxNits.isFinite, referenceMaxNits > 0 else { return 0 }
+        guard brightness.isFinite else { return 0 }
         let factor = min(1.0, max(0.0, brightness / 100.0))
+        guard let displayMaxNits, displayMaxNits.isFinite, displayMaxNits > 0,
+              let referenceMaxNits, referenceMaxNits.isFinite, referenceMaxNits > 0 else {
+            return factor * factor * 100.0
+        }
         let nits = factor * factor * displayMaxNits
         return min(100.0, max(0.0, nits / referenceMaxNits * 100.0))
     }
