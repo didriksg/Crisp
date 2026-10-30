@@ -267,13 +267,24 @@ final class OSDBannerService {
 
     /// macOS 27's glass, see glassVariant. Nil where the variant is not
     /// there to ask for, which keeps the hand-made capsule.
-    private static func makeGlassView(frame: NSRect) -> NSGlassEffectView? {
-        guard NSGlassEffectView.instancesRespond(to: NSSelectorFromString("set_variant:")) else { return nil }
-        let glass = NSGlassEffectView(frame: frame)
-        glass.cornerRadius = cornerRadius
-        glass.setValue(glassVariant, forKey: "_variant")
-        glass.appearance = NSAppearance(named: .darkAqua)
-        glass.autoresizingMask = [.width, .height]
+    private static func makeGlassView(frame: NSRect) -> NSVisualEffectView  {
+        let glass = NSVisualEffectView(frame: frame)
+
+            switch Self.glassVariant {
+            case 0:
+                glass.material = .underWindowBackground
+            case 1:
+                glass.material = .hudWindow
+            default:
+                glass.material = .sidebar
+            }
+
+            glass.blendingMode = .behindWindow
+            glass.state = .active
+            glass.wantsLayer = true
+            glass.layer?.cornerRadius = Self.cornerRadius
+            glass.autoresizingMask = [.width, .height]
+
         return glass
     }
 
@@ -608,7 +619,7 @@ final class OSDBannerService {
 @available(macOS 26.0, *)
 @MainActor
 struct OSDGlass {
-    let view: NSGlassEffectView
+    let view: NSView
     let faded: [CALayer]
     /// The rim's rings, which the entry ramps. Not the whole bevel view: its
     /// glow stays up, see OSDBevelView.rings.

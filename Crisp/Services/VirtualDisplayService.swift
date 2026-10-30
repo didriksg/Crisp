@@ -92,18 +92,23 @@ final class VirtualDisplayService: ObservableObject, @unchecked Sendable {
         let w = config.width
         let h = config.height
         let hiDPI = config.hiDPI
+        
+        let backingScale = hiDPI ? 2 : 1
+        let maxW = w * backingScale
+        let maxH = h * backingScale
+        
 
         // CGVirtualDisplay(descriptor:) requires the main thread (returns nil off it).
         let descriptor = CGVirtualDisplayDescriptor()
         // Size from a fixed PPI so macOS defaults to the native resolution instead of a
         // scaled Retina mode. See docs/display-notes.md (VirtualDisplayService.create).
-        let ppi: Double = 110.0
+        let ppi: Double = hiDPI ? 220.0 : 110.0
         descriptor.sizeInMillimeters = CGSize(
-            width: Double(w) / ppi * 25.4,
-            height: Double(h) / ppi * 25.4
+            width: Double(maxW) / ppi * 25.4,
+            height: Double(maxH) / ppi * 25.4
         )
-        descriptor.maxPixelsWide = UInt32(w)
-        descriptor.maxPixelsHigh = UInt32(h)
+        descriptor.maxPixelsWide = UInt32(maxW)
+        descriptor.maxPixelsHigh = UInt32(maxH)
         descriptor.name = config.name.isEmpty ? String(localized: "Crisp Virtual") : config.name
         descriptor.vendorID = Self.crispVirtualVendorID  // must be non-zero or init returns nil
         // Must be unique per config AND stable across recreations (macOS keys per-display
@@ -121,22 +126,26 @@ final class VirtualDisplayService: ObservableObject, @unchecked Sendable {
         settings.hiDPI = hiDPI
 
         var modes: [CGVirtualDisplayMode] = []
-        let refreshRates: [Double] = [75.0, 60.0, 50.0]
+        let refreshRates: [Double] = [120.0, 90.0, 75.0, 60.0, 50.0]
         for rate in refreshRates {
             modes.append(CGVirtualDisplayMode(width: UInt(w), height: UInt(h), refreshRate: rate))
         }
         if hiDPI {
-            let hw = w / 2, hh = h / 2
-            if hw >= 1, hh >= 1 {
+            // 生成目标分辨率及常用缩放比例下的 (2x, 1x) 模式对
+            let scales: [Double] = [1.0, 0.8, 0.75, 0.625, 0.5]
+            var seen = Set<String>()
+            for scale in scales {
+                let lw = Int((Double(w) * scale).rounded()) & ~1
+                let lh = Int((Double(h) * scale).rounded()) & ~1
+                guard lw >= 640, lh >= 480, seen.insert("\(lw)x\(lh)").inserted else { continue }
                 for rate in refreshRates {
-                    modes.append(CGVirtualDisplayMode(width: UInt(hw), height: UInt(hh), refreshRate: rate))
+                    modes.append(CGVirtualDisplayMode(width: UInt(lw * 2), height: UInt(lh * 2), refreshRate: rate))
+                    modes.append(CGVirtualDisplayMode(width: UInt(lw), height: UInt(lh), refreshRate: rate))
                 }
             }
-            let qw = w / 4, qh = h / 4
-            if qw >= 1, qh >= 1 {
-                for rate in refreshRates {
-                    modes.append(CGVirtualDisplayMode(width: UInt(qw), height: UInt(qh), refreshRate: rate))
-                }
+        } else {
+            for rate in refreshRates {
+                modes.append(CGVirtualDisplayMode(width: UInt(w), height: UInt(h), refreshRate: rate))
             }
         }
         settings.modes = modes
@@ -155,7 +164,7 @@ final class VirtualDisplayService: ObservableObject, @unchecked Sendable {
 
         // macOS auto-adds a scaled looks-like-1080p default for high-resolution displays
         // regardless of the modes supplied; force native 1x so it reads as its real resolution.
-        await applyNativeResolution(virtualDisplay.displayID, width: w, height: h)
+        await applyInitialResolution(virtualDisplay.displayID, width: w, height: h, hiDPI: hiDPI)
         return true
     }
 
@@ -175,6 +184,31 @@ final class VirtualDisplayService: ObservableObject, @unchecked Sendable {
                   }) ?? modes.first(where: { $0.pixelWidth == width && $0.pixelHeight == height })
             else { continue }
             _ = await ResolutionService.applyModeSync(native, on: displayID)
+        }
+    }
+    
+    private func applyInitialResolution(_ displayID: CGDirectDisplayID, width: Int, height: Int, hiDPI: Bool) async {
+        let options = [kCGDisplayShowDuplicateLowResolutionModes as String: true] as CFDictionary
+        let expectedPixelW = hiDPI ? width * 2 : width
+        let expectedPixelH = hiDPI ? height * 2 : height
+
+        for attempt in 0..<8 {
+            if attempt > 0 {
+                await ReconfigEvents.shared.next(for: displayID, matching: .setModeFlag, timeout: 0.35)
+            }
+            if let cur = CGDisplayCopyDisplayMode(displayID),
+               cur.width == width, cur.height == height, cur.pixelWidth == expectedPixelW {
+                return
+            }
+            guard let modes = CGDisplayCopyAllDisplayModes(displayID, options) as? [CGDisplayMode],
+                  let targetMode = modes.first(where: {
+                      $0.width == width && $0.height == height
+                          && $0.pixelWidth == expectedPixelW && $0.pixelHeight == expectedPixelH
+                  }) ?? modes.first(where: {
+                      $0.width == width && $0.height == height && ($0.pixelWidth > $0.width) == hiDPI
+                  })
+            else { continue }
+            _ = await ResolutionService.applyModeSync(targetMode, on: displayID)
         }
     }
 
@@ -291,7 +325,9 @@ final class VirtualDisplayService: ObservableObject, @unchecked Sendable {
             guard servicePort == 0 || servicePort == MACH_PORT_NULL else { continue }
             let w = Int(CGDisplayPixelsWide(id))
             let h = Int(CGDisplayPixelsHigh(id))
-            if w == width && h == height { return true }
+            if (w == width && h == height) || (w == width * 2 && h == height * 2) {
+                return true
+            }
         }
         return false
     }
@@ -299,5 +335,15 @@ final class VirtualDisplayService: ObservableObject, @unchecked Sendable {
     private func saveConfigs() {
         guard let data = try? JSONEncoder().encode(configs) else { return }
         UserDefaults.standard.set(data, forKey: configsKey)
+    }
+    
+    @MainActor
+    func name(for displayID: CGDirectDisplayID) -> String? {
+        for (configID, displayObj) in activeDisplayObjects {
+            if displayObj.displayID == displayID {
+                return configs.first(where: { $0.id == configID })?.name
+            }
+        }
+        return nil
     }
 }

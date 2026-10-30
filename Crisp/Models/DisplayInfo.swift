@@ -106,7 +106,13 @@ class DisplayInfo: ObservableObject, Identifiable {
         } else {
             // String(displayID), not the raw UInt32: a numeric interpolation generates a
             // numeric-specifier key that never matches the catalog's "Display %@" entry.
-            self.name = NSScreen.screen(for: displayID)?.localizedName ?? String(localized: "Display \(String(displayID))")
+            //self.name = NSScreen.screen(for: displayID)?.localizedName ?? String(localized: "Display \(String(displayID))")
+            // 1. 先尝试通过 VirtualDisplayService 获取虚拟屏幕自定义名称
+            let virtualName = VirtualDisplayService.shared.name(for: displayID)
+            
+            // 2. 如果是普通外接屏幕，则回退到 NSScreen 名字或 "Display ID"
+            self.name = virtualName ?? NSScreen.screen(for: displayID)?.localizedName ?? String(localized: "Display \(String(displayID))")
+            
         }
 
     }
