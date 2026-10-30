@@ -285,18 +285,39 @@ struct CombinedBrightnessView: View {
 
     private var averageBrightness: Double {
         guard !referenceDisplays.isEmpty else { return 50 }
-        return referenceDisplays.map {
-            CombinedBrightnessMath.controlValue(
-                brightness: $0.brightness,
-                maxBrightness: $0.maxBrightness,
-                displayMaxNits: $0.nominalMaxNits,
+        return referenceDisplays.map { combinedControlValue(for: $0) }
+            .reduce(0, +) / Double(referenceDisplays.count)
+    }
+
+    /// The combined handle's position for one reference display. A forced-
+    /// software external reports luminance through the gamma square, every
+    /// other route through its DDC-linear percent.
+    private func combinedControlValue(for display: DisplayInfo) -> Double {
+        if BrightnessService.shared.brightnessControlRow(for: display).shown == .software,
+           let displayMaxNits = display.nominalMaxNits, let referenceMaxNits {
+            return CombinedBrightnessMath.forcedSoftwareControlValue(
+                brightness: display.brightness,
+                displayMaxNits: displayMaxNits,
                 referenceMaxNits: referenceMaxNits)
-        }.reduce(0, +) / Double(referenceDisplays.count)
+        }
+        return CombinedBrightnessMath.controlValue(
+            brightness: display.brightness,
+            maxBrightness: display.maxBrightness,
+            displayMaxNits: display.nominalMaxNits,
+            referenceMaxNits: referenceMaxNits)
     }
 
     private func targetBrightness(_ combined: Double, for display: DisplayInfo) -> Double {
         guard !display.isBuiltin else {
             return combined / 100.0 * display.maxBrightness
+        }
+        if BrightnessService.shared.brightnessControlRow(for: display).shown == .software,
+           let displayMaxNits = display.nominalMaxNits, let referenceMaxNits {
+            return CombinedBrightnessMath.forcedSoftwareTargetBrightness(
+                combined: combined,
+                maxBrightness: display.maxBrightness,
+                displayMaxNits: displayMaxNits,
+                referenceMaxNits: referenceMaxNits)
         }
         return CombinedBrightnessMath.targetBrightness(
             combined: combined,

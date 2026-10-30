@@ -50,6 +50,42 @@ enum CombinedBrightnessMath {
         return min(100.0, max(0.0, nits / referenceMaxNits * 100.0))
     }
 
+    /// Forced-software counterpart of `targetBrightness`: the whole range goes
+    /// through the gamma table, whose linear factors the panel curves into
+    /// luminance ∝ factor², so the percent for a desired luminance fraction is
+    /// its square root — the DDC-linear mapping leaves such a display far
+    /// darker than the combined handle asks for.
+    static func forcedSoftwareTargetBrightness(
+        combined: Double,
+        maxBrightness: Double,
+        displayMaxNits: Double,
+        referenceMaxNits: Double
+    ) -> Double {
+        guard maxBrightness.isFinite, maxBrightness > 0,
+              displayMaxNits.isFinite, displayMaxNits > 0,
+              referenceMaxNits.isFinite, referenceMaxNits > 0 else {
+            return min(maxBrightness, max(0.0, combined / 100.0 * maxBrightness))
+        }
+        let fraction = targetNits(combined: combined, referenceMaxNits: referenceMaxNits) / displayMaxNits
+        let percent = sqrt(min(1.0, max(0.0, fraction))) * 100.0
+        return min(maxBrightness, max(0.0, percent))
+    }
+
+    /// Forced-software counterpart of `controlValue`: brightness percent back
+    /// to the combined scale through the gamma square instead of the DDC-
+    /// linear percent.
+    static func forcedSoftwareControlValue(
+        brightness: Double,
+        displayMaxNits: Double,
+        referenceMaxNits: Double
+    ) -> Double {
+        guard brightness.isFinite, displayMaxNits.isFinite, displayMaxNits > 0,
+              referenceMaxNits.isFinite, referenceMaxNits > 0 else { return 0 }
+        let factor = min(1.0, max(0.0, brightness / 100.0))
+        let nits = factor * factor * displayMaxNits
+        return min(100.0, max(0.0, nits / referenceMaxNits * 100.0))
+    }
+
     /// Linear native-panel level (0...1) for the same absolute target. This is
     /// passed to DisplayServicesSetLinearBrightness so macOS performs its own
     /// nonlinear user-slider conversion instead of Crisp guessing the curve.
