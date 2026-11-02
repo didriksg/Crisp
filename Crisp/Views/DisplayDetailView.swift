@@ -126,6 +126,8 @@ struct DetailTailBlock: View {
         VStack(alignment: .leading, spacing: 0) {
             SectionDivider()
 
+            BrightnessOverrideView(display: display)
+
             VolumeOverrideView(display: display)
 
             // Above Extra Brightness: cause before effect (boost on an SDR
