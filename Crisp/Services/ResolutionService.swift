@@ -93,21 +93,32 @@ final class ResolutionService: @unchecked Sendable {
         // instead, same as setDisplayMode. See docs/display-notes.md (ResolutionService).
         let (targetID, _) = resolvedTargetDisplayID(for: displayID)
 
-        let options: CFDictionary = [kCGDisplayShowDuplicateLowResolutionModes: true] as CFDictionary
-        guard let rawModes = CGDisplayCopyAllDisplayModes(targetID, options) as? [CGDisplayMode],
-              let cgMode = rawModes.first(where: {
-                  $0.width == saved.width && $0.height == saved.height &&
-                  ($0.pixelWidth > $0.width) == saved.hidpi &&
-                  Self.refreshMatches($0.refreshRate, saved.refresh)
-              })
-        else { return }
+        let match: (DisplayMode) -> Bool = {
+            $0.width == saved.width && $0.height == saved.height && $0.isHiDPI == saved.hidpi &&
+                Self.refreshMatches($0.refreshRate, saved.refresh)
+        }
+        guard DisplayMode.availableModes(for: targetID).contains(where: match) else { return }
 
         let now = CGDisplayCopyDisplayMode(displayID)
         Self.log.notice("display \(displayID, privacy: .public): came back from sleep on \(now?.width ?? 0, privacy: .public)x\(now?.height ?? 0, privacy: .public), restoring the pre-sleep \(saved.width, privacy: .public)x\(saved.height, privacy: .public) @\(Int(saved.refresh), privacy: .public)")
-        Task.detached(priority: .userInitiated) {
-            let ok = await ResolutionService.applyModeSync(cgMode, on: targetID)
+        Task {
+            let ok = await reapply(on: targetID, where: match) ?? false
             ResolutionService.log.notice("display \(displayID, privacy: .public): mode restore after wake \(ok ? "ok" : "failed", privacy: .public)")
         }
+    }
+
+    /// Re-applies the first mode in the menu's list that matches, hidden HiDPI variants
+    /// included: mode IDs renumber when the list rebuilds, and the public call cannot set a
+    /// hidden mode, so a restore goes the way the menu does. nil when no mode matches.
+    func reapply(on displayID: CGDirectDisplayID, where match: (DisplayMode) -> Bool) async -> Bool? {
+        guard let mode = DisplayMode.availableModes(for: displayID).first(where: match) else { return nil }
+        let options: CFDictionary = [kCGDisplayShowDuplicateLowResolutionModes: true] as CFDictionary
+        if let cgMode = (CGDisplayCopyAllDisplayModes(displayID, options) as? [CGDisplayMode])?
+            .first(where: { $0.ioDisplayModeID == mode.id }),
+           await Self.applyModeSync(cgMode, on: displayID) {
+            return true
+        }
+        return await cgsFallback(modeID: UInt32(bitPattern: mode.id), on: displayID, scope: .forSession)
     }
 
     // MARK: - Query
@@ -259,10 +270,15 @@ final class ResolutionService: @unchecked Sendable {
             return CGCompleteDisplayConfiguration(cfg, scope) == .success
         }.value
         guard committed else { return false }
-        // Commit propagates async; wait for the mode-change event (not a blind sleep) then verify.
+        // Commit propagates async; wait for mode-change events (not a blind sleep) then verify.
+        // Right after a disconnect the mode lands about 1.3 s after the commit, behind an
+        // intermediate step, so wait through several events.
         let target = Int32(bitPattern: modeID)
-        if CGDisplayCopyDisplayMode(displayID)?.ioDisplayModeID == target { return true }
-        await ReconfigEvents.shared.next(for: displayID, matching: .setModeFlag, timeout: 0.5)
-        return CGDisplayCopyDisplayMode(displayID)?.ioDisplayModeID == target
+        let deadline = Date().addingTimeInterval(3)
+        while CGDisplayCopyDisplayMode(displayID)?.ioDisplayModeID != target {
+            guard Date() < deadline else { return false }
+            await ReconfigEvents.shared.next(for: displayID, matching: .setModeFlag, timeout: deadline.timeIntervalSinceNow)
+        }
+        return true
     }
 }
