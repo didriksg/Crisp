@@ -324,6 +324,12 @@ final class PhysicalDisplayToggleService: ObservableObject {
         return BrightnessBoostService.shared.isHDREnabled(for: display)
     }
 
+    /// The same mode in the menu's list, hidden HiDPI variants included.
+    private static func same(_ mode: CGDisplayMode) -> (DisplayMode) -> Bool {
+        { $0.width == mode.width && $0.height == mode.height && $0.pixelWidth == mode.pixelWidth
+            && $0.pixelHeight == mode.pixelHeight && abs($0.refreshRate - mode.refreshRate) < 1 }
+    }
+
     private func restoreStates(_ states: [DisplayState]) async {
         // A mirror target's mode is driven by its source (see ResolutionService).
         let moved = {
@@ -350,7 +356,7 @@ final class PhysicalDisplayToggleService: ObservableObject {
             let id = state.id
             if let current = CGDisplayCopyDisplayMode(id),
                current.ioDisplayModeID != state.mode.ioDisplayModeID {
-                let restored = await ResolutionService.applyModeSync(state.mode, on: id)
+                let restored = await ResolutionService.shared.reapply(on: id, where: Self.same(state.mode)) ?? false
                 Self.log.notice("display \(id, privacy: .public) moved to \(current.width, privacy: .public)x\(current.height, privacy: .public) after the disconnect, restoring \(state.mode.width, privacy: .public)x\(state.mode.height, privacy: .public) @\(Int(state.mode.refreshRate), privacy: .public): \(restored ? "ok" : "failed", privacy: .public)")
             }
             let rotation = CGDisplayRotation(id)
@@ -495,18 +501,11 @@ final class PhysicalDisplayToggleService: ObservableObject {
             // Re-enumeration renumbers every mode ID, so the captured mode can't be re-applied
             // directly; re-find its equivalent by parameters. No match means it no longer
             // enumerates (e.g. smooth scaling was toggled off); macOS's fallback stands.
-            let options = [kCGDisplayShowDuplicateLowResolutionModes: true] as CFDictionary
-            let modes = CGDisplayCopyAllDisplayModes(backID, options) as? [CGDisplayMode] ?? []
-            if let target = modes.first(where: {
-                $0.width == previousMode.width && $0.height == previousMode.height
-                    && $0.pixelWidth == previousMode.pixelWidth
-                    && $0.pixelHeight == previousMode.pixelHeight
-                    && abs($0.refreshRate - previousMode.refreshRate) < 1
-            }) {
+            if let target = DisplayMode.availableModes(for: backID).first(where: Self.same(previousMode)) {
                 // A set issued mid-retrain can fail silently; verify and retry briefly.
                 for _ in 0..<4 {
-                    if CGDisplayCopyDisplayMode(backID)?.ioDisplayModeID == target.ioDisplayModeID { break }
-                    _ = await ResolutionService.applyModeSync(target, on: backID)
+                    if CGDisplayCopyDisplayMode(backID)?.ioDisplayModeID == target.id { break }
+                    _ = await ResolutionService.shared.reapply(on: backID, where: Self.same(previousMode))
                     try? await Task.sleep(nanoseconds: 500_000_000)
                 }
             }
