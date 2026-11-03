@@ -25,7 +25,9 @@ private func brightnessKeyEventCallback(
 /// display's brightness is adjusted via BrightnessService. When the cursor is on the
 /// built-in display the event is passed through so macOS adjusts it normally.
 /// Also intercepts the volume/mute keys when the default audio output is a monitor with
-/// DDC speaker volume, routing them to VolumeService (see routeVolumePress).
+/// DDC speaker volume, routing them to VolumeService (see routeVolumePress). The shortcut
+/// actions from HotkeyService enter through the adjust methods below (see #160 for the
+/// brightness shape and #23 for the volume keys).
 @MainActor
 final class BrightnessKeyService: @unchecked Sendable {
     static let shared = BrightnessKeyService()
@@ -341,27 +343,72 @@ final class BrightnessKeyService: @unchecked Sendable {
         // keys use. Read off the event here, where the flags still are.
         let fine = event.flags.contains([.maskAlternate, .maskShift])
         Task { @MainActor in
-            let service = VolumeService.shared
             switch keyCode {
             case Self.nxKeytypeMute:
-                service.toggleMute(for: target)
+                self.muteVolume(target)
             case Self.nxKeytypeSoundUp:
-                service.setVolume(BrightnessKeySteps.next(from: target.volume, up: true, fine: fine), for: target)
+                self.stepVolume(target, up: true, fine: fine)
             default:
-                service.setVolume(BrightnessKeySteps.next(from: target.volume, up: false, fine: fine), for: target)
-            }
-            if let screen = NSScreen.screens.first(where: {
-                ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID) == target.displayID
-            }) {
-                BrightnessHUDService.shared.show(
-                    level: target.volume,
-                    image: target.volume <= 0 ? .mute : .volume,
-                    on: screen
-                )
+                self.stepVolume(target, up: false, fine: fine)
             }
         }
         // Consume: macOS must not also show its "no volume control" OSD on top.
         return nil
+    }
+
+    /// The monitor that owns the default audio output, or nil when Crisp has no
+    /// DDC volume target. A shortcut has no event to pass through, so a missing
+    /// target is a logged no-op.
+    private func volumeShortcutTarget() -> DisplayInfo? {
+        guard let target = VolumeService.shared.displayForDefaultAudioOutput(
+            in: DisplayManagerAccessor.shared.displays
+        ) else {
+            Self.log.notice("volume shortcut: no DDC-volume display owns the audio output")
+            return nil
+        }
+        return target
+    }
+
+    /// Steps the DDC speaker volume of the monitor that owns the default audio
+    /// output, for a shortcut bound in Settings > Keyboard Shortcuts (#23, #160).
+    /// It mirrors the volume keys: a shortcut has no event to pass through, so a
+    /// missing target is a logged no-op.
+    func adjustVolumeFromShortcut(up: Bool) {
+        guard let target = volumeShortcutTarget() else { return }
+        stepVolume(target, up: up, fine: false)
+    }
+
+    /// Mutes or unmutes that same monitor over DDC, matching the mute key.
+    func toggleVolumeMuteFromShortcut() {
+        guard let target = volumeShortcutTarget() else { return }
+        muteVolume(target)
+    }
+
+    /// Moves a monitor's DDC volume one key stop and shows the volume banner.
+    private func stepVolume(_ display: DisplayInfo, up: Bool, fine: Bool) {
+        VolumeService.shared.setVolume(
+            BrightnessKeySteps.next(from: display.volume, up: up, fine: fine),
+            for: display
+        )
+        showVolumeHUD(for: display)
+    }
+
+    /// Mutes a monitor over DDC and shows the banner.
+    private func muteVolume(_ display: DisplayInfo) {
+        VolumeService.shared.toggleMute(for: display)
+        showVolumeHUD(for: display)
+    }
+
+    /// Shows the volume/mute glyph at the display's current level.
+    private func showVolumeHUD(for display: DisplayInfo) {
+        guard let screen = NSScreen.screens.first(where: {
+            ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID) == display.displayID
+        }) else { return }
+        BrightnessHUDService.shared.show(
+            level: display.volume,
+            image: display.volume <= 0 ? .mute : .volume,
+            on: screen
+        )
     }
 
     /// The Brightness Keys target setting's displays, or nil to leave the
