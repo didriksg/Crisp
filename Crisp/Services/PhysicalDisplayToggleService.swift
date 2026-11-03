@@ -16,14 +16,7 @@ final class PhysicalDisplayToggleService: ObservableObject {
     private init() {
         loadDesired()
         loadParked()
-        // didWake and screensDidWake both: the blackout restore waits longer near a wake (#168).
-        for name in [NSWorkspace.didWakeNotification, NSWorkspace.screensDidWakeNotification] {
-            wakeObservers.append(NSWorkspace.shared.notificationCenter.addObserver(
-                forName: name, object: nil, queue: .main
-            ) { [weak self] _ in
-                MainActor.assumeIsolated { self?.noteWake() }
-            })
-        }
+        observeSleepAndWake()
     }
 
     private var wakeObservers: [NSObjectProtocol] = []
@@ -175,19 +168,18 @@ final class PhysicalDisplayToggleService: ObservableObject {
     }
 
     private func viewableActiveDisplays() -> [CGDirectDisplayID] {
+        ScreenCount.viewable(activeEntries()).map(\.id)
+    }
+
+    private func activeEntries() -> [ScreenCount.Entry] {
         var count: UInt32 = 0
         guard CGGetActiveDisplayList(0, nil, &count) == .success, count > 0 else { return [] }
         var ids = [CGDirectDisplayID](repeating: 0, count: Int(count))
         guard CGGetActiveDisplayList(count, &ids, &count) == .success else { return [] }
         let virtual = VirtualDisplayService.shared
-        return ids.prefix(Int(count)).filter { id in
-            guard !virtual.isVirtualDisplay(id) else { return false }
-            // Filters out entries with no real panel behind them (macOS's post-blackout
-            // placeholder, or a re-enabled record whose hardware left). Issue #91.
-            // See docs/display-notes.md (phantomAwareActiveDisplayCount).
-            let vendor = CGDisplayVendorNumber(id), model = CGDisplayModelNumber(id)
-            let hasNoPanel = vendor == 0 || model == 0 || vendor > 0xFFFF || model > 0xFFFF
-            return !hasNoPanel
+        return ids.prefix(Int(count)).map { id in
+            ScreenCount.Entry(id: id, isCrispVirtual: virtual.isVirtualDisplay(id), isBuiltin: CGDisplayIsBuiltin(id) == 1,
+                              vendor: CGDisplayVendorNumber(id), model: CGDisplayModelNumber(id))
         }
     }
 
@@ -196,14 +188,7 @@ final class PhysicalDisplayToggleService: ObservableObject {
     /// make the rescue fire, never hide a row or refuse a remembered disconnect.
     /// See docs/display-notes.md (phantomAwareActiveDisplayCount).
     private func phantomAwareActiveDisplayCount() -> Int {
-        let viewable = viewableActiveDisplays()
-        let externals = viewable.filter { CGDisplayIsBuiltin($0) != 1 }
-        let portCap = liveDisplayPortCount()
-        var onPort = externals.count
-        if let portCap, portCap < externals.count {
-            onPort = externals.filter { !Self.hasProductName($0) }.count
-        }
-        return PhantomPortCap.activeCount(offPort: viewable.count - onPort, onPort: onPort, portCap: portCap)
+        ScreenCount.phantomAwareCount(activeEntries(), portCap: liveDisplayPortCount(), hasProductName: Self.hasProductName)
     }
 
     /// Whether CoreDisplay still knows the display by name; empty for a #112 phantom or a
@@ -219,28 +204,24 @@ final class PhysicalDisplayToggleService: ObservableObject {
         return (info["DisplayProductName"] as? String)?.isEmpty == false
     }
 
-    /// Ports that can have a display behind them right now (DisplayPort/Thunderbolt hot-plug
-    /// detect or sink count). nil, not 0, when the machine exposes no port nodes at all: that
-    /// means the signal is unavailable, not that nothing is plugged in. An empty USB-C port
-    /// keeps only its CC node, which counts as present and never as asserted (#195).
+    /// Reads the port transport nodes; ScreenCount.portCap decides what they say.
     /// See docs/display-notes.md (liveDisplayPortCount).
     private func liveDisplayPortCount() -> Int? {
-        var nodes = 0, asserted = 0
+        var nodes: [ScreenCount.PortNode] = []
         for cls in ["IOPortTransportStateDisplayPort", "IOPortTransportStateCIO", "IOPortTransportStateCC"] {
             var it: io_iterator_t = 0
             guard IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching(cls), &it) == KERN_SUCCESS else { continue }
             defer { IOObjectRelease(it) }
             while case let node = IOIteratorNext(it), node != 0 {
                 defer { IOObjectRelease(node) }
-                nodes += 1
                 let hpd = IORegistryEntryCreateCFProperty(node, "HPD_StateDescription" as CFString, kCFAllocatorDefault, 0)?
                     .takeRetainedValue() as? String
                 let sinks = IORegistryEntryCreateCFProperty(node, "SinkCount" as CFString, kCFAllocatorDefault, 0)?
                     .takeRetainedValue() as? Int ?? 0
-                if hpd == "High" || sinks > 0 { asserted += 1 }
+                nodes.append(ScreenCount.PortNode(hpd: hpd, sinkCount: sinks))
             }
         }
-        return nodes == 0 ? nil : asserted
+        return ScreenCount.portCap(nodes)
     }
 
     private func uuid(for displayID: CGDirectDisplayID) -> String {
@@ -343,6 +324,12 @@ final class PhysicalDisplayToggleService: ObservableObject {
         return BrightnessBoostService.shared.isHDREnabled(for: display)
     }
 
+    /// The same mode in the menu's list, hidden HiDPI variants included.
+    private static func same(_ mode: CGDisplayMode) -> (DisplayMode) -> Bool {
+        { $0.width == mode.width && $0.height == mode.height && $0.pixelWidth == mode.pixelWidth
+            && $0.pixelHeight == mode.pixelHeight && abs($0.refreshRate - mode.refreshRate) < 1 }
+    }
+
     private func restoreStates(_ states: [DisplayState]) async {
         // A mirror target's mode is driven by its source (see ResolutionService).
         let moved = {
@@ -369,7 +356,7 @@ final class PhysicalDisplayToggleService: ObservableObject {
             let id = state.id
             if let current = CGDisplayCopyDisplayMode(id),
                current.ioDisplayModeID != state.mode.ioDisplayModeID {
-                let restored = await ResolutionService.applyModeSync(state.mode, on: id)
+                let restored = await ResolutionService.shared.reapply(on: id, where: Self.same(state.mode)) ?? false
                 Self.log.notice("display \(id, privacy: .public) moved to \(current.width, privacy: .public)x\(current.height, privacy: .public) after the disconnect, restoring \(state.mode.width, privacy: .public)x\(state.mode.height, privacy: .public) @\(Int(state.mode.refreshRate), privacy: .public): \(restored ? "ok" : "failed", privacy: .public)")
             }
             let rotation = CGDisplayRotation(id)
@@ -514,18 +501,11 @@ final class PhysicalDisplayToggleService: ObservableObject {
             // Re-enumeration renumbers every mode ID, so the captured mode can't be re-applied
             // directly; re-find its equivalent by parameters. No match means it no longer
             // enumerates (e.g. smooth scaling was toggled off); macOS's fallback stands.
-            let options = [kCGDisplayShowDuplicateLowResolutionModes: true] as CFDictionary
-            let modes = CGDisplayCopyAllDisplayModes(backID, options) as? [CGDisplayMode] ?? []
-            if let target = modes.first(where: {
-                $0.width == previousMode.width && $0.height == previousMode.height
-                    && $0.pixelWidth == previousMode.pixelWidth
-                    && $0.pixelHeight == previousMode.pixelHeight
-                    && abs($0.refreshRate - previousMode.refreshRate) < 1
-            }) {
+            if let target = DisplayMode.availableModes(for: backID).first(where: Self.same(previousMode)) {
                 // A set issued mid-retrain can fail silently; verify and retry briefly.
                 for _ in 0..<4 {
-                    if CGDisplayCopyDisplayMode(backID)?.ioDisplayModeID == target.ioDisplayModeID { break }
-                    _ = await ResolutionService.applyModeSync(target, on: backID)
+                    if CGDisplayCopyDisplayMode(backID)?.ioDisplayModeID == target.id { break }
+                    _ = await ResolutionService.shared.reapply(on: backID, where: Self.same(previousMode))
                     try? await Task.sleep(nanoseconds: 500_000_000)
                 }
             }
@@ -863,11 +843,9 @@ final class PhysicalDisplayToggleService: ObservableObject {
 
     /// Stamped on every didWake and screensDidWake.
     private var lastWake: DispatchTime?
-
-    private func noteWake() {
-        lastWake = .now()
-        Self.log.notice("wake noted: the blackout restore allows \(Self.wakeSettleRepolls, privacy: .public) re-polls for \(Int(Self.wakeSettleSpan), privacy: .public) s")
-    }
+    /// Set by willSleep and screensDidSleep, cleared by the next wake. A DarkWake posts
+    /// neither wake notification, so the rescue stays down through it too.
+    private var screensAsleep = false
 
     /// Read on every pass rather than once: the wake notification can land after the
     /// first callback of that wake has already started the settle.
@@ -915,6 +893,12 @@ final class PhysicalDisplayToggleService: ObservableObject {
                 Self.log.notice("restore settled: \(settled, privacy: .public) active display(s) after 2 s and \(repolls, privacy: .public) re-poll(s), standing down")
                 return
             }
+            // A lid close takes the built-in away about 5 s before Clamshell Sleep: an enable
+            // then reports success and WindowServer keeps the display off until logout (#246).
+            guard !self.screensAsleep else {
+                Self.log.notice("screens asleep, restore stands down: \(self.disconnected.count, privacy: .public) record(s) kept")
+                return
+            }
             // Logged because every screen is black here: distinguishes a Crisp restore from
             // macOS re-probing on its own (#91).
             Self.log.notice("no active display, restoring from \(self.disconnected.count, privacy: .public) record(s) after 2 s and \(repolls, privacy: .public) re-poll(s)")
@@ -927,7 +911,7 @@ final class PhysicalDisplayToggleService: ObservableObject {
                 .sorted { self.wasBuiltin($0.0, id: $0.1) && !self.wasBuiltin($1.0, id: $1.1) }
             for (record, _) in candidates {
                 // macOS re-probes on its own and often wins the race; stop as soon as anything's back.
-                guard self.phantomAwareActiveDisplayCount() == 0 else { return }
+                guard !self.screensAsleep, self.phantomAwareActiveDisplayCount() == 0 else { return }
                 guard case .success = await self.reconnect(uuid: record.uuid, byUser: false) else { continue }
                 self.park(record)
                 // Not proof of recovery (see verifyBackOnline): only enumeration ends the
@@ -1088,5 +1072,38 @@ extension PhysicalDisplayToggleService {
             Self.log.notice("timed-out reconnect of \(uuid, privacy: .public): \(landed ? "landed late, record dropped" : "not landed after the late-commit window", privacy: .public)")
             displayManager?.refreshDisplays()
         }
+    }
+}
+
+// MARK: - Sleep and wake
+
+extension PhysicalDisplayToggleService {
+    /// didWake and screensDidWake both: the blackout restore waits longer near a wake (#168).
+    /// willSleep and screensDidSleep: a display enabled while macOS takes the screens down
+    /// stays off until logout, so the restore stands down until the next wake (#246).
+    private func observeSleepAndWake() {
+        for name in [NSWorkspace.didWakeNotification, NSWorkspace.screensDidWakeNotification] {
+            wakeObservers.append(NSWorkspace.shared.notificationCenter.addObserver(
+                forName: name, object: nil, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.noteWake() }
+            })
+        }
+        for name in [NSWorkspace.willSleepNotification, NSWorkspace.screensDidSleepNotification] {
+            wakeObservers.append(NSWorkspace.shared.notificationCenter.addObserver(
+                forName: name, object: nil, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.screensAsleep = true }
+            })
+        }
+    }
+
+    private func noteWake() {
+        lastWake = .now()
+        screensAsleep = false
+        Self.log.notice("wake noted: the blackout restore allows \(Self.wakeSettleRepolls, privacy: .public) re-polls for \(Int(Self.wakeSettleSpan), privacy: .public) s")
+        // A rescue that stood down while the screens were asleep gets no callback to re-ask it
+        // when only the screens wake (a display sleep, or a keyboard wake in clamshell).
+        restoreIfNoActiveDisplay()
     }
 }

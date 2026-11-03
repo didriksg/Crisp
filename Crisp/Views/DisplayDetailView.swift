@@ -67,10 +67,10 @@ struct ProfileHeadBlock: View {
         }
         .task { controller.reload() }
         // Re-read on panel open and on screen reconfiguration (debounced: mode
-        // switches emit bursts), since System Settings and HDR mode switches
-        // change the profile outside this view.
+        // switches emit bursts), since System Settings, HDR mode switches and
+        // presets (#226) change the profile or reference preset outside this view.
         .onReceive(NotificationCenter.default.publisher(for: .crispPanelDidOpen)) { _ in
-            controller.refreshActiveProfileName()
+            controller.reload()
         }
         .onReceive(
             NotificationCenter.default.publisher(for: NSApplication.didChangeScreenParametersNotification)

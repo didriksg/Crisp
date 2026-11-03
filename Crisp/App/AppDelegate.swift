@@ -31,7 +31,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var repositionWorkItem: DispatchWorkItem?
     private var clickMonitor: Any?
     private var clickInterceptor: Any?
-    private var statusItemCatcher: StatusItemCatcher?
     // The NSMenu currently tracking (a SwiftUI Menu / context menu), captured so an
     // outside-panel click can cancel it the way native menus dismiss on click-away.
     private var trackingMenu: NSMenu?
@@ -344,21 +343,25 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // NSStatusBarButton's own click tracking fights a persistent while-panel-open
         // highlight: intercept clicks before the button sees them and swallow the
         // event, so showPanel/closePanel own the highlight. Cmd-clicks pass through.
+        // With an expanded interface session (macOS 27) the system owns the left
+        // click and its light; a right click asks for the same session (togglePanel).
         clickInterceptor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
             guard let self,
                   let button = self.statusItem?.button,
                   event.window === button.window,
                   !event.modifierFlags.contains(.command) else { return event }
+            if self.usesStatusItemSession, event.type == .leftMouseDown { return nil }
             self.togglePanel()
             return nil
         }
         statusItem = item
-        // Both need the button laid out first (it has no width until then):
-        // StatusItemHighlight widens the clipping window before anything draws, and on
-        // macOS 27 the catcher intercepts the system's own pill.
-        DispatchQueue.main.async { [weak self, weak item] in
+        #if compiler(>=6.4)
+        if #available(macOS 27.0, *) { item.expandedInterfaceDelegate = self }
+        #endif
+        // Needs the button laid out first (it has no width until then): widens the
+        // clipping window before anything draws.
+        DispatchQueue.main.async { [weak item] in
             StatusItemHighlight.makeRoom(for: item?.button)
-            self?.statusItemCatcher = StatusItemCatcher.over(item?.button) { [weak self] in self?.togglePanel() }
         }
         if #available(macOS 26.0, *) {
             OSDBannerService.shared.statusItem = item
@@ -801,16 +804,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         StatusItemHighlight.isPointerOver(statusItem?.button)
     }
 
-    /// Lights the menu bar item while the panel or the banner is up.
+    /// Lights the menu bar item while the panel or the banner is up. During an
+    /// expanded interface session the system draws the light itself.
     private func refreshStatusItemLight() {
-        StatusItemHighlight.apply(isPanelShown || bannerLightsStatusItem,
+        StatusItemHighlight.apply((isPanelShown && !hasStatusItemSession) || bannerLightsStatusItem,
                                   to: statusItem?.button)
     }
 
     @objc private func togglePanel() {
         if isPanelShown {
             closePanel()
-        } else {
+        } else if !(usesStatusItemSession && requestStatusItemSession()) {
             showPanel()
         }
     }
@@ -963,7 +967,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                     // Global monitors normally fire only for clicks in other apps, but the
                     // dark-mode crossfade's snapshot overlay intercepts every click too.
                     // Close only when the cursor is genuinely outside the panel or status item.
-                    if visible.contains(NSEvent.mouseLocation) || self.isPointerOverStatusItem { return }
+                    if visible.contains(NSEvent.mouseLocation) { return }
+                    // During a session the menu bar takes the click on the item and
+                    // leaves ending the session to the app (#236).
+                    if self.isPointerOverStatusItem, !self.hasStatusItemSession { return }
                     self.closePanel()
                 }
             }
@@ -973,6 +980,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func closePanel() {
         guard let p = panel, isPanelShown else { return }
         isPanelShown = false
+        endStatusItemSession()
         BrightnessHUDService.shared.suppressed = false
         // The banner may be up, and it holds the same light.
         refreshStatusItemLight()
@@ -1095,3 +1103,65 @@ extension AppDelegate {
         }
     }
 }
+
+// MARK: - Expanded interface session (#236)
+
+extension AppDelegate {
+    /// True on macOS 27, where a left click on the item opens the panel through an
+    /// expanded interface session. Built without the macOS 27 SDK, the item keeps
+    /// the older click path.
+    var usesStatusItemSession: Bool {
+        #if compiler(>=6.4)
+        if #available(macOS 27.0, *) { return statusItem?.expandedInterfaceDelegate != nil }
+        #endif
+        return false
+    }
+
+    var hasStatusItemSession: Bool {
+        #if compiler(>=6.4)
+        if #available(macOS 27.0, *) { return statusItem?.expandedInterfaceSession != nil }
+        #endif
+        return false
+    }
+
+    /// Asks the menu bar for the session a left click starts, so a right click gets
+    /// the same system light. Private (`_requestExpandedInterfaceSession`, macOS 27);
+    /// false when the item does not answer to it.
+    func requestStatusItemSession() -> Bool {
+        let selector = NSSelectorFromString("_requestExpandedInterfaceSession")
+        guard let item = statusItem, item.responds(to: selector) else { return false }
+        item.perform(selector)
+        return true
+    }
+
+    /// The panel closed some other way (a click outside, Escape, a hotkey): the
+    /// session must be told, or the system keeps the item lit and tracking.
+    func endStatusItemSession() {
+        #if compiler(>=6.4)
+        if #available(macOS 27.0, *) { statusItem?.expandedInterfaceSession?.cancel() }
+        #endif
+    }
+}
+
+#if compiler(>=6.4)
+/// macOS 27's own path for an item that shows a window instead of a menu: the
+/// system lights the item and tracks it like a menu, so nothing has to sit over
+/// the item to catch its clicks (that window took the clicks of the menu bar's
+/// overflow control, #236). See docs/ui-notes.md (AppDelegate: expanded interface session).
+@available(macOS 27.0, *)
+extension AppDelegate: @MainActor NSStatusItemExpandedInterfaceDelegate {
+    func statusItem(_ statusItem: NSStatusItem, didBegin session: NSStatusItemExpandedInterfaceSession) {
+        // Opened by a hotkey or a right click, the panel is up without a session;
+        // a left click then closes it, as it always has.
+        if isPanelShown {
+            closePanel()
+        } else {
+            showPanel()
+        }
+    }
+
+    func statusItemDidEndExpandedInterfaceSession(_ statusItem: NSStatusItem, animated: Bool) {
+        closePanel()
+    }
+}
+#endif

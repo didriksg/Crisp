@@ -76,6 +76,7 @@ struct SavePresetForm: View {
     @State private var includeImageAdjustment: Bool = false
     @State private var includeHDR: Bool = false
     @State private var includeConnection: Bool = false
+    @State private var includeColor: Bool = false
     /// Edit mode only: when on, Save re-captures current values instead of stored ones.
     @State private var recaptureValues: Bool = false
     /// Global shortcut for this preset, held here until Save like name and icon
@@ -103,6 +104,7 @@ struct SavePresetForm: View {
         _includeImageAdjustment = State(initialValue: editing?.includesImageAdjustment
                                         ?? PresetService.shared.anyImageAdjustment)
         _includeHDR = State(initialValue: editing?.includesHDR ?? false)
+        _includeColor = State(initialValue: editing?.includesColor ?? false)
         // On when a display is off now: that is what such a preset is saved for.
         _includeConnection = State(initialValue: editing?.includesConnection
                                    ?? !PhysicalDisplayToggleService.shared.disconnected.isEmpty)
@@ -111,7 +113,7 @@ struct SavePresetForm: View {
 
     private var nothingSelected: Bool {
         !includeResolution && !includeBrightness && !includeArrangement && !includeImageAdjustment
-            && !includeHDR && !includeConnection
+            && !includeHDR && !includeConnection && !includeColor
     }
 
     /// Stored resolution shown inline only for a single display (clean and
@@ -271,6 +273,8 @@ struct SavePresetForm: View {
                                  label: "Connection", detail: connectionDetail, isOn: $includeConnection)
                 CaptureToggleRow(icon: "slider.horizontal.3", color: .teal,
                                  label: "Image Adjustment", isOn: $includeImageAdjustment)
+                CaptureToggleRow(icon: "paintpalette.fill", color: .pink,
+                                 label: "Color Profile", isOn: $includeColor)
                 // Only where it can capture something: a display with the HDR row.
                 if editing?.includesHDR == true || PresetService.shared.anyHDRDisplay {
                     CaptureToggleRow(icon: "tv.fill", color: .purple,
@@ -356,7 +360,8 @@ struct SavePresetForm: View {
                                (.arrangement, includeArrangement),
                                (.imageAdjustment, includeImageAdjustment),
                                (.hdr, includeHDR),
-                               (.connection, includeConnection)].filter(\.1).map(\.0))
+                               (.connection, includeConnection),
+                               (.color, includeColor)].filter(\.1).map(\.0))
             )
             // Opt-in: refresh the stored values to the current display state.
             if recaptureValues {
@@ -371,7 +376,8 @@ struct SavePresetForm: View {
                 includeArrangement: includeArrangement,
                 includeImageAdjustment: includeImageAdjustment,
                 includeHDR: includeHDR,
-                includeConnection: includeConnection
+                includeConnection: includeConnection,
+                includeColor: includeColor
             )
             preset.colorName = selectedColor
             PresetService.shared.addPreset(preset)

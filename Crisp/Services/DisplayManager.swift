@@ -224,6 +224,7 @@ class DisplayManager: ObservableObject {
                 await display.loadDetails()
                 if !display.isBuiltin {
                     await self.autoEnableHiDPIIfNeeded(for: display)
+                    await MirroredModeService.shared.reapplySaved(for: display)
                 }
             }
             // Brief delay lets WindowServer settle before writing transfer tables.

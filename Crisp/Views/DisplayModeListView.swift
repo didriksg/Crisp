@@ -118,9 +118,6 @@ final class DisplayModeController: ObservableObject {
         let denseLadderActive = mapped.filter {
             $0.isHiDPI && !lodpiSizes.contains("\($0.width)x\($0.height)")
         }.count > 8
-        // The crisp non-HiDPI Default beats its same-size HiDPI twin (softer, no size
-        // benefit), so hide that twin when the Default is present.
-        let hasNativeDefault = mapped.contains { $0.isDefault }
         // Native-aspect 1x sizes beyond the widest HiDPI size are the only route to the
         // in-between sizes past the ladder's cap; sizes under it are clutter.
         let maxEligibleHiDPIWidth = base.lazy.filter { $0.isHiDPI }.map(\.width).max() ?? 0
@@ -135,11 +132,6 @@ final class DisplayModeController: ObservableObject {
                 let ar = Double(group.width) / Double(group.height)
                 return abs(ar - nativeAR) / nativeAR < 0.02
                     || group.modes.contains { $0.id == currentMode?.id }
-            }
-            // External: the HiDPI twin of native is redundant with the crisp Default.
-            if hasNativeDefault, group.isHiDPI, group.width == nativeW, group.height == nativeH,
-               !group.modes.contains(where: { $0.id == currentMode?.id }) {
-                return false
             }
             // External, dense ladder live: keep only sizes with a low-res twin in the list;
             // the injected in-between steps stay off the list but remain on the slider.
@@ -236,6 +228,7 @@ final class DisplayModeController: ObservableObject {
                     unmirrored = await MirroredModeService.shared.restore(display: display)
                 }
                 if unmirrored {
+                    MirroredModeService.shared.forgetSaved(for: display)
                     success = await ResolutionService.shared.setDisplayMode(mode, for: displayID)
                     if !success {
                         try? await Task.sleep(nanoseconds: 200_000_000)
@@ -454,6 +447,8 @@ final class DisplayModeController: ObservableObject {
                     withAnimation { self.errorMessage = nil }
                 }
             } else {
+                // Before the soft-reconnect, whose arrival would put a saved mirror size back.
+                if !on { MirroredModeService.shared.forgetSaved(for: display) }
                 // The soft-reconnect blanks the display, which resigns the panel's key and
                 // would auto-close it, collapsing every expanded row. Suppress that so the
                 // panel stays on this display's Resolution section.

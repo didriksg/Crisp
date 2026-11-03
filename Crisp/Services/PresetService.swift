@@ -1,10 +1,12 @@
 import Foundation
 import CoreGraphics
+import os.log
 
 /// Manages display configuration presets: save, load, and one-click apply.
 @MainActor
 final class PresetService: ObservableObject, @unchecked Sendable {
     static let shared = PresetService()
+    private static let log = Logger(subsystem: "com.crisp.app", category: "preset")
 
     @Published var presets: [DisplayPreset] = []
     @Published var isApplying: Bool = false
@@ -105,7 +107,8 @@ final class PresetService: ObservableObject, @unchecked Sendable {
             includeArrangement: existing.includesArrangement,
             includeImageAdjustment: existing.includesImageAdjustment,
             includeHDR: existing.includesHDR,
-            includeConnection: existing.includesConnection
+            includeConnection: existing.includesConnection,
+            includeColor: existing.includesColor
         )
         presets[index].displays = captured.displays
         savePresets()
@@ -165,6 +168,8 @@ final class PresetService: ObservableObject, @unchecked Sendable {
                 e.hdr = hdr(of: live)
             case .connection:
                 e.connected = true
+            case .color:
+                e.color = color(of: live)
             }
             return e
         }
@@ -198,15 +203,15 @@ final class PresetService: ObservableObject, @unchecked Sendable {
 
             // Resolution applies only when the preset includes it (width present); the
             // built-in is driven too, resolving to the alreadyActive no-op if unchanged.
-            if let w = entry.width, let h = entry.height {
-                let hiDPI = entry.isHiDPI ?? false
-                let targetMode = display.availableModes.first(where: {
-                    $0.width == w && $0.height == h && $0.isHiDPI == hiDPI
-                }) ?? display.availableModes.first(where: {
-                    $0.width == w && $0.height == h
-                })
-
-                if let mode = targetMode {
+            if let w = entry.width, let h = entry.height, let route = entry.resolutionRoute(
+                modes: display.availableModes.map { ($0.width, $0.height, $0.isHiDPI) },
+                mirrorStops: MirroredModeService.beyondCapStops(for: display)
+            ) {
+                Self.log.info("display \(displayID): \(w)x\(h) hiDPI \(entry.isHiDPI ?? false), route \(String(describing: route), privacy: .public)")
+                switch route {
+                case .mode(let index):
+                    MirroredModeService.shared.forgetSaved(for: display)
+                    let mode = display.availableModes[index]
                     let currentMode = display.currentDisplayMode
                     let alreadyActive = currentMode?.width == mode.width
                         && currentMode?.height == mode.height
@@ -225,13 +230,17 @@ final class PresetService: ObservableObject, @unchecked Sendable {
                             display.currentDisplayMode = mode
                         }
                     }
-                } else if hiDPI, MirroredModeService.beyondCapStops(for: display)
-                            .contains(where: { $0.width == w && $0.height == h }) {
+                case .mirror:
                     // A beyond-cap size (#65) never enumerates on the physical panel;
                     // mirror mode is the only route there.
                     await MirroredModeService.shared.apply(display: display, width: w, height: h)
+                case .unavailable:
+                    break
                 }
             }
+
+            // Before brightness: a reference preset fixes the panel's brightness.
+            applyColor(entry.color, to: display)
 
             // After the mode, as the disconnect restore does, and before brightness:
             // the switch moves brightness between DDC and software dimming.
@@ -305,7 +314,8 @@ final class PresetService: ObservableObject, @unchecked Sendable {
                              includeArrangement: Bool = true,
                              includeImageAdjustment: Bool = false,
                              includeHDR: Bool = false,
-                             includeConnection: Bool = false) -> DisplayPreset {
+                             includeConnection: Bool = false,
+                             includeColor: Bool = false) -> DisplayPreset {
         let displays = DisplayManagerAccessor.shared.displays
         var entries: [DisplayPresetEntry] = displays.compactMap { display in
             guard display.isOnline else { return nil }
@@ -321,7 +331,8 @@ final class PresetService: ObservableObject, @unchecked Sendable {
                 arrangementY: includeArrangement ? display.bounds.origin.y : nil,
                 imageAdjustment: includeImageAdjustment ? imageAdjustment(of: display) : nil,
                 hdr: includeHDR ? hdr(of: display) : nil,
-                connected: includeConnection ? true : nil
+                connected: includeConnection ? true : nil,
+                color: includeColor ? color(of: display) : nil
             )
         }
         if includeConnection { entries += offEntries(excluding: entries) }
@@ -347,6 +358,45 @@ final class PresetService: ObservableObject, @unchecked Sendable {
     private func hdr(of display: DisplayInfo) -> Bool? {
         let boost = BrightnessBoostService.shared
         return boost.isEligibleForHDRToggle(display) ? boost.isHDREnabled(for: display) : nil
+    }
+
+    /// A display's color as the card shows it (#226): the active reference preset on a display
+    /// that has them, else the ICC profile; nil when neither reads.
+    private func color(of display: DisplayInfo) -> PresetColor? {
+        let presets = DisplayPresetService.shared.presets(for: display.displayID)
+        guard presets.isEmpty else {
+            let active = DisplayPresetService.shared.activePresetIndex(for: display.displayID)
+            return presets.first { $0.index == active }.map { .referencePreset(index: $0.index, name: $0.name) }
+        }
+        return ColorProfileService.shared.currentProfileURL(for: display.displayID)
+            .map { .profile(path: $0.path) }
+    }
+
+    /// Sets a saved color, skipping a reference preset or profile file that is gone.
+    private func applyColor(_ color: PresetColor?, to display: DisplayInfo) {
+        guard let color else { return }
+        let displayID = display.displayID
+        switch color {
+        case .referencePreset(let index, let name):
+            let service = DisplayPresetService.shared
+            guard let target = PresetColor.referencePresetIndex(
+                index: index, name: name,
+                in: service.presets(for: displayID).map { ($0.index, $0.name) }
+            ) else {
+                Self.log.info("display \(displayID): reference preset \(index) \(name, privacy: .public) is gone")
+                return
+            }
+            if service.activePresetIndex(for: displayID) != target {
+                service.setActivePreset(index: target, for: displayID)
+            }
+        case .profile(let path):
+            guard ColorProfileService.shared.currentProfileURL(for: displayID)?.path != path else { return }
+            guard let profile = ICCProfile(url: URL(fileURLWithPath: path)) else {
+                Self.log.info("display \(displayID): color profile \(path, privacy: .public) is gone")
+                return
+            }
+            ColorProfileService.shared.setProfile(profile, for: displayID)
+        }
     }
 
     /// Whether any online display has the HDR row: the save form shows the HDR capture only then.

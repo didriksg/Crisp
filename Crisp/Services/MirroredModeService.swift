@@ -6,7 +6,8 @@ import os.log
 /// panel onto a hidden virtual display driven at the wanted looks-like HiDPI mode, whose
 /// framebuffer is rendered rather than scanned out, so the cap doesn't apply. Lazy lifecycle:
 /// the virtual exists only while a beyond-cap size is active; `restore` unmirrors first, then
-/// destroys. Nothing persists; rotated panels are unverified with mirroring.
+/// destroys. The size is kept per display UUID and put back when that display arrives (#232);
+/// rotated panels are unverified with mirroring.
 /// See docs/display-notes.md (MirroredModeService).
 @MainActor
 final class MirroredModeService: ObservableObject {
@@ -86,7 +87,44 @@ final class MirroredModeService: ObservableObject {
             return false
         }
         Self.log.info("apply \(width)x\(height): mirrored physical \(physicalID) onto virtual \(virtualDisplay.displayID)")
+        remember(width: width, height: height, for: display)
         return true
+    }
+
+    // MARK: - Saved size (#232)
+
+    /// The virtual dies with Crisp, so at login macOS puts the panel back on its own mode,
+    /// while it keeps every ordinary mode the user picks. Keyed by display UUID, so the size
+    /// only returns to the panel it was picked on.
+    private static let savedKey = "crisp.mirroredLooksLike"
+
+    private var saved: [String: String] {
+        get { UserDefaults.standard.dictionary(forKey: Self.savedKey) as? [String: String] ?? [:] }
+        set { UserDefaults.standard.set(newValue, forKey: Self.savedKey) }
+    }
+
+    private func remember(width: Int, height: Int, for display: DisplayInfo) {
+        saved[display.displayUUID] = "\(width)x\(height)"
+    }
+
+    /// The user picked a size that is not a mirror stop, or turned smooth scaling off.
+    func forgetSaved(for display: DisplayInfo) {
+        guard saved[display.displayUUID] != nil else { return }
+        saved[display.displayUUID] = nil
+    }
+
+    /// Puts the saved size back on a display that just arrived (launch, hot plug, Reconnect),
+    /// if it is still a mirror stop there.
+    func reapplySaved(for display: DisplayInfo) async {
+        guard !isActive(for: display.displayID), let size = saved[display.displayUUID] else { return }
+        let parts = size.split(separator: "x").compactMap { Int($0) }
+        guard parts.count == 2, Self.beyondCapStops(for: display)
+            .contains(where: { $0.width == parts[0] && $0.height == parts[1] }) else {
+            Self.log.info("reapply \(size, privacy: .public): no longer a mirror stop on \(display.displayID)")
+            return
+        }
+        Self.log.info("reapply \(size, privacy: .public) on \(display.displayID)")
+        await apply(display: display, width: parts[0], height: parts[1])
     }
 
     /// Unmirrors the physical display, then destroys the virtual. Order matters: destroying
