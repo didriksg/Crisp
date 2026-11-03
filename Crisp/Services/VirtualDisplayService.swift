@@ -44,6 +44,8 @@ final class VirtualDisplayService: ObservableObject, @unchecked Sendable {
         }
     }
 
+    static let refreshRateOptions: [Double] = [50, 60, 75, 120, 144]
+
     // MARK: - State
 
     @Published var configs: [VirtualDisplayConfig] = []
@@ -121,7 +123,7 @@ final class VirtualDisplayService: ObservableObject, @unchecked Sendable {
         settings.hiDPI = hiDPI
 
         var modes: [CGVirtualDisplayMode] = []
-        let refreshRates: [Double] = [75.0, 60.0, 50.0]
+        let refreshRates = [config.refreshRate] + Self.refreshRateOptions.filter { $0 != config.refreshRate }
         for rate in refreshRates {
             modes.append(CGVirtualDisplayMode(width: UInt(w), height: UInt(h), refreshRate: rate))
         }
@@ -155,24 +157,29 @@ final class VirtualDisplayService: ObservableObject, @unchecked Sendable {
 
         // macOS auto-adds a scaled looks-like-1080p default for high-resolution displays
         // regardless of the modes supplied; force native 1x so it reads as its real resolution.
-        await applyNativeResolution(virtualDisplay.displayID, width: w, height: h)
+        await applyNativeResolution(virtualDisplay.displayID, width: w, height: h, refreshRate: config.refreshRate)
         return true
     }
 
     /// macOS assigns its auto-scaled default asynchronously, so this retries briefly until
-    /// the native 1x mode sticks, or gives up.
-    private func applyNativeResolution(_ displayID: CGDirectDisplayID, width: Int, height: Int) async {
+    /// the native 1x mode at the configured refresh rate sticks, or gives up.
+    private func applyNativeResolution(_ displayID: CGDirectDisplayID, width: Int, height: Int,
+                                       refreshRate: Double) async {
         let options = [kCGDisplayShowDuplicateLowResolutionModes as String: true] as CFDictionary
         for attempt in 0..<5 {
             if attempt > 0 {
                 await ReconfigEvents.shared.next(for: displayID, matching: .setModeFlag, timeout: 0.3)
             }
             if let cur = CGDisplayCopyDisplayMode(displayID),
-               cur.width == width, cur.pixelWidth == width { return }
+               cur.width == width, cur.pixelWidth == width,
+               abs(cur.refreshRate - refreshRate) < 0.5 { return }
             guard let modes = CGDisplayCopyAllDisplayModes(displayID, options) as? [CGDisplayMode],
                   let native = modes.first(where: {
                       $0.pixelWidth == width && $0.pixelHeight == height && $0.width == width
-                  }) ?? modes.first(where: { $0.pixelWidth == width && $0.pixelHeight == height })
+                          && abs($0.refreshRate - refreshRate) < 0.5
+                  }) ?? modes.first(where: {
+                      $0.pixelWidth == width && $0.pixelHeight == height && abs($0.refreshRate - refreshRate) < 0.5
+                  })
             else { continue }
             _ = await ResolutionService.applyModeSync(native, on: displayID)
         }
@@ -219,7 +226,7 @@ final class VirtualDisplayService: ObservableObject, @unchecked Sendable {
         saveConfigs()
     }
 
-    /// Name/autoCreate update in place; resolution/HiDPI changes are baked into the live
+    /// Name/autoCreate update in place; resolution/HiDPI/refresh-rate changes affect the live
     /// CGVirtualDisplay, so those destroy and recreate it.
     @discardableResult
     func updateConfig(_ updated: VirtualDisplayConfig) async -> Bool {
@@ -228,10 +235,11 @@ final class VirtualDisplayService: ObservableObject, @unchecked Sendable {
         configs[idx] = updated
         saveConfigs()
 
-        let geometryChanged = old.width != updated.width
+        let modeChanged = old.width != updated.width
             || old.height != updated.height
             || old.hiDPI != updated.hiDPI
-        if geometryChanged && isActive(updated.id) {
+            || old.refreshRate != updated.refreshRate
+        if modeChanged && isActive(updated.id) {
             // Identity is stable, so must wait for the old display to actually leave the
             // online list, or the recreate races WindowServer's async teardown of it.
             let oldDisplayID = activeDisplayObjects[updated.id]?.displayID
