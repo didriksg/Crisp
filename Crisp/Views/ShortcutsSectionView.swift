@@ -1,10 +1,11 @@
 import SwiftUI
 
 /// Settings > Shortcuts: the curated list of named global-shortcut actions
-/// (issue #61). Toggle HiDPI, plus brightness up and down for keyboards whose
-/// brightness keys are missing or taken (issue #160); the bar for adding another
-/// is "someone asked". Per-preset shortcuts live on the
-/// presets themselves, not here. Expands in place per DESIGN.md.
+/// (issue #61). Toggle HiDPI, brightness and volume up/down, and mute, for
+/// keyboards whose media keys are missing or taken (issue #160). The volume
+/// rows mirror the volume keys (issue #23); the bar for adding another is
+/// "someone asked". Per-preset shortcuts live on the presets themselves, not
+/// here. Expands in place per DESIGN.md.
 struct ShortcutsSection: View {
     @ObservedObject private var settings = SettingsService.shared
     // Owned by SettingsView so its panel-close reset collapses this section
@@ -17,7 +18,10 @@ struct ShortcutsSection: View {
                 icon: "command",
                 iconActive: settings.hidpiShortcut != nil
                     || settings.brightnessUpShortcut != nil
-                    || settings.brightnessDownShortcut != nil,
+                    || settings.brightnessDownShortcut != nil
+                    || settings.volumeUpShortcut != nil
+                    || settings.volumeDownShortcut != nil
+                    || settings.muteShortcut != nil,
                 // No combo subtitle: the header names a category, and a single
                 // binding there reads as the section's own shortcut. Bindings
                 // show only on their action rows inside.
@@ -44,6 +48,22 @@ struct ShortcutsSection: View {
                     leadingInset: 34
                 )
                 caption("Steps brightness like the brightness keys, on the same displays. For keyboards without them.")
+                ShortcutRecorderRow(
+                    label: "Volume Up",
+                    shortcut: binding(\.volumeUpShortcut) { settings.volumeUpShortcut = $0 },
+                    leadingInset: 34
+                )
+                ShortcutRecorderRow(
+                    label: "Volume Down",
+                    shortcut: binding(\.volumeDownShortcut) { settings.volumeDownShortcut = $0 },
+                    leadingInset: 34
+                )
+                ShortcutRecorderRow(
+                    label: "Mute",
+                    shortcut: binding(\.muteShortcut) { settings.muteShortcut = $0 },
+                    leadingInset: 34
+                )
+                caption("Steps the volume of the monitor that is your sound output, like the volume keys. For keyboards without them.")
             }
         }
     }

@@ -65,6 +65,9 @@ final class SettingsService: ObservableObject, @unchecked Sendable {
         static let hidpiShortcut          = "crisp.hidpiShortcut"
         static let brightnessUpShortcut   = "crisp.brightnessUpShortcut"
         static let brightnessDownShortcut = "crisp.brightnessDownShortcut"
+        static let volumeUpShortcut       = "crisp.volumeUpShortcut"
+        static let volumeDownShortcut     = "crisp.volumeDownShortcut"
+        static let muteShortcut           = "crisp.muteShortcut"
         // Per-display: prefix + display UUID, since displayIDs are reused
         // across reconnects (same reason as crisp.softBrightness.uuid.*).
         static let brightnessPrefix       = "crisp.brightness.uuid."
@@ -183,6 +186,39 @@ final class SettingsService: ObservableObject, @unchecked Sendable {
         }
     }
 
+    /// Global shortcuts that step the speaker volume of the monitor that owns the
+    /// default audio output, and mute it, exactly as the volume keys do; nil when
+    /// not set. Registration is the caller's job, as above.
+    @Published var volumeUpShortcut: KeyboardShortcut? = nil {
+        didSet {
+            if let volumeUpShortcut, let data = try? JSONEncoder().encode(volumeUpShortcut) {
+                defaults.set(data, forKey: Keys.volumeUpShortcut)
+            } else {
+                defaults.removeObject(forKey: Keys.volumeUpShortcut)
+            }
+        }
+    }
+
+    @Published var volumeDownShortcut: KeyboardShortcut? = nil {
+        didSet {
+            if let volumeDownShortcut, let data = try? JSONEncoder().encode(volumeDownShortcut) {
+                defaults.set(data, forKey: Keys.volumeDownShortcut)
+            } else {
+                defaults.removeObject(forKey: Keys.volumeDownShortcut)
+            }
+        }
+    }
+
+    @Published var muteShortcut: KeyboardShortcut? = nil {
+        didSet {
+            if let muteShortcut, let data = try? JSONEncoder().encode(muteShortcut) {
+                defaults.set(data, forKey: Keys.muteShortcut)
+            } else {
+                defaults.removeObject(forKey: Keys.muteShortcut)
+            }
+        }
+    }
+
     /// One combo, one action: clears `shortcut` off every other row and preset holding it
     /// (Carbon refuses a second registration of the same combo), then `assign` gives it here.
     func assignStaticShortcut(_ shortcut: KeyboardShortcut?, assign: (KeyboardShortcut?) -> Void) {
@@ -190,6 +226,9 @@ final class SettingsService: ObservableObject, @unchecked Sendable {
             if hidpiShortcut?.sameKeys(as: shortcut) == true { hidpiShortcut = nil }
             if brightnessUpShortcut?.sameKeys(as: shortcut) == true { brightnessUpShortcut = nil }
             if brightnessDownShortcut?.sameKeys(as: shortcut) == true { brightnessDownShortcut = nil }
+            if volumeUpShortcut?.sameKeys(as: shortcut) == true { volumeUpShortcut = nil }
+            if volumeDownShortcut?.sameKeys(as: shortcut) == true { volumeDownShortcut = nil }
+            if muteShortcut?.sameKeys(as: shortcut) == true { muteShortcut = nil }
         }
         assign(shortcut)
         if let shortcut {
@@ -276,6 +315,12 @@ final class SettingsService: ObservableObject, @unchecked Sendable {
         brightnessUpShortcut = defaults.data(forKey: Keys.brightnessUpShortcut)
             .flatMap { try? JSONDecoder().decode(KeyboardShortcut.self, from: $0) }
         brightnessDownShortcut = defaults.data(forKey: Keys.brightnessDownShortcut)
+            .flatMap { try? JSONDecoder().decode(KeyboardShortcut.self, from: $0) }
+        volumeUpShortcut = defaults.data(forKey: Keys.volumeUpShortcut)
+            .flatMap { try? JSONDecoder().decode(KeyboardShortcut.self, from: $0) }
+        volumeDownShortcut = defaults.data(forKey: Keys.volumeDownShortcut)
+            .flatMap { try? JSONDecoder().decode(KeyboardShortcut.self, from: $0) }
+        muteShortcut = defaults.data(forKey: Keys.muteShortcut)
             .flatMap { try? JSONDecoder().decode(KeyboardShortcut.self, from: $0) }
     }
 }
