@@ -1,103 +1,45 @@
 import XCTest
 
+/// The crispctl virtual commands: the menu's list and its Activate/Deactivate switch.
 final class CrispControlVirtualDisplayTests: XCTestCase {
-    private let id = UUID(uuidString: "12345678-9ABC-DEF0-1234-56789ABCDEF0")!
-
-    func testCLIParsesSavedIdentityAndCreationOptions() {
-        XCTAssertEqual(CrispControlCLIModel.parse(arguments: ["status"]), .request(.init(command: .status)))
-        XCTAssertEqual(CrispControlCLIModel.parse(arguments: ["virtual", "list"]), .request(.init(command: .listVirtualDisplays)))
-        let config = CrispControlVirtualDisplayConfig(id: id, name: "Work", width: 1920, height: 1080, autoCreate: false)
-        XCTAssertEqual(CrispControlCLIModel.parse(arguments: [
-            "virtual", "configure", id.uuidString, "Work", "1920", "1080", "on", "off"
-        ]), .request(.init(command: .configureVirtualDisplay, selector: id.uuidString, virtualConfig: config)))
-        for (verb, command) in [("ensure", CrispControlRequest.Command.ensureVirtualDisplay), ("disable", .disableVirtualDisplay)] {
-            XCTAssertEqual(CrispControlCLIModel.parse(arguments: ["virtual", verb, id.uuidString]),
-                           .request(.init(command: command, selector: id.uuidString)))
-        }
+    private func virtual(_ id: String, _ name: String, active: Bool) -> CrispControlVirtualDisplay {
+        CrispControlVirtualDisplay(id: id, name: name, width: 1920, height: 1080, hiDPI: false, active: active)
     }
 
-    func testInvalidCLIAndWireConfigurationCannotSelectAnotherTarget() {
-        for args in [
-            ["virtual", "ensure", "main"], ["virtual", "disable", "42"],
-            ["virtual", "configure", id.uuidString, "Work", "1920.5", "1080", "on", "off"],
-            ["virtual", "configure", id.uuidString, "Work", "99999", "1080", "on", "off"],
-            ["virtual", "configure", id.uuidString, "Work", "1920", "1080", "yes", "off"]
-        ] {
-            guard case .failure = CrispControlCLIModel.parse(arguments: args) else { return XCTFail("accepted \(args)") }
-        }
-        let config = CrispControlVirtualDisplayConfig(name: "Work", width: 1920, height: 1080)
-        XCTAssertNil(CrispControlRequest(command: .configureVirtualDisplay, selector: id.uuidString,
-                                        virtualConfig: config).virtualConfigID)
-        XCTAssertNil(CrispControlRequest(command: .ensureVirtualDisplay, selector: "42").virtualConfigID)
-        var invalid = config
-        invalid.width = -1
-        XCTAssertNil(CrispControlRequest(command: .configureVirtualDisplay, selector: invalid.id.uuidString,
-                                        virtualConfig: invalid).virtualConfigID)
-    }
-
-    func testDescriptorIdentityIsStableAndDoesNotMatchAnUnrelatedScreen() throws {
-        let config = CrispControlVirtualDisplayConfig(id: id, name: "Work", width: 1920, height: 1080)
-        XCTAssertEqual(config.productID, 0x12345678)
-        XCTAssertEqual(config.serialNumber, 0x9ABCDEF0)
-        XCTAssertTrue(config.matchesDescriptor(vendor: 0xEEEE, product: config.productID, serial: config.serialNumber))
-        XCTAssertFalse(config.matchesDescriptor(vendor: 1, product: config.productID, serial: config.serialNumber))
-        XCTAssertFalse(config.matchesDescriptor(vendor: 0xEEEE, product: config.productID, serial: 1))
-        XCTAssertEqual(try JSONDecoder().decode(CrispControlVirtualDisplayConfig.self, from: JSONEncoder().encode(config)), config)
-    }
-
-    func testRepeatedEnsureAndTimedOutApplyDoNotReserveAnotherObject() {
-        var gate = VirtualDisplayCreationGate()
-        XCTAssertEqual(gate.begin(id, retained: false), .create)
-        XCTAssertEqual(gate.begin(id, retained: false), .inProgress)
-        gate.beginApply(id)
-        gate.finish(id) // A timeout ended the wait, not the background apply.
-        XCTAssertTrue(gate.isBusy(id))
-        XCTAssertEqual(gate.begin(id, retained: true), .inProgress)
-        gate.finishApply(id)
-        XCTAssertFalse(gate.isBusy(id))
-        XCTAssertEqual(gate.begin(id, retained: true), .retained)
-        XCTAssertEqual(gate.begin(UUID(), retained: false), .create)
-    }
-
-    func testPersistenceReadbackAndRejectedWrite() throws {
-        let suite = "CrispVirtualTests.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
-        let config = CrispControlVirtualDisplayConfig(id: id, name: "Work", width: 1920, height: 1080, autoCreate: false)
-        XCTAssertTrue(CrispControlVirtualDisplayConfig.save([config], to: defaults, key: "configs"))
-        let data = try XCTUnwrap(defaults.data(forKey: "configs"))
-        XCTAssertEqual(try JSONDecoder().decode([CrispControlVirtualDisplayConfig].self, from: data), [config])
-        let rejecting = try XCTUnwrap(RejectingVirtualDefaults(suiteName: suite + ".reject"))
-        defer { rejecting.removePersistentDomain(forName: suite + ".reject") }
-        XCTAssertFalse(CrispControlVirtualDisplayConfig.save([config], to: rejecting, key: "configs"))
-    }
-
-    func testFailureRetainsSavedRequestedAndOfflineTruthInJSONAndText() throws {
-        let state = CrispControlVirtualDisplay(
-            config: .init(id: id, name: "Work", width: 1920, height: 1080), saved: true,
-            enableRequested: true, creating: false, retained: true, online: false,
-            active: false, ready: false, displayID: 42, resolution: nil, lastError: "apply failed"
+    private func set(_ selector: String, _ enabled: Bool, in virtuals: [CrispControlVirtualDisplay]) -> CrispControlResult {
+        CrispControlModel.handle(
+            Data(#"{"command":"setVirtualDisplay","selector":"\#(selector)","enabled":\#(enabled)}"#.utf8),
+            displays: [], virtualDisplays: virtuals
         )
-        let response = CrispControlResponse(ok: false, virtualDisplay: state, error: "outcome uncertain; do not retry automatically")
-        let data = CrispControlModel.encode(response)
-        XCTAssertEqual(try JSONDecoder().decode(CrispControlResponse.self, from: data), response)
-        XCTAssertEqual(CrispControlCLIModel.classify(data, for: .ensureVirtualDisplay), .serverFailure)
-        let text = CrispControlText.render(.init(ok: true, virtualDisplays: [state]), for: .listVirtualDisplays)
-        XCTAssertTrue(text.contains(id.uuidString))
-        XCTAssertTrue(text.contains("apply failed"))
-        let emptyStatus = CrispControlResponse(ok: true, running: true, virtualDisplays: [])
-        XCTAssertEqual(CrispControlText.render(emptyStatus, for: .status), "no saved virtual displays")
     }
 
-    func testVirtualWriteBudgetKeepsReadsAndPhysicalCommandsUnchanged() {
-        for command in [CrispControlRequest.Command.configureVirtualDisplay, .ensureVirtualDisplay, .disableVirtualDisplay] {
-            XCTAssertEqual(CrispControlCLIModel.receiveTimeoutSeconds(for: command), 67)
-        }
-        XCTAssertEqual(CrispControlCLIModel.receiveTimeoutSeconds(for: .listVirtualDisplays), 2)
-        XCTAssertEqual(CrispControlCLIModel.receiveTimeoutSeconds(for: .disconnectDisplay), 30)
+    /// Scripts parse this reply, so its field names are the contract.
+    func testListRepliesWithEveryVirtualDisplayUnderStableKeys() throws {
+        let list = CrispControlModel.handle(
+            Data(#"{"command":"listVirtualDisplays"}"#.utf8), displays: [], virtualDisplays: [virtual("V1", "Headless", active: true)]
+        )
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: CrispControlModel.encode(list.response)) as? [String: Any])
+        let listed = try XCTUnwrap((json["virtualDisplays"] as? [[String: Any]])?.first)
+        XCTAssertEqual(Set(listed.keys), ["id", "name", "width", "height", "hiDPI", "active"])
     }
-}
 
-private final class RejectingVirtualDefaults: UserDefaults {
-    override func set(_ value: Any?, forKey defaultName: String) {}
+    func testOnAndOffChangeOnlyADisplayInTheOtherState() {
+        let virtuals = [virtual("V1", "Headless", active: false), virtual("V2", "Desk", active: true)]
+        XCTAssertEqual(set("headless", true, in: virtuals).virtualDisplayChange, .init(id: "V1", enabled: true))
+        XCTAssertEqual(set("V2", false, in: virtuals).virtualDisplayChange, .init(id: "V2", enabled: false))
+        // Already in the asked state: succeeds with the display and changes nothing.
+        let already = set("Desk", true, in: virtuals)
+        XCTAssertNil(already.virtualDisplayChange)
+        XCTAssertEqual(already.response, .success(virtualDisplay: virtuals[1]))
+        XCTAssertNil(set("V1", false, in: virtuals).virtualDisplayChange)
+    }
+
+    func testSelectorsResolveLikePresets() {
+        let shared = [virtual("V1", "TV", active: false), virtual("V2", "tv", active: false)]
+        XCTAssertEqual(set("TV", true, in: shared).response, .failure("2 virtual displays are named 'TV'; use an id: V1, V2"))
+        XCTAssertEqual(set("Nope", true, in: shared).response, .failure("no virtual display named 'Nope'; virtual displays: TV, tv"))
+        XCTAssertEqual(set("Nope", true, in: []).response, .failure("no virtual display named 'Nope'; virtual displays: none saved"))
+        let missing = CrispControlModel.handle(Data(#"{"command":"setVirtualDisplay","selector":"V1"}"#.utf8), displays: [])
+        XCTAssertEqual(missing.response, .failure("virtual display and on|off are required"))
+    }
 }

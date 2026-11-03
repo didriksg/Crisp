@@ -103,12 +103,12 @@ final class CrispControlServer {
 
     /// Connection changes run one at a time: two disconnects fired together for the last
     /// two displays both passed disconnect()'s last-screen guard and blacked out every
-    /// screen. Brightness and HDR stay concurrent, since a reconnect can hold the line
-    /// for seconds.
+    /// screen. A virtual display turned on or off changes that count too, and two ons for
+    /// one would each create it. Brightness and HDR stay concurrent, since a reconnect can
+    /// hold the line for seconds.
     private var connectionChain: Task<Void, Never>?
 
     private func response(to request: Data) async -> Data {
-        if let virtual = await virtualResponse(to: request) { return CrispControlModel.encode(virtual) }
         guard Self.changesConnection(request) else { return await reply(to: request) }
         let previous = connectionChain
         let task = Task { @MainActor in
@@ -121,7 +121,7 @@ final class CrispControlServer {
 
     private nonisolated static func changesConnection(_ request: Data) -> Bool {
         switch (try? JSONDecoder().decode(CrispControlRequest.self, from: request))?.command {
-        case .connectDisplay, .disconnectDisplay, .toggleDisplay, .setInput: return true
+        case .connectDisplay, .disconnectDisplay, .toggleDisplay, .setInput, .setVirtualDisplay: return true
         default: return false
         }
     }
@@ -193,7 +193,8 @@ final class CrispControlServer {
                     (GammaService.shared.loadSavedState(for: display) ?? GammaAdjustment())
                         .controlValues(displayID: id, uuid: display.displayUUID, name: display.name)
                 }
-            }
+            },
+            virtualDisplays: VirtualDisplayService.shared.configs.map(Self.listed)
         )
         if let change = result.brightnessChange {
             guard let display = managedDisplays.first(where: { $0.displayID == change.displayID }) else {
@@ -245,29 +246,32 @@ final class CrispControlServer {
         if let change = result.inputChange {
             return await switchInput(change, among: managedDisplays, listed: displays)
         }
-        return CrispControlModel.encode(result.response)
+        return await virtualDisplayReply(to: result)
     }
 
-    private func virtualResponse(to data: Data) async -> CrispControlResponse? {
-        guard let request = try? JSONDecoder().decode(CrispControlRequest.self, from: data) else { return nil }
-        switch request.command {
-        case .status, .listVirtualDisplays:
-            return CrispControlResponse(ok: true, running: request.command == .status ? true : nil,
-                                        virtualDisplays: VirtualDisplayService.shared.controlSnapshots())
-        case .configureVirtualDisplay, .ensureVirtualDisplay, .disableVirtualDisplay:
-            guard let id = request.virtualConfigID else {
-                return .failure("a valid configuration UUID and matching configuration are required")
-            }
-            let service = VirtualDisplayService.shared
-            if request.command == .configureVirtualDisplay {
-                guard let config = request.virtualConfig, config.id == id else {
-                    return .failure("configuration and selector UUID must match")
-                }
-                return service.configureForControl(config)
-            }
-            return await service.setEnabledForControl(configID: id, enabled: request.command == .ensureVirtualDisplay)
-        default: return nil
+    /// The panel's Activate and Deactivate: the same create and destroy, nothing more.
+    /// A result without a virtual display change is answered as it stands.
+    private func virtualDisplayReply(to result: CrispControlResult) async -> Data {
+        guard let change = result.virtualDisplayChange else { return CrispControlModel.encode(result.response) }
+        let service = VirtualDisplayService.shared
+        guard let config = service.configs.first(where: { $0.id.uuidString == change.id }) else {
+            return CrispControlModel.encode(.failure("virtual display not found"))
         }
+        if change.enabled && !service.isActive(config.id) {
+            guard await service.create(config: config) else {
+                return CrispControlModel.encode(.failure("virtual display could not be turned on"))
+            }
+        } else if !change.enabled {
+            service.destroy(configID: config.id)
+        }
+        return CrispControlModel.encode(.success(virtualDisplay: Self.listed(config)))
+    }
+
+    private static func listed(_ config: VirtualDisplayService.VirtualDisplayConfig) -> CrispControlVirtualDisplay {
+        CrispControlVirtualDisplay(
+            id: config.id.uuidString, name: config.name, width: config.width, height: config.height,
+            hiDPI: config.hiDPI, active: VirtualDisplayService.shared.isActive(config.id)
+        )
     }
 
     private func inputList(displayID: UInt32, among managedDisplays: [DisplayInfo]) async -> Data {

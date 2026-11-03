@@ -96,7 +96,7 @@ To keep Keep Awake off on company Macs, push a configuration profile for the `co
 
 ## Automation
 
-Crisp ships with `crispctl`, a command line tool for the same controls: list displays, read and set brightness, switch Extra Brightness and HDR, change image adjustment, apply a preset, switch a monitor's input, and disconnect or reconnect a display. The Command Line Tool switch in Settings links it into `/usr/local/bin` (the Homebrew cask does this on install); it also lives inside the app at `Crisp.app/Contents/MacOS/crispctl`. Crisp must be running.
+Crisp ships with `crispctl`, a command line tool for the same controls: list displays, read and set brightness, switch Extra Brightness and HDR, change image adjustment, apply a preset, switch a monitor's input, disconnect or reconnect a display, and turn a virtual display on or off. The Command Line Tool switch in Settings links it into `/usr/local/bin` (the Homebrew cask does this on install); it also lives inside the app at `Crisp.app/Contents/MacOS/crispctl`. Crisp must be running.
 
 ```sh
 crispctl display list                  # JSON, with each display's id and uuid
@@ -106,8 +106,6 @@ crispctl preset apply Night
 ```
 
 The same controls are actions in the Shortcuts app: Apply Crisp Preset, Set and Get Display Brightness, Set Extra Brightness, Set Display HDR, Set Display Input, Disconnect and Reconnect Display, and Set and Reset Image Adjustment. A Time of Day automation that runs Apply Crisp Preset switches your displays between a day and a night setup.
-
-`crispctl virtual list --json` and `crispctl status --json` separate saved virtual-display configurations from actual online state and resolution. `virtual configure` saves a config by UUID, `virtual ensure` activates or reuses it, and `virtual disable` releases its Crisp-owned screen. `autoCreate` restores on the next Crisp start; launch at login and system sleep settings remain separate. See [virtual-display commands and hardware acceptance](docs/crispctl-virtual-displays.md). Acceptance for this iteration passed on a MacBook Pro, including creation, restart and UI checks. Mac mini HDMI-disconnected use has not been tested and is not a merge prerequisite.
 
 `crispctl help` lists every command, and `--help` on any command gives its details. To let an AI agent drive it, `crispctl skill install claude` or `crispctl skill install codex` adds a skill for Claude Code or Codex; for another agent, `crispctl skill show` prints it. Run the install again after updating Crisp.
 

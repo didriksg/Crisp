@@ -153,14 +153,14 @@ do {
         response = try receive(from: client)
     } catch {
         switch request.command {
-        case .configureVirtualDisplay, .ensureVirtualDisplay, .disableVirtualDisplay:
-            fail("virtual display response timed out or was lost for config \(request.selector ?? "unknown"); "
-                 + "outcome is uncertain; run 'crispctl virtual list --json' before deciding; do not retry automatically", code: 1)
         case .setHDR:
             fail("HDR response timed out or was lost; \(CrispControlModel.hdrUncertainRecovery)", code: 1)
         case .toggleDisplay:
             fail("toggle response timed out or was lost; the display may already have changed state, "
                  + "run 'display list' before retrying", code: 1)
+        case .setVirtualDisplay:
+            fail("virtual display response timed out or was lost; it may already have changed state, "
+                 + "run 'virtual list' before retrying", code: 1)
         default:
             throw error
         }
