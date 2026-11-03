@@ -22,6 +22,7 @@ final class CrispControlTextTests: XCTestCase {
             quantization: 256, invert: true, paused: false
         )
         let preset = CrispControlPreset(id: "P1", name: "Desk", captures: ["resolution", "hdr"], displays: [], active: true)
+        let virtual = CrispControlVirtualDisplay(id: "V1", name: "Headless", width: 1920, height: 1080, hiDPI: false, active: true)
         let cases: [(CrispControlRequest.Command, CrispControlResponse, String)] = [
             (.list, .success(displays: [builtin, held]), """
                 ID  NAME              BRIGHTNESS   RESOLUTION            BACKEND  UUID
@@ -60,6 +61,12 @@ final class CrispControlTextTests: XCTestCase {
                 """),
             (.listPresets, .success(presets: []), "no presets"),
             (.applyPreset, .success(preset: preset, skippedDisplays: ["D1"]), "skipped D1: not connected"),
+            (.listVirtualDisplays, .success(virtualDisplays: [virtual]), """
+                NAME      RESOLUTION  STATE  ID
+                Headless  1920x1080   on     V1
+                """),
+            (.listVirtualDisplays, .success(virtualDisplays: []), "no virtual displays"),
+            (.setVirtualDisplay, .success(virtualDisplay: virtual), "Headless on"),
             (.setImage, .success(image: image), ""),
             (.setBrightness, .success(), "")
         ]

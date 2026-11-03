@@ -82,6 +82,8 @@ struct CrispControlRequest: Codable, Equatable {
         case resetImage
         case listInputs
         case setInput
+        case listVirtualDisplays
+        case setVirtualDisplay
     }
 
     let command: Command
@@ -89,7 +91,7 @@ struct CrispControlRequest: Codable, Equatable {
     let brightness: Double?
     /// A display as a person typed it: a runtime id or a uuid. Takes precedence over
     /// `display`, which stays for clients that already send the numeric id. For
-    /// `applyPreset`, the preset's id or name.
+    /// `applyPreset` and `setVirtualDisplay`, the preset's or virtual display's id or name.
     let selector: String?
     let enabled: Bool?
     /// `setImage`: which setting, and its new value (invert: 0 or 1).
@@ -142,6 +144,15 @@ struct CrispControlPreset: Codable, Equatable {
     let name: String
     let captures: [String]
     let displays: [String]
+    let active: Bool
+}
+/// A saved virtual display as crispctl lists it; `active` is true while it is on.
+struct CrispControlVirtualDisplay: Codable, Equatable {
+    let id: String
+    let name: String
+    let width: Int
+    let height: Int
+    let hiDPI: Bool
     let active: Bool
 }
 /// One Image Adjustment slider or switch as crispctl names it.
@@ -215,6 +226,8 @@ struct CrispControlResponse: Codable, Equatable {
     let skippedDisplays: [String]?
     let image: CrispControlImageAdjustment?
     let inputs: CrispControlInputs?
+    let virtualDisplays: [CrispControlVirtualDisplay]?
+    let virtualDisplay: CrispControlVirtualDisplay?
     let error: String?
 
     init(
@@ -228,6 +241,8 @@ struct CrispControlResponse: Codable, Equatable {
         skippedDisplays: [String]? = nil,
         image: CrispControlImageAdjustment? = nil,
         inputs: CrispControlInputs? = nil,
+        virtualDisplays: [CrispControlVirtualDisplay]? = nil,
+        virtualDisplay: CrispControlVirtualDisplay? = nil,
         error: String? = nil
     ) {
         self.ok = ok
@@ -240,6 +255,8 @@ struct CrispControlResponse: Codable, Equatable {
         self.skippedDisplays = skippedDisplays
         self.image = image
         self.inputs = inputs
+        self.virtualDisplays = virtualDisplays
+        self.virtualDisplay = virtualDisplay
         self.error = error
     }
     static func success() -> Self { Self(ok: true) }
@@ -255,6 +272,10 @@ struct CrispControlResponse: Codable, Equatable {
     static func success(preset: CrispControlPreset, skippedDisplays: [String]) -> Self {
         Self(ok: true, preset: preset, skippedDisplays: skippedDisplays)
     }
+    static func success(virtualDisplays: [CrispControlVirtualDisplay]) -> Self {
+        Self(ok: true, virtualDisplays: virtualDisplays)
+    }
+    static func success(virtualDisplay: CrispControlVirtualDisplay) -> Self { Self(ok: true, virtualDisplay: virtualDisplay) }
     static func failure(_ error: String) -> Self { Self(ok: false, error: error) }
 }
 struct CrispControlBrightnessChange: Equatable {
@@ -276,6 +297,12 @@ struct CrispControlConnectionChange: Equatable {
     let uuid: String
     let connect: Bool
 }
+/// A virtual display to turn on or off, by its config id. Only made when the request
+/// asks for the other state, so the server never re-creates one that is on.
+struct CrispControlVirtualDisplayChange: Equatable {
+    let id: String
+    let enabled: Bool
+}
 struct CrispControlResult {
     let response: CrispControlResponse
     let brightnessChange: CrispControlBrightnessChange?
@@ -289,6 +316,7 @@ struct CrispControlResult {
     /// capabilities are read. `setInput`: the switch to make.
     let inputListDisplayID: UInt32?
     let inputChange: CrispControlInputChange?
+    let virtualDisplayChange: CrispControlVirtualDisplayChange?
 
     init(
         _ response: CrispControlResponse,
@@ -299,7 +327,8 @@ struct CrispControlResult {
         presetToApply: String? = nil,
         imageChange: CrispControlImageChange? = nil,
         inputListDisplayID: UInt32? = nil,
-        inputChange: CrispControlInputChange? = nil
+        inputChange: CrispControlInputChange? = nil,
+        virtualDisplayChange: CrispControlVirtualDisplayChange? = nil
     ) {
         self.response = response
         self.brightnessChange = brightnessChange
@@ -310,6 +339,7 @@ struct CrispControlResult {
         self.imageChange = imageChange
         self.inputListDisplayID = inputListDisplayID
         self.inputChange = inputChange
+        self.virtualDisplayChange = virtualDisplayChange
     }
 }
 enum CrispControlModel {
@@ -366,7 +396,8 @@ enum CrispControlModel {
         hdrMutationUUID: (UInt32) -> String? = { _ in nil },
         brightnessBoostState: (UInt32) -> CrispControlBrightnessBoostState? = { _ in nil },
         presets: [CrispControlPreset] = [],
-        imageAdjustment: (UInt32) -> CrispControlImageAdjustment? = { _ in nil }
+        imageAdjustment: (UInt32) -> CrispControlImageAdjustment? = { _ in nil },
+        virtualDisplays: [CrispControlVirtualDisplay] = []
     ) -> CrispControlResult {
         guard let request = try? JSONDecoder().decode(CrispControlRequest.self, from: data) else {
             return .init(.failure("invalid request"), nil, nil, nil)
@@ -399,6 +430,8 @@ enum CrispControlModel {
             return handleImage(request, displays: displays, imageAdjustment: imageAdjustment)
         case .listInputs, .setInput:
             return handleInput(request, displays: displays)
+        case .listVirtualDisplays, .setVirtualDisplay:
+            return handleVirtualDisplay(request, virtualDisplays: virtualDisplays)
         }
     }
 
@@ -496,22 +529,48 @@ enum CrispControlModel {
         }
     }
 
-    struct PresetSelectorError: Error { let message: String }
+    /// Turning on one that is on, or off one that is off, succeeds and changes nothing,
+    /// like the panel's switch and `display connect`.
+    private static func handleVirtualDisplay(
+        _ request: CrispControlRequest, virtualDisplays: [CrispControlVirtualDisplay]
+    ) -> CrispControlResult {
+        guard request.command == .setVirtualDisplay else {
+            return .init(.success(virtualDisplays: virtualDisplays), nil, nil, nil)
+        }
+        guard let selector = request.selector, !selector.isEmpty, let enabled = request.enabled else {
+            return .init(.failure("virtual display and on|off are required"), nil, nil, nil)
+        }
+        switch resolve(selector, in: virtualDisplays, id: \.id, name: \.name, noun: "virtual display") {
+        case .success(let virtual) where virtual.active == enabled:
+            return .init(.success(virtualDisplay: virtual), nil, nil, nil)
+        case .success(let virtual):
+            return .init(.success(), nil, nil, nil, virtualDisplayChange: .init(id: virtual.id, enabled: enabled))
+        case .failure(let error): return .init(.failure(error.message), nil, nil, nil)
+        }
+    }
 
-    /// Finds a preset by the selector a person typed: its id, else its name in any case.
-    /// A name two presets share is refused, since applying either could be wrong.
-    static func resolve(preset selector: String, in presets: [CrispControlPreset]) -> Result<CrispControlPreset, PresetSelectorError> {
-        if let match = presets.first(where: { $0.id.caseInsensitiveCompare(selector) == .orderedSame }) {
+    struct SelectorError: Error { let message: String }
+
+    static func resolve(preset selector: String, in presets: [CrispControlPreset]) -> Result<CrispControlPreset, SelectorError> {
+        resolve(selector, in: presets, id: \.id, name: \.name, noun: "preset")
+    }
+
+    /// Finds a preset or virtual display by the selector a person typed: its id, else its
+    /// name in any case. A name two share is refused, since acting on either could be wrong.
+    private static func resolve<Item>(
+        _ selector: String, in items: [Item], id: KeyPath<Item, String>, name: KeyPath<Item, String>, noun: String
+    ) -> Result<Item, SelectorError> {
+        if let match = items.first(where: { $0[keyPath: id].caseInsensitiveCompare(selector) == .orderedSame }) {
             return .success(match)
         }
-        let named = presets.filter { $0.name.caseInsensitiveCompare(selector) == .orderedSame }
+        let named = items.filter { $0[keyPath: name].caseInsensitiveCompare(selector) == .orderedSame }
         if named.count == 1 { return .success(named[0]) }
         if named.count > 1 {
-            let ids = named.map(\.id).joined(separator: ", ")
-            return .failure(.init(message: "\(named.count) presets are named '\(selector)'; use an id: \(ids)"))
+            let ids = named.map { $0[keyPath: id] }.joined(separator: ", ")
+            return .failure(.init(message: "\(named.count) \(noun)s are named '\(selector)'; use an id: \(ids)"))
         }
-        let names = presets.isEmpty ? "none saved" : presets.map(\.name).joined(separator: ", ")
-        return .failure(.init(message: "no preset named '\(selector)'; presets: \(names)"))
+        let names = items.isEmpty ? "none saved" : items.map { $0[keyPath: name] }.joined(separator: ", ")
+        return .failure(.init(message: "no \(noun) named '\(selector)'; \(noun)s: \(names)"))
     }
 
     /// Resolves a connection request against the online list plus the displays Crisp
@@ -642,7 +701,7 @@ enum CrispControlModel {
 }
 enum CrispControlCLIModel {
     enum Group: String, CaseIterable {
-        case display, brightness, hdr, image, preset
+        case display, brightness, hdr, image, preset, virtual
         var title: String {
             switch self {
             case .display: return "Display commands"
@@ -650,6 +709,7 @@ enum CrispControlCLIModel {
             case .hdr: return "HDR commands"
             case .image: return "Image Adjustment commands"
             case .preset: return "Preset commands"
+            case .virtual: return "Virtual display commands"
             }
         }
         var description: String {
@@ -659,6 +719,7 @@ enum CrispControlCLIModel {
             case .hdr: return "Read and switch HDR on external displays."
             case .image: return "Read and set Image Adjustment: contrast, gamma, color temperature and the other sliders."
             case .preset: return "List and apply the presets saved in Crisp."
+            case .virtual: return "List the virtual displays saved in Crisp and turn them on or off."
             }
         }
     }
@@ -761,6 +822,20 @@ enum CrispControlCLIModel {
             the menu. The reply comes after it is applied; skippedDisplays lists the
             preset's displays that were not connected. Refused while another preset is
             being applied.
+            """),
+        Entry(group: .virtual, usage: "virtual list", summary: "List virtual displays", detail: """
+            Each virtual display carries id, name, width, height, hiDPI and active, which is
+            true while it is on.
+            """),
+        Entry(group: .virtual, usage: "virtual on <virtual>", summary: "Turn a virtual display on", detail: """
+            <virtual> is an id or a name from 'virtual list', matched as 'preset apply'
+            matches. The same as Activate in the menu. Asking for the state it is already
+            in succeeds and changes nothing. The reply comes after the window server has
+            answered.
+            """),
+        Entry(group: .virtual, usage: "virtual off <virtual>", summary: "Turn a virtual display off", detail: """
+            The same as Deactivate in the menu: the screen goes away and its settings stay
+            saved. Asking for the state it is already in succeeds and changes nothing.
             """)
     ]
     static let otherRows: [(usage: String, arguments: String, summary: String)] = [
@@ -861,6 +936,8 @@ enum CrispControlCLIModel {
         case .listInputs: return 60
         // A resolution or arrangement change waits for the reconfiguration to land.
         case .applyPreset: return 30
+        // Creation waits up to 10 s for the window server, then for the native mode.
+        case .setVirtualDisplay: return 15
         default: return 2
         }
     }
@@ -943,12 +1020,22 @@ enum CrispControlCLIModel {
             default: break
             }
         }
-        return imageRequest(arguments) ?? presetRequest(arguments) ?? connectionRequest(arguments)
+        return imageRequest(arguments) ?? presetRequest(arguments) ?? virtualRequest(arguments)
+            ?? connectionRequest(arguments)
     }
     private static func presetRequest(_ arguments: [String]) -> CrispControlRequest? {
         if arguments == ["preset", "list"] { return .init(command: .listPresets) }
         guard arguments.count == 3, arguments[0...1] == ["preset", "apply"], !arguments[2].isEmpty else { return nil }
         return .init(command: .applyPreset, selector: arguments[2])
+    }
+    private static func virtualRequest(_ arguments: [String]) -> CrispControlRequest? {
+        if arguments == ["virtual", "list"] { return .init(command: .listVirtualDisplays) }
+        guard arguments.count == 3, arguments[0] == "virtual", !arguments[2].isEmpty else { return nil }
+        switch arguments[1] {
+        case "on": return .init(command: .setVirtualDisplay, selector: arguments[2], enabled: true)
+        case "off": return .init(command: .setVirtualDisplay, selector: arguments[2], enabled: false)
+        default: return nil
+        }
     }
     private static func imageRequest(_ arguments: [String]) -> CrispControlRequest? {
         guard arguments.first == "image", arguments.count >= 3, !arguments[2].isEmpty else { return nil }
@@ -994,8 +1081,8 @@ enum CrispControlCLIModel {
 }
 /// What crispctl prints without --json (#227): text for people, which can change from
 /// one release to the next; scripts and agents read --json. A read prints a table or a
-/// value. A change prints nothing, except a change of connection (the state it ended in)
-/// and a preset that skipped displays.
+/// value. A change prints nothing, except a change of connection or of a virtual display
+/// (the state it ended in) and a preset that skipped displays.
 enum CrispControlText {
     static func render(_ response: CrispControlResponse, for command: CrispControlRequest.Command) -> String {
         switch command {
@@ -1017,8 +1104,18 @@ enum CrispControlText {
             return table([["", "NAME", "CAPTURES", "ID"]]
                 + presets.map { [$0.active ? "*" : "", $0.name, $0.captures.joined(separator: ","), $0.id] })
         case .applyPreset: return (response.skippedDisplays ?? []).map { "skipped \($0): not connected" }.joined(separator: "\n")
+        case .listVirtualDisplays, .setVirtualDisplay: return virtualText(response)
         case .setBrightness, .setBrightnessBoost, .setHDR, .setImage, .resetImage: return ""
         }
+    }
+
+    /// A list prints a table; an on or off prints the state the display ended in.
+    private static func virtualText(_ response: CrispControlResponse) -> String {
+        if let virtual = response.virtualDisplay { return virtual.name + " " + onOff(virtual.active) }
+        guard let virtuals = response.virtualDisplays, !virtuals.isEmpty else { return "no virtual displays" }
+        return table([["NAME", "RESOLUTION", "STATE", "ID"]] + virtuals.map {
+            [$0.name, "\($0.width)x\($0.height)" + ($0.hiDPI ? " HiDPI" : ""), onOff($0.active), $0.id]
+        })
     }
 
     private static func displayTable(_ displays: [CrispControlDisplay]) -> String {
