@@ -178,6 +178,23 @@ final class VirtualDisplayService: ObservableObject, @unchecked Sendable {
         }
     }
 
+    /// One-click switch: brings `config` up first, then tears down every other active virtual
+    /// display. Order matters: if a virtual display is the only screen, destroying first
+    /// would leave the Mac with no display at all. If creation fails nothing is destroyed.
+    @discardableResult
+    func switchTo(config: VirtualDisplayConfig) async -> Bool {
+        let others = activeConfigIDs.subtracting([config.id])
+        if !isActive(config.id) {
+            guard await create(config: config) else { return false }
+        }
+        for id in others {
+            let oldDisplayID = activeDisplayObjects[id]?.displayID
+            destroy(configID: id)
+            if let oldDisplayID { await waitForDisplayOffline(oldDisplayID) }
+        }
+        return true
+    }
+
     func destroyAll() {
         for uuid in activeConfigIDs {
             activeDisplayObjects.removeValue(forKey: uuid)

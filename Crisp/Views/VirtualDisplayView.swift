@@ -144,7 +144,9 @@ struct VirtualDisplayView: View {
         activatingID = config.id
         createError = nil
         Task { @MainActor in
-            let ok = await service.create(config: config)
+            let ok = SettingsService.shared.exclusiveVirtualDisplays
+                ? await service.switchTo(config: config)
+                : await service.create(config: config)
             activatingID = nil
             if !ok {
                 createError = String(localized: "Failed to activate virtual display. Please try again.")
@@ -251,8 +253,12 @@ struct VirtualDisplayRow: View {
         .contentShape(Rectangle())
         .onHover { isHovered = $0 }
         .onTapGesture {
-            // An off display turns back on with a tap (also in the ⋯ menu).
-            if !isActive && !isActivating { onActivate() }
+            // An off display turns back on with a tap (also in the ⋯ menu). With exclusive
+            // switching on, tapping the active one while others are live also switches to it.
+            if !isActivating && (!isActive || (SettingsService.shared.exclusiveVirtualDisplays
+                                               && VirtualDisplayService.shared.activeConfigIDs.count > 1)) {
+                onActivate()
+            }
         }
         .contextMenu { rowActions }
     }

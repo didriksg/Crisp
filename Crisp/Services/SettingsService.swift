@@ -56,6 +56,7 @@ final class SettingsService: ObservableObject, @unchecked Sendable {
         static let combinedBuiltinFactor  = "crisp.combinedBuiltinBrightnessAdjustment"
         static let showVolumeSliders      = "crisp.showVolumeSliders"
         static let showConnectionSwitches = "crisp.showConnectionSwitches"
+        static let exclusiveVirtualDisplays = "crisp.exclusiveVirtualDisplays"
         static let crossDisplayGaps       = "crisp.crossDisplayGaps"
         static let disconnectBuiltinWhenDocked = "crisp.disconnectBuiltinWhenDocked"
         static let ddcCacheTTL            = "crisp.ddcCacheTTL"
@@ -105,6 +106,12 @@ final class SettingsService: ObservableObject, @unchecked Sendable {
     /// default: a control that blanks a screen does not belong under a stray click.
     @Published var showConnectionSwitches: Bool = false {
         didSet { defaults.set(showConnectionSwitches, forKey: Keys.showConnectionSwitches) }
+    }
+
+    /// Off by default: turning on a virtual display leaves the others as they are. When on,
+    /// activating one switches to it by turning off every other virtual display.
+    @Published var exclusiveVirtualDisplays: Bool = false {
+        didSet { defaults.set(exclusiveVirtualDisplays, forKey: Keys.exclusiveVirtualDisplays) }
     }
 
     /// Pointer moves past display edges with no display behind them. Also starts and stops
@@ -263,6 +270,7 @@ final class SettingsService: ObservableObject, @unchecked Sendable {
         showVolumeSliders = defaults.object(forKey: Keys.showVolumeSliders) != nil
             ? defaults.bool(forKey: Keys.showVolumeSliders) : true
         showConnectionSwitches = defaults.bool(forKey: Keys.showConnectionSwitches)
+        exclusiveVirtualDisplays = defaults.bool(forKey: Keys.exclusiveVirtualDisplays)
         crossDisplayGaps = defaults.bool(forKey: Keys.crossDisplayGaps)
         disconnectBuiltinWhenDocked = defaults.bool(forKey: Keys.disconnectBuiltinWhenDocked)
         ddcCacheTTL = defaults.object(forKey: Keys.ddcCacheTTL) != nil
