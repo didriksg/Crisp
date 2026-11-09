@@ -188,7 +188,7 @@ final class DisplayColorModeService {
         let compatibleModes = rawModes.compactMap { object -> (object: NSObject, mode: DisplayColorMode)? in
             guard let mode = makeMode(object), current.sameTiming(as: mode) else { return nil }
             return (object, mode)
-        }
+        }.sorted { DisplayColorMode.menuOrder($0.mode, $1.mode) }
         return ModeContext(display: display.object, current: current, compatibleModes: compatibleModes)
     }
 

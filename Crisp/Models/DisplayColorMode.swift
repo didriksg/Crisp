@@ -10,8 +10,14 @@ struct DisplayColorMode: Identifiable, Equatable, Sendable {
     let colorMode: String
     let hdrMode: String
 
-    var title: String {
+    var bitDepthLabel: String {
         String(format: NSLocalizedString("%d-bit", comment: "Display color mode bit depth"), bitDepth)
+    }
+
+    /// The format names the row: on one timing the rows differ mostly by encoding and range.
+    var title: String {
+        let format = [colorEncoding, rangeLabel].compactMap { $0 }.filter { !$0.isEmpty }
+        return format.isEmpty ? bitDepthLabel : format.joined(separator: ", ")
     }
 
     var colorEncoding: String {
@@ -33,13 +39,7 @@ struct DisplayColorMode: Identifiable, Equatable, Sendable {
         return nil
     }
 
-    var details: [String] {
-        [hdrMode, colorEncoding, rangeLabel]
-            .compactMap { $0 }
-            .filter { !$0.isEmpty }
-    }
-
-    var detailLabel: String { details.joined(separator: " · ") }
+    var detailLabel: String { bitDepthLabel }
 
     func sameTiming(as other: DisplayColorMode) -> Bool {
         width == other.width && height == other.height
@@ -48,12 +48,23 @@ struct DisplayColorMode: Identifiable, Equatable, Sendable {
     }
 
     var summary: String {
-        ([title] + details).joined(separator: " ")
+        [bitDepthLabel, colorEncoding, rangeLabel ?? "", hdrMode].filter { !$0.isEmpty }.joined(separator: " ")
     }
 
-    /// Keeps the section subtitle compact; encoding and range appear in the list.
+    /// The section subtitle: enough to tell the active format apart while Automatic is checked.
     var shortSummary: String {
-        [title, hdrMode].filter { !$0.isEmpty }.joined(separator: " ")
+        [bitDepthLabel, colorEncoding].filter { !$0.isEmpty }.joined(separator: " ")
+    }
+
+    /// List order: RGB, then YCbCr from least to most subsampled, highest bit depth first,
+    /// full range before limited.
+    static func menuOrder(_ a: DisplayColorMode, _ b: DisplayColorMode) -> Bool {
+        let rank = ["RGB": 0, "YCbCr 4:4:4": 1, "YCbCr 4:2:2": 2, "YCbCr 4:2:0": 3, "YCbCr": 4]
+        let ra = rank[a.colorEncoding] ?? 5, rb = rank[b.colorEncoding] ?? 5
+        if ra != rb { return ra < rb }
+        if a.bitDepth != b.bitDepth { return a.bitDepth > b.bitDepth }
+        let full = { (m: DisplayColorMode) in m.colorMode.localizedCaseInsensitiveContains("FullRange") }
+        return full(a) && !full(b)
     }
 }
 

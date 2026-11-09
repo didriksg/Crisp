@@ -117,13 +117,27 @@ final class DisplayColorModeTests: XCTestCase {
         }
     }
 
-    func testRangeAndDetailLabels() {
-        XCTAssertEqual(mode().rangeLabel, String(localized: "Full Range"))
+    func testRowNamesTheFormatAndKeepsBitDepthAndHDROutOfTheTitle() {
+        let full = String(localized: "Full Range")
+        XCTAssertEqual(mode().rangeLabel, full)
         XCTAssertEqual(mode(encoding: "rgblimitedrange").rangeLabel, String(localized: "Limited Range"))
         XCTAssertNil(mode(encoding: "RGB").rangeLabel)
-        XCTAssertEqual(mode(hdr: "").detailLabel, "RGB · \(String(localized: "Full Range"))")
-        XCTAssertEqual(mode(encoding: "RGB", hdr: "HDR10").detailLabel, "HDR10 · RGB")
-        XCTAssertEqual(mode(encoding: "", hdr: "").detailLabel, "")
+        XCTAssertEqual(mode(hdr: "HDR10").title, "RGB, \(full)")
+        XCTAssertEqual(mode(encoding: "RGB").title, "RGB")
+        XCTAssertEqual(mode(encoding: "").title, mode().bitDepthLabel)
+        XCTAssertEqual(mode(hdr: "HDR10").detailLabel, mode().bitDepthLabel)
+        XCTAssertEqual(mode(depth: 8, encoding: "YCbCr422LimitedRange").shortSummary,
+                       "\(mode(depth: 8).bitDepthLabel) YCbCr 4:2:2")
+    }
+
+    func testMenuOrderPutsRGBFirstThenLessSubsamplingThenDepthThenFullRange() {
+        let aoc = [mode(id: 1, depth: 8, encoding: "YCbCr444LimitedRange"),
+                   mode(id: 2, depth: 10, encoding: "YCbCr422LimitedRange"),
+                   mode(id: 3, depth: 8, encoding: "YCbCr422LimitedRange"),
+                   mode(id: 4, depth: 10, encoding: "RGBFullRange"),
+                   mode(id: 5, depth: 8, encoding: "RGBFullRange"),
+                   mode(id: 6, depth: 8, encoding: "RGBLimitedRange")]
+        XCTAssertEqual(aoc.sorted(by: DisplayColorMode.menuOrder).map(\.id), [4, 5, 6, 1, 2, 3])
     }
 
     func testSnapshotRequiresAnAlternativeID() {

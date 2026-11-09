@@ -1,5 +1,4 @@
 import AppKit
-import Combine
 import SwiftUI
 
 extension Notification.Name {
@@ -61,7 +60,8 @@ final class DisplayColorModeController: ObservableObject {
     }
 }
 
-/// Refreshes the available choices when the panel opens or macOS reports a display change.
+/// Refreshes the available choices when the panel opens and after a restore, never on a
+/// display change: CADisplay is private, and a display change reaches every user.
 struct ColorModeHeadBlock: View {
     @ObservedObject var controller: DisplayColorModeController
     @ObservedObject var state: PanelSectionState
@@ -83,12 +83,6 @@ struct ColorModeHeadBlock: View {
             controller.reload()
         }
         .onReceive(NotificationCenter.default.publisher(for: .crispDisplayColorModeNeedsRefresh)) { _ in
-            controller.reload()
-        }
-        .onReceive(
-            NotificationCenter.default.publisher(for: NSApplication.didChangeScreenParametersNotification)
-                .debounce(for: .milliseconds(500), scheduler: RunLoop.main)
-        ) { _ in
             controller.reload()
         }
     }
@@ -164,16 +158,5 @@ private struct ColorModeOptionRow: View {
         .onHover { isHovered = $0 }
         .accessibilityLabel(Text(verbatim: mode.summary + (isSelected ? NSLocalizedString(", selected", comment: "") : "")))
         .accessibilityAddTraits([.isButton])
-    }
-}
-
-/// Closes the color-mode section before the profile section below it.
-struct ColorModeTailBlock: View {
-    @ObservedObject var controller: DisplayColorModeController
-
-    var body: some View {
-        if controller.snapshot?.canSet == true {
-            SectionDivider()
-        }
     }
 }

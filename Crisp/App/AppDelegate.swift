@@ -576,103 +576,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         var blocks: [PanelBlock] = []
         for (index, display) in vis.enumerated() {
-            let id = display.displayID
-            let uuid = display.displayUUID
-            let dhead = block("dhead-\(uuid)") {
-                DisplayHeaderBlock(display: display, isFirst: index == 0, state: state)
-            }
-            dhead.liveInFlight = true   // display row chevron
-            blocks.append(dhead)
-            // Split so every dropdown is its own block: the canvas clips content
-            // rendered once at natural height (the 120Hz fix; docs/panel-resize.md).
-            // Each detail block paints its shaded band on the clip layer (banded).
-            let modeC = DisplayModeController(display: display, displayManager: dm)
-            let colorModeC = DisplayColorModeController(display: display)
-            let profC = DisplayProfileController(display: display)
-            let detailOpen = { state.expandedDisplayIDs.contains(id) }
-            func detail<V: View>(_ sub: String, isOpen: @escaping () -> Bool,
-                                 live: Bool = false,
-                                 @ViewBuilder _ content: () -> V) -> PanelBlock {
-                let b = block("\(sub)-\(uuid)", isOpen: isOpen) {
-                    content()
-                        .padding(.leading, 4)
-                }
-                b.banded = true
-                b.liveInFlight = live
-                return b
-            }
-            blocks.append(detail("dgroup-picture", isOpen: detailOpen) {
-                GroupHeaderBlock(title: "Picture")
-            })
-            blocks.append(detail("dres-head", isOpen: detailOpen, live: true) {
-                ResolutionHeadBlock(controller: modeC, state: state)
-            })
-            blocks.append(detail("dres-body", isOpen: {
-                detailOpen() && state.resolutionOpenIDs.contains(id)
-            }) {
-                ResolutionSliderBlock(controller: modeC, state: state)
-            })
-            blocks.append(detail("dres-all", isOpen: {
-                detailOpen() && state.resolutionOpenIDs.contains(id)
-                    && state.allResolutionsOpenIDs.contains(id)
-            }) {
-                ResolutionFullListBlock(controller: modeC)
-            })
-            blocks.append(detail("dref-head", isOpen: detailOpen, live: true) {
-                RefreshHeadBlock(controller: modeC, state: state)
-            })
-            blocks.append(detail("dref-body", isOpen: {
-                detailOpen() && state.refreshOpenIDs.contains(id)
-            }) {
-                RefreshListBlock(controller: modeC)
-            })
-            blocks.append(detail("dmode-tail", isOpen: detailOpen) {
-                ModeTailBlock(controller: modeC)
-            })
-            blocks.append(detail("dgroup-color", isOpen: detailOpen) {
-                GroupHeaderBlock(title: "Color")
-            })
-            blocks.append(detail("dcolor-head", isOpen: detailOpen, live: true) {
-                ColorModeHeadBlock(controller: colorModeC, state: state)
-            })
-            blocks.append(detail("dcolor-body", isOpen: {
-                detailOpen() && state.colorModeOpenIDs.contains(id)
-            }) {
-                ColorModeListBlock(controller: colorModeC)
-            })
-            blocks.append(detail("dcolor-tail", isOpen: detailOpen) {
-                ColorModeTailBlock(controller: colorModeC)
-            })
-            blocks.append(detail("dprof-head", isOpen: detailOpen, live: true) {
-                ProfileHeadBlock(controller: profC, state: state)
-            })
-            blocks.append(detail("dprof-body", isOpen: {
-                detailOpen() && state.profileOpenIDs.contains(id)
-            }) {
-                ProfileBodyBlock(controller: profC)
-            })
-            blocks.append(detail("dimg-head", isOpen: detailOpen, live: true) {
-                ImageHeadBlock(display: display, state: state)
-            })
-            blocks.append(detail("dimg-body", isOpen: {
-                detailOpen() && state.imageOpenIDs.contains(id)
-            }) {
-                ImageBodyBlock(display: display, state: state)
-            })
-            blocks.append(detail("dmid", isOpen: detailOpen) {
-                DetailMiddleBlock(display: display)
-            })
-            blocks.append(detail("dinput-head", isOpen: detailOpen, live: true) {
-                InputHeadBlock(display: display, state: state)
-            })
-            blocks.append(detail("dinput-body", isOpen: {
-                detailOpen() && state.inputOpenIDs.contains(id)
-            }) {
-                InputBodyBlock(display: display, state: state)
-            })
-            blocks.append(detail("dtail", isOpen: detailOpen) {
-                DetailTailBlock(display: display)
-            })
+            blocks += displayBlocks(for: display, isFirst: index == 0, state: state)
         }
         blocks.append(block("reconnect") { ReconnectDisplaysSection() })
         blocks.append(block("combined",
@@ -1022,6 +926,111 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 // MARK: - Panel window
 
 extension AppDelegate {
+    /// One display's blocks: its header row, then the detail rows in their groups.
+    private func displayBlocks(for display: DisplayInfo, isFirst: Bool, state: PanelSectionState) -> [PanelBlock] {
+        let dm = displayManager
+        func block<V: View>(_ id: String, isOpen: @escaping () -> Bool = { true },
+                            @ViewBuilder _ content: () -> V) -> PanelBlock {
+            PanelBlock(id: id, host: hostPanelBlock(id, content), isOpen: isOpen)
+        }
+        var blocks: [PanelBlock] = []
+        let id = display.displayID
+        let uuid = display.displayUUID
+        let dhead = block("dhead-\(uuid)") {
+            DisplayHeaderBlock(display: display, isFirst: isFirst, state: state)
+        }
+        dhead.liveInFlight = true   // display row chevron
+        blocks.append(dhead)
+        // Split so every dropdown is its own block: the canvas clips content
+        // rendered once at natural height (the 120Hz fix; docs/panel-resize.md).
+        // Each detail block paints its shaded band on the clip layer (banded).
+        let modeC = DisplayModeController(display: display, displayManager: dm)
+        let colorModeC = DisplayColorModeController(display: display)
+        let profC = DisplayProfileController(display: display)
+        let detailOpen = { state.expandedDisplayIDs.contains(id) }
+        func detail<V: View>(_ sub: String, isOpen: @escaping () -> Bool,
+                             live: Bool = false,
+                             @ViewBuilder _ content: () -> V) -> PanelBlock {
+            let b = block("\(sub)-\(uuid)", isOpen: isOpen) {
+                content()
+                    .padding(.leading, 4)
+            }
+            b.banded = true
+            b.liveInFlight = live
+            return b
+        }
+        blocks.append(detail("dgroup-picture", isOpen: detailOpen) {
+            GroupHeaderBlock(title: "Picture")
+        })
+        blocks.append(detail("dres-head", isOpen: detailOpen, live: true) {
+            ResolutionHeadBlock(controller: modeC, state: state)
+        })
+        blocks.append(detail("dres-body", isOpen: {
+            detailOpen() && state.resolutionOpenIDs.contains(id)
+        }) {
+            ResolutionSliderBlock(controller: modeC, state: state)
+        })
+        blocks.append(detail("dres-all", isOpen: {
+            detailOpen() && state.resolutionOpenIDs.contains(id)
+                && state.allResolutionsOpenIDs.contains(id)
+        }) {
+            ResolutionFullListBlock(controller: modeC)
+        })
+        blocks.append(detail("dref-head", isOpen: detailOpen, live: true) {
+            RefreshHeadBlock(controller: modeC, state: state)
+        })
+        blocks.append(detail("dref-body", isOpen: {
+            detailOpen() && state.refreshOpenIDs.contains(id)
+        }) {
+            RefreshListBlock(controller: modeC)
+        })
+        blocks.append(detail("dmode-tail", isOpen: detailOpen) {
+            ModeTailBlock(controller: modeC)
+        })
+        blocks.append(detail("dgroup-color", isOpen: detailOpen) {
+            GroupHeaderBlock(title: "Color")
+        })
+        blocks.append(detail("dcolor-head", isOpen: detailOpen, live: true) {
+            ColorModeHeadBlock(controller: colorModeC, state: state)
+        })
+        blocks.append(detail("dcolor-body", isOpen: {
+            detailOpen() && state.colorModeOpenIDs.contains(id)
+        }) {
+            ColorModeListBlock(controller: colorModeC)
+        })
+        blocks.append(detail("dprof-head", isOpen: detailOpen, live: true) {
+            ProfileHeadBlock(controller: profC, state: state)
+        })
+        blocks.append(detail("dprof-body", isOpen: {
+            detailOpen() && state.profileOpenIDs.contains(id)
+        }) {
+            ProfileBodyBlock(controller: profC)
+        })
+        blocks.append(detail("dimg-head", isOpen: detailOpen, live: true) {
+            ImageHeadBlock(display: display, state: state)
+        })
+        blocks.append(detail("dimg-body", isOpen: {
+            detailOpen() && state.imageOpenIDs.contains(id)
+        }) {
+            ImageBodyBlock(display: display, state: state)
+        })
+        blocks.append(detail("dmid", isOpen: detailOpen) {
+            DetailMiddleBlock(display: display)
+        })
+        blocks.append(detail("dinput-head", isOpen: detailOpen, live: true) {
+            InputHeadBlock(display: display, state: state)
+        })
+        blocks.append(detail("dinput-body", isOpen: {
+            detailOpen() && state.inputOpenIDs.contains(id)
+        }) {
+            InputBodyBlock(display: display, state: state)
+        })
+        blocks.append(detail("dtail", isOpen: detailOpen) {
+            DetailTailBlock(display: display)
+        })
+        return blocks
+    }
+
     private func hostPanelBlock<V: View>(_ id: String, @ViewBuilder _ content: () -> V) -> NSView {
         let h = CountedHostingView(rootView: AnyView(
             BlockHost(onHeight: { [weak self] h in self?.canvas.contentChanged(id, height: h) }) {
