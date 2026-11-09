@@ -69,6 +69,7 @@ targets:
       - path: CrispTests
       - path: Crisp/Models/DisplayModeGeometry.swift
       - path: Crisp/Models/DisplayModeCommitScope.swift
+      - path: Crisp/Models/DisplayLayoutSnapshot.swift
       - path: Crisp/Models/DDCServiceMatcher.swift
       - path: Crisp/Models/DDCOperationQueuePool.swift
       - path: Crisp/Models/DisplayConnectionQueue.swift

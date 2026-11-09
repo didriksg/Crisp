@@ -144,7 +144,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 queue: .main
             ) { _ in
                 // Delivered on `queue: .main`, so the main actor is current.
-                MainActor.assumeIsolated { ResolutionService.shared.snapshotModesForSleep() }
+                MainActor.assumeIsolated {
+                    ResolutionService.shared.snapshotModesForSleep()
+                    ArrangementService.shared.snapshotLayoutForSleep()
+                }
             })
         }
 
@@ -281,6 +284,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             let dm = self.displayManager
             self.wakeTask = Task { @MainActor [weak self] in
                 defer {
+                    ArrangementService.shared.clearSleepLayout()
                     self?.wakeTask = nil
                     self?.fullWakePending = false
                 }
@@ -304,6 +308,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                         // Re-apply any custom resolution that macOS may have reset on wake
                         ResolutionService.shared.restoreModeAfterWakeIfNeeded(for: display.displayID)
                     }
+                    await ArrangementService.shared.restoreLayoutAfterWakeIfNeeded()
                     // Once an external is back after a full wake, toggle True Tone so macOS
                     // recomputes it with that display present (issue #131). Once per wake,
                     // at the first pass that lists an external.

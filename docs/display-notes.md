@@ -2,6 +2,21 @@
 
 Measured SkyLight/WindowServer/hardware behaviour behind `Crisp/Services`' display-toggle, mirror, virtual-display and resolution code, for anyone changing it; read the relevant heading before touching that code. See docs/ddc-notes.md for DDC/CI specifics, not repeated here.
 
+## ArrangementService at wake
+
+The sleep observers capture display origins by UUID alongside the resolution snapshot.
+The existing wake passes restore all origins in one session-scoped transaction, only when
+the same displays, bounds sizes, rotations and main-display flags are back. A missing display,
+changed geometry or mirror set leaves the layout alone. Manual arrangement changes in Crisp
+clear the snapshot, as does the end of the wake task; nothing is persisted between sleeps.
+
+On an M4 Pro with a USB-C Dell P2421DC rotated 270 degrees and a USB-C RV200 Pro MAX,
+wake logs showed the RV200 become inactive while the Dell temporarily used 1920x1080.
+Both then returned to the correct modes and positions, followed by a client configuration
+that submitted the smaller set's old origins and moved the Dell left. Restoring only the
+resolution does not repair that last position change. The originating client call has not
+been identified; this recovery does not assume which client submitted it.
+
 ## PhysicalDisplayToggleService
 
 Toggles a physical display in and out of the layout with the private SkyLight call `SLSConfigureDisplayEnabled`, the way BetterDisplay's Disconnect Display works; unlike VirtualDisplayService this never creates or destroys a display object, it only flips an existing one's enabled bit. Supported on Apple Silicon only (`isSupported`); on Intel the API does not perform a true disconnect. A disabled display drops out of `CGGetOnlineDisplayList`/`CGGetActiveDisplayList` but still enumerates via `SLSGetDisplayList`, so reconnect re-finds it there; DisplayManager also loses it from `displays`, so the service keeps its own `disconnected` snapshot for the Reconnect row. `setEnabled` holds `DDCService.shared.hold()` around the whole SkyLight transaction: WindowServer's enable can wait behind an in-flight DDC I2C read on the DCP and freeze the whole machine with it, not just Crisp (issue #33: a 6 s volume read produced a 6 s system freeze on reconnect, three times in a row). `CGCompleteDisplayConfiguration` runs with `.permanently` (matching Lunar BlackOut, screen_tune and BetterDisplay) inside a 10 s timeout wrapper that can only stop waiting, never cancel the underlying WindowServer call, so a reported timeout is not proof the change did not happen; issue #33 saw WindowServer hold one commit for 29.5 s. The DDC hold is released when the transaction itself returns, not when the wrapper gives up, so DDC stays parked under a late commit (up to the pool's 15 s cap). A user disconnect that times out keeps its record (without it, a late landing has no Reconnect row and no blackout rescue), and a reconnect that times out keeps its record until the display is back; for 30 s after either timeout the UUID is in `awaitingLateCommit`, which `reconcile` skips so it does not send a second change into the pending one, and enumeration then decides (the log says `timed-out disconnect of ...` or `timed-out reconnect of ...`, `landed late` or not). While a timed-out disable is pending, the display shows both as lit and as disconnected, the same exception `reapplyRemembered` makes after its own timeout. Tested by setting the wrapper to 0.01 s in a dev build, so every commit "times out" and lands about 100 ms later.
