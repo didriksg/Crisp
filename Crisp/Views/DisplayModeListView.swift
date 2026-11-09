@@ -737,6 +737,8 @@ struct ModeTailBlock: View {
                 smoothScalingSection
             }
 
+            NotchView(display: display)
+
             if let msg = controller.errorMessage {
                 HStack(spacing: 6) {
                     Image(systemName: "exclamationmark.triangle.fill")
