@@ -10,7 +10,7 @@
 # Override the target app with:  CRISP_APP=/path/to/Crisp.app ./dev.sh
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "$(dirname "$0")" && pwd -P)"
 cd "$ROOT"
 APP="${CRISP_APP:-/Applications/Crisp.app}"
 
