@@ -187,6 +187,17 @@ extension Color {
     })
 }
 
+extension Color {
+    /// Group headers are dimmer than the values at the right of a row, as in the Battery
+    /// menu: measured there in dark mode, the header is about 40% white where the
+    /// secondary label is 55%. Light mode keeps secondaryReadable (not measured).
+    static let groupHeader = Color(nsColor: NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            ? NSColor(white: 1.0, alpha: 0.40)
+            : NSColor(white: 0.40, alpha: 1.0)
+    })
+}
+
 /// A group label in the native menu-bar idiom (the "Known Networks" /
 /// "Energy Mode" captions in the Wi-Fi and Battery menus): a small semibold
 /// secondary caption sitting above a group of rows.
@@ -196,7 +207,7 @@ struct SectionHeader: View {
         Text(LocalizedStringKey(title))
             .font(.callout)
             .fontWeight(.semibold)
-            .foregroundStyle(Color.secondaryReadable)
+            .foregroundStyle(Color.groupHeader)
             .padding(.horizontal, 12)
             .padding(.top, 4)
             .padding(.bottom, 3)
