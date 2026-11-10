@@ -96,7 +96,7 @@ To keep Keep Awake off on company Macs, push a configuration profile for the `co
 
 ## Automation
 
-Crisp ships with `crispctl`, a command line tool for the same controls: list displays, read and set brightness, switch Extra Brightness and HDR, change image adjustment, apply a preset, switch a monitor's input, disconnect or reconnect a display, and turn a virtual display on or off. The Command Line Tool switch in Settings links it into `/usr/local/bin` (the Homebrew cask does this on install); it also lives inside the app at `Crisp.app/Contents/MacOS/crispctl`. Crisp must be running.
+Crisp ships with `crispctl`, a command line tool for the same controls: list displays, read and set brightness, switch Extra Brightness and HDR, change image adjustment, apply a preset, switch a monitor's input, and disconnect or reconnect a display. The Command Line Tool switch in Settings links it into `/usr/local/bin` (the Homebrew cask does this on install); it also lives inside the app at `Crisp.app/Contents/MacOS/crispctl`. Crisp must be running.
 
 ```sh
 crispctl display list                  # JSON, with each display's id and uuid
