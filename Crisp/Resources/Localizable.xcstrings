@@ -3841,18 +3841,18 @@
         }
       }
     },
-    "Steps the volume of the monitor that is your sound output, like the volume keys. For keyboards without them." : {
+    "Presses the volume keys for the selected sound output. Needs Accessibility, like the brightness keys." : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "像音量键一样调节作为声音输出的显示器音量。适用于没有这些按键的键盘。"
+            "value" : "为所选的声音输出按下音量键。与亮度键一样需要辅助功能权限。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "像音量鍵一樣調節作為聲音輸出的顯示器音量。適用於沒有這些按鍵的鍵盤。"
+            "value" : "為所選的聲音輸出按下音量鍵。與亮度鍵一樣需要輔助使用權限。"
           }
         }
       }

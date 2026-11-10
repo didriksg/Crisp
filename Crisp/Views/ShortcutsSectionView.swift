@@ -63,7 +63,7 @@ struct ShortcutsSection: View {
                     shortcut: binding(\.muteShortcut) { settings.muteShortcut = $0 },
                     leadingInset: 34
                 )
-                caption("Steps the volume of the monitor that is your sound output, like the volume keys. For keyboards without them.")
+                caption("Presses the volume keys for the selected sound output. Needs Accessibility, like the brightness keys.")
             }
         }
     }

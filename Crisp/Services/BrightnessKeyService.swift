@@ -25,9 +25,7 @@ private func brightnessKeyEventCallback(
 /// display's brightness is adjusted via BrightnessService. When the cursor is on the
 /// built-in display the event is passed through so macOS adjusts it normally.
 /// Also intercepts the volume/mute keys when the default audio output is a monitor with
-/// DDC speaker volume, routing them to VolumeService (see routeVolumePress). The shortcut
-/// actions from HotkeyService enter through the adjust methods below (see #160 for the
-/// brightness shape and #23 for the volume keys).
+/// DDC speaker volume, routing them to VolumeService (see routeVolumePress).
 @MainActor
 final class BrightnessKeyService: @unchecked Sendable {
     static let shared = BrightnessKeyService()
@@ -343,72 +341,27 @@ final class BrightnessKeyService: @unchecked Sendable {
         // keys use. Read off the event here, where the flags still are.
         let fine = event.flags.contains([.maskAlternate, .maskShift])
         Task { @MainActor in
+            let service = VolumeService.shared
             switch keyCode {
             case Self.nxKeytypeMute:
-                self.muteVolume(target)
+                service.toggleMute(for: target)
             case Self.nxKeytypeSoundUp:
-                self.stepVolume(target, up: true, fine: fine)
+                service.setVolume(BrightnessKeySteps.next(from: target.volume, up: true, fine: fine), for: target)
             default:
-                self.stepVolume(target, up: false, fine: fine)
+                service.setVolume(BrightnessKeySteps.next(from: target.volume, up: false, fine: fine), for: target)
+            }
+            if let screen = NSScreen.screens.first(where: {
+                ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID) == target.displayID
+            }) {
+                BrightnessHUDService.shared.show(
+                    level: target.volume,
+                    image: target.volume <= 0 ? .mute : .volume,
+                    on: screen
+                )
             }
         }
         // Consume: macOS must not also show its "no volume control" OSD on top.
         return nil
-    }
-
-    /// The monitor that owns the default audio output, or nil when Crisp has no
-    /// DDC volume target. A shortcut has no event to pass through, so a missing
-    /// target is a logged no-op.
-    private func volumeShortcutTarget() -> DisplayInfo? {
-        guard let target = VolumeService.shared.displayForDefaultAudioOutput(
-            in: DisplayManagerAccessor.shared.displays
-        ) else {
-            Self.log.notice("volume shortcut: no DDC-volume display owns the audio output")
-            return nil
-        }
-        return target
-    }
-
-    /// Steps the DDC speaker volume of the monitor that owns the default audio
-    /// output, for a shortcut bound in Settings > Keyboard Shortcuts (#23, #160).
-    /// It mirrors the volume keys: a shortcut has no event to pass through, so a
-    /// missing target is a logged no-op.
-    func adjustVolumeFromShortcut(up: Bool) {
-        guard let target = volumeShortcutTarget() else { return }
-        stepVolume(target, up: up, fine: false)
-    }
-
-    /// Mutes or unmutes that same monitor over DDC, matching the mute key.
-    func toggleVolumeMuteFromShortcut() {
-        guard let target = volumeShortcutTarget() else { return }
-        muteVolume(target)
-    }
-
-    /// Moves a monitor's DDC volume one key stop and shows the volume banner.
-    private func stepVolume(_ display: DisplayInfo, up: Bool, fine: Bool) {
-        VolumeService.shared.setVolume(
-            BrightnessKeySteps.next(from: display.volume, up: up, fine: fine),
-            for: display
-        )
-        showVolumeHUD(for: display)
-    }
-
-    /// Mutes a monitor over DDC and shows the banner.
-    private func muteVolume(_ display: DisplayInfo) {
-        VolumeService.shared.toggleMute(for: display)
-        showVolumeHUD(for: display)
-    }
-
-    /// Shows the volume/mute glyph at the display's current level.
-    private func showVolumeHUD(for display: DisplayInfo) {
-        guard let screen = NSScreen.screens.first(where: {
-            ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID) == display.displayID
-        }) else { return }
-        BrightnessHUDService.shared.show(
-            level: display.volume,
-            image: display.volume <= 0 ? .mute : .volume,
-            on: screen
-        )
     }
 
     /// The Brightness Keys target setting's displays, or nil to leave the
@@ -443,6 +396,38 @@ final class BrightnessKeyService: @unchecked Sendable {
               let display = DisplayManagerAccessor.shared.displays.first(where: { $0.displayID == displayID })
         else { return }
         adjustDisplays([display], up: up)
+    }
+
+    /// Volume shortcuts from Settings > Keyboard Shortcuts (#23, #160) press the
+    /// real volume keys, so macOS steps whatever output is selected and draws its
+    /// own banner, and the tap above still routes a DDC monitor's press. Posting
+    /// needs Accessibility, like the brightness keys.
+    func adjustVolumeFromShortcut(up: Bool) {
+        postMediaKey(up ? Self.nxKeytypeSoundUp : Self.nxKeytypeSoundDown)
+    }
+
+    func toggleVolumeMuteFromShortcut() {
+        postMediaKey(Self.nxKeytypeMute)
+    }
+
+    /// One key down and up as NX_SYSDEFINED events (subtype 8, the media keys),
+    /// with no modifier flags, so a held shortcut modifier does not turn the press
+    /// into Option+Volume (Sound settings) or a fine step.
+    private func postMediaKey(_ key: Int) {
+        // Not CGPreflightPostEventAccess: it kept answering false after a grant
+        // until relaunch, while this one follows the grant live.
+        guard AXIsProcessTrusted() else {
+            Self.log.notice("volume shortcut: no Accessibility, key press not posted")
+            return
+        }
+        for state in [0xa, 0xb] {
+            NSEvent.otherEvent(
+                with: .systemDefined, location: .zero,
+                modifierFlags: NSEvent.ModifierFlags(rawValue: UInt(state << 8)),
+                timestamp: 0, windowNumber: 0, context: nil, subtype: 8,
+                data1: (key << 16) | (state << 8), data2: -1
+            )?.cgEvent?.post(tap: .cghidEventTap)
+        }
     }
 
     /// Moves each display to its next stop through BrightnessService's smooth
