@@ -20,7 +20,7 @@ for arg in "$@"; do [ "$arg" = "--publish" ] && PUBLISH=true; done
 [ "${NOTES:-}" = "--publish" ] && NOTES=""
 
 VERSION="${TAG#v}"                       # strip leading v for Info.plist
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
 cd "$ROOT"
 BUILD="$ROOT/build"
 APP="$BUILD/Crisp.app"
