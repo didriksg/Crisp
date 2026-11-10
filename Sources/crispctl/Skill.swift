@@ -5,7 +5,7 @@ enum CrispControlSkill {
     static let text = #"""
     ---
     name: crispctl
-    description: Control displays on a Mac that runs Crisp through its crispctl command line tool. Use when the user wants to read or set display brightness, switch Extra Brightness or HDR, list displays, disconnect and reconnect a display, switch a monitor's input, change Image Adjustment (contrast, color temperature, gamma), or list and apply saved presets from a script, a shortcut or an agent.
+    description: Control displays on a Mac that runs Crisp through its crispctl command line tool. Use when the user wants to read or set display brightness, switch Extra Brightness or HDR, list displays, disconnect and reconnect a display, switch a monitor's input, change Image Adjustment (contrast, color temperature, gamma), list and apply saved presets, or turn Crisp's virtual displays on and off from a script, a shortcut or an agent.
     ---
 
     # crispctl
@@ -43,13 +43,16 @@ enum CrispControlSkill {
 
     `preset list` and `preset apply <preset>`: the presets saved in Crisp. `list` gives each preset's `id`, `name`, `captures` (what applying it changes: `resolution`, `brightness`, `arrangement`, `imageAdjustment`, `hdr`, `connection`, `color`), `displays` (the uuids it has settings for) and `active`. `apply` takes an id or a name in any case; a name two presets share is refused, so use the id. It is the same as clicking the preset in the menu. The reply comes after the preset is applied, and `skippedDisplays` lists the preset's displays that were not connected. A preset with `connection` turns displays on and off first, as Disconnect and Reconnect do, and a display it turns off is not listed as skipped. An apply while another one runs is refused.
 
+    `virtual list`, `virtual on <virtual>` and `virtual off <virtual>`: the virtual displays saved in Crisp's menu. `list` gives each one's `id`, `name`, `width`, `height`, `hiDPI` and `active`. `on` and `off` take an id or a name, matched like `preset apply`, and are the menu's Activate and Deactivate: `off` removes the screen and keeps it saved. Asking for the state it is already in succeeds and changes nothing. Creating, editing and deleting virtual displays stay in the menu.
+
     ## Safety
 
-    Do not retry a command that changes state when its reply is lost or times out. It may have been applied. Read the state first (`display list`, `brightness boost get`, `hdr get`, `image get`, `preset list`), then decide.
+    Do not retry a command that changes state when its reply is lost or times out. It may have been applied. Read the state first (`display list`, `brightness boost get`, `hdr get`, `image get`, `preset list`, `virtual list`), then decide.
 
     A preset can change resolution, arrangement, HDR and the color profile as well as brightness, and turn displays off. Only apply a preset the user named.
 
     A disconnect takes a screen away from the user. Only disconnect a display when the user asked for that display by name or uuid, and never the last one they are looking at. An input switch takes the screen away the same way: only switch when the user asked for it.
+    Turning a virtual display off moves the windows on it to another screen: only do it when the user asked.
 
     ## Examples
 

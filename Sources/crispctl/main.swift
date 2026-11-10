@@ -158,6 +158,9 @@ do {
         case .toggleDisplay:
             fail("toggle response timed out or was lost; the display may already have changed state, "
                  + "run 'display list' before retrying", code: 1)
+        case .setVirtualDisplay:
+            fail("virtual display response timed out or was lost; it may already have changed state, "
+                 + "run 'virtual list' before retrying", code: 1)
         default:
             throw error
         }

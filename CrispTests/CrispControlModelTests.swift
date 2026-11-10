@@ -77,7 +77,10 @@ final class CrispControlModelTests: XCTestCase {
             (["display", "input", "list", "42"], .init(command: .listInputs, selector: "42")),
             (["display", "input", "set", "42", "HDMI 1"], .init(command: .setInput, selector: "42", input: "HDMI 1")),
             (["preset", "list"], .init(command: .listPresets)),
-            (["preset", "apply", "Night"], .init(command: .applyPreset, selector: "Night"))
+            (["preset", "apply", "Night"], .init(command: .applyPreset, selector: "Night")),
+            (["virtual", "list"], .init(command: .listVirtualDisplays)),
+            (["virtual", "on", "Headless"], .init(command: .setVirtualDisplay, selector: "Headless", enabled: true)),
+            (["virtual", "off", "V1"], .init(command: .setVirtualDisplay, selector: "V1", enabled: false))
         ]
         for (arguments, request) in cases {
             XCTAssertEqual(CrispControlCLIModel.parse(arguments: arguments), .request(request))
@@ -109,7 +112,7 @@ final class CrispControlModelTests: XCTestCase {
         for word in ["help", "version", "crispctl <command>"] {
             XCTAssertTrue(CrispControlCLIModel.help.contains(word), word)
         }
-        XCTAssertEqual(CrispControlCLIModel.entries.count, 17)
+        XCTAssertEqual(CrispControlCLIModel.entries.count, 20)
         for entry in CrispControlCLIModel.entries {
             let columns = entry.columns
             XCTAssertTrue(CrispControlCLIModel.help.contains("  " + columns.command + " "), entry.usage)
