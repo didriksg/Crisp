@@ -1115,11 +1115,6 @@ extension BrightnessService {
 
     // MARK: - Forced Software Route (user-set, uuid-persisted)
 
-    @MainActor
-    func isSoftwareBrightnessForced(_ display: DisplayInfo) -> Bool {
-        ddcAvailableLock.withLock { forcedSoftwareUUIDs.contains(display.displayUUID) }
-    }
-
     private func isSoftwareForced(displayID: CGDirectDisplayID) -> Bool {
         guard let uuid = Self.displayUUIDString(for: displayID) else { return false }
         return ddcAvailableLock.withLock { forcedSoftwareUUIDs.contains(uuid) }
@@ -1168,6 +1163,7 @@ extension BrightnessService {
         // overlay on top of the hardware write (no-op for maxBrightness <= 100).
         BrightnessBoostService.shared.syncOverlay(for: display)
         display.objectWillChange.send()
+        Self.brightnessRouteChanged()
     }
 
     // MARK: - Brightness Control row

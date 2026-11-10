@@ -74,8 +74,6 @@ struct BrightnessSliderView: View {
     /// Debug switch: `defaults write com.crisp.app crisp.showBrightnessControlMode -bool true`
     /// (relaunch) shows the DDC/software mode row on every slider, for support threads.
     /// Read once at launch; no Settings row on purpose.
-    /// ponytail: reads the DDC latch only; an HDR-dimmed external shows "DDC" while
-    /// writing gamma. Fold in BrightnessService.hdrDimmedDisplays if that misleads.
     static let showControlMode = UserDefaults.standard.bool(forKey: "crisp.showBrightnessControlMode")
 
     var body: some View {
@@ -198,9 +196,7 @@ struct BrightnessSliderView: View {
             localBrightness = display.brightness
             updateDDCStatus()
         }
-        .onReceive(display.objectWillChange) { _ in
-            // Re-read the caption when the forced-software toggle flips
-            // without the slider itself being touched.
+        .onReceive(NotificationCenter.default.publisher(for: BrightnessService.routeChanged)) { _ in
             updateDDCStatus()
         }
         .onChange(of: display.brightness) { _, newValue in
@@ -245,10 +241,9 @@ struct BrightnessSliderView: View {
     }
 
     private func updateDDCStatus() {
-        // The caption reads the DDC latch only; a forced-software display
-        // with acking writes would show a green "DDC" while really writing
-        // gamma — fold the forced route in, like the HDR case above.
-        if BrightnessService.shared.isSoftwareBrightnessForced(display) {
+        // Software by the user's choice or in HDR: writes still ack there, so the
+        // latch alone would say "DDC" while brightness goes through gamma.
+        if BrightnessService.shared.brightnessControlRow(for: display).shown == .software {
             ddcStatus = .some(false)
             return
         }
