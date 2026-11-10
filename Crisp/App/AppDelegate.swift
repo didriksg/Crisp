@@ -574,91 +574,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         var blocks: [PanelBlock] = []
         for (index, display) in vis.enumerated() {
-            let id = display.displayID
             let uuid = display.displayUUID
             let dhead = block("dhead-\(uuid)") {
                 DisplayHeaderBlock(display: display, isFirst: index == 0, state: state)
             }
             dhead.liveInFlight = true   // display row chevron
             blocks.append(dhead)
-            // Split so every dropdown is its own block: the canvas clips content
-            // rendered once at natural height (the 120Hz fix; docs/panel-resize.md).
-            // Each detail block paints its shaded band on the clip layer (banded).
-            let modeC = DisplayModeController(display: display, displayManager: dm)
-            let profC = DisplayProfileController(display: display)
-            let detailOpen = { state.expandedDisplayIDs.contains(id) }
-            func detail<V: View>(_ sub: String, isOpen: @escaping () -> Bool,
-                                 live: Bool = false,
-                                 @ViewBuilder _ content: () -> V) -> PanelBlock {
-                let b = block("\(sub)-\(uuid)", isOpen: isOpen) {
-                    content()
-                        .padding(.leading, 4)
-                }
-                b.banded = true
-                b.liveInFlight = live
-                return b
-            }
-            blocks.append(detail("dgroup-picture", isOpen: detailOpen) {
-                GroupHeaderBlock(title: "Picture")
-            })
-            blocks.append(detail("dres-head", isOpen: detailOpen, live: true) {
-                ResolutionHeadBlock(controller: modeC, state: state)
-            })
-            blocks.append(detail("dres-body", isOpen: {
-                detailOpen() && state.resolutionOpenIDs.contains(id)
-            }) {
-                ResolutionSliderBlock(controller: modeC, state: state)
-            })
-            blocks.append(detail("dres-all", isOpen: {
-                detailOpen() && state.resolutionOpenIDs.contains(id)
-                    && state.allResolutionsOpenIDs.contains(id)
-            }) {
-                ResolutionFullListBlock(controller: modeC)
-            })
-            blocks.append(detail("dref-head", isOpen: detailOpen, live: true) {
-                RefreshHeadBlock(controller: modeC, state: state)
-            })
-            blocks.append(detail("dref-body", isOpen: {
-                detailOpen() && state.refreshOpenIDs.contains(id)
-            }) {
-                RefreshListBlock(controller: modeC)
-            })
-            blocks.append(detail("dmode-tail", isOpen: detailOpen) {
-                ModeTailBlock(controller: modeC)
-            })
-            blocks.append(detail("dgroup-color", isOpen: detailOpen) {
-                GroupHeaderBlock(title: "Color")
-            })
-            blocks.append(detail("dprof-head", isOpen: detailOpen, live: true) {
-                ProfileHeadBlock(controller: profC, state: state)
-            })
-            blocks.append(detail("dprof-body", isOpen: {
-                detailOpen() && state.profileOpenIDs.contains(id)
-            }) {
-                ProfileBodyBlock(controller: profC)
-            })
-            blocks.append(detail("dimg-head", isOpen: detailOpen, live: true) {
-                ImageHeadBlock(display: display, state: state)
-            })
-            blocks.append(detail("dimg-body", isOpen: {
-                detailOpen() && state.imageOpenIDs.contains(id)
-            }) {
-                ImageBodyBlock(display: display, state: state)
-            })
-            blocks.append(detail("dmid", isOpen: detailOpen) {
-                DetailMiddleBlock(display: display)
-            })
-            blocks.append(detail("dinput-head", isOpen: detailOpen, live: true) {
-                InputHeadBlock(display: display, state: state)
-            })
-            blocks.append(detail("dinput-body", isOpen: {
-                detailOpen() && state.inputOpenIDs.contains(id)
-            }) {
-                InputBodyBlock(display: display, state: state)
-            })
-            blocks.append(detail("dtail", isOpen: detailOpen) {
-                DetailTailBlock(display: display)
-            })
+            blocks += detailBlocks(for: display)
         }
         blocks.append(block("reconnect") { ReconnectDisplaysSection() })
         let visCount = vis.count
@@ -1003,6 +925,98 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             NSEvent.removeMonitor(monitor)
             clickMonitor = nil
         }
+    }
+}
+
+// MARK: - Display detail blocks
+
+extension AppDelegate {
+    /// The blocks of one display's expanded detail, in card order.
+    private func detailBlocks(for display: DisplayInfo) -> [PanelBlock] {
+        let dm = displayManager
+        let state = sectionState
+        let id = display.displayID
+        let uuid = display.displayUUID
+        var blocks: [PanelBlock] = []
+        // Split so every dropdown is its own block: the canvas clips content
+        // rendered once at natural height (the 120Hz fix; docs/panel-resize.md).
+        // Each detail block paints its shaded band on the clip layer (banded).
+        let modeC = DisplayModeController(display: display, displayManager: dm)
+        let profC = DisplayProfileController(display: display)
+        let detailOpen = { state.expandedDisplayIDs.contains(id) }
+        func detail<V: View>(_ sub: String, isOpen: @escaping () -> Bool,
+                             live: Bool = false,
+                             @ViewBuilder _ content: () -> V) -> PanelBlock {
+            let b = PanelBlock(id: "\(sub)-\(uuid)", host: hostPanelBlock("\(sub)-\(uuid)") {
+                content()
+                    .padding(.leading, 4)
+            }, isOpen: isOpen)
+            b.banded = true
+            b.liveInFlight = live
+            return b
+        }
+        blocks.append(detail("dgroup-picture", isOpen: detailOpen) {
+            GroupHeaderBlock(title: "Picture")
+        })
+        blocks.append(detail("dres-head", isOpen: detailOpen, live: true) {
+            ResolutionHeadBlock(controller: modeC, state: state)
+        })
+        blocks.append(detail("dres-body", isOpen: {
+            detailOpen() && state.resolutionOpenIDs.contains(id)
+        }) {
+            ResolutionSliderBlock(controller: modeC, state: state)
+        })
+        blocks.append(detail("dres-all", isOpen: {
+            detailOpen() && state.resolutionOpenIDs.contains(id)
+                && state.allResolutionsOpenIDs.contains(id)
+        }) {
+            ResolutionFullListBlock(controller: modeC)
+        })
+        blocks.append(detail("dref-head", isOpen: detailOpen, live: true) {
+            RefreshHeadBlock(controller: modeC, state: state)
+        })
+        blocks.append(detail("dref-body", isOpen: {
+            detailOpen() && state.refreshOpenIDs.contains(id)
+        }) {
+            RefreshListBlock(controller: modeC)
+        })
+        blocks.append(detail("dmode-tail", isOpen: detailOpen) {
+            ModeTailBlock(controller: modeC)
+        })
+        blocks.append(detail("dgroup-color", isOpen: detailOpen) {
+            GroupHeaderBlock(title: "Color")
+        })
+        blocks.append(detail("dprof-head", isOpen: detailOpen, live: true) {
+            ProfileHeadBlock(controller: profC, state: state)
+        })
+        blocks.append(detail("dprof-body", isOpen: {
+            detailOpen() && state.profileOpenIDs.contains(id)
+        }) {
+            ProfileBodyBlock(controller: profC)
+        })
+        blocks.append(detail("dimg-head", isOpen: detailOpen, live: true) {
+            ImageHeadBlock(display: display, state: state)
+        })
+        blocks.append(detail("dimg-body", isOpen: {
+            detailOpen() && state.imageOpenIDs.contains(id)
+        }) {
+            ImageBodyBlock(display: display, state: state)
+        })
+        blocks.append(detail("dmid", isOpen: detailOpen) {
+            DetailMiddleBlock(display: display)
+        })
+        blocks.append(detail("dinput-head", isOpen: detailOpen, live: true) {
+            InputHeadBlock(display: display, state: state)
+        })
+        blocks.append(detail("dinput-body", isOpen: {
+            detailOpen() && state.inputOpenIDs.contains(id)
+        }) {
+            InputBodyBlock(display: display, state: state)
+        })
+        blocks.append(detail("dtail", isOpen: detailOpen) {
+            DetailTailBlock(display: display)
+        })
+        return blocks
     }
 }
 
