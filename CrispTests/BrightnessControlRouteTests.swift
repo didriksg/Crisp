@@ -14,23 +14,28 @@ final class BrightnessControlRouteTests: XCTestCase {
     /// Right after launch: the channel is known, no write has settled DDC yet.
     func testMonitorWithChannelShowsHardwareBeforeTheFirstWrite() {
         XCTAssertEqual(row(ddcAvailable: nil, ddcReachable: true),
-                       .init(visible: true, shown: .hardware, hardwareSelectable: true))
+                       .init(visible: true, shown: .hardware, hardwareSelectable: true, fallback: false))
     }
 
     func testWorkingMonitorShowsHardware() {
         XCTAssertEqual(row(ddcAvailable: true, ddcReachable: true),
-                       .init(visible: true, shown: .hardware, hardwareSelectable: true))
+                       .init(visible: true, shown: .hardware, hardwareSelectable: true, fallback: false))
     }
 
     func testUserChoiceShowsSoftwareAlsoBeforeDDCIsKnown() {
         XCTAssertEqual(row(choseSoftware: true, ddcAvailable: nil),
-                       .init(visible: true, shown: .software, hardwareSelectable: true))
+                       .init(visible: true, shown: .software, hardwareSelectable: true, fallback: false))
     }
 
     /// Three failed writes after DDC worked: the row stays, so Hardware can be tried again.
     func testMonitorThatLostDDCShowsSoftware() {
         XCTAssertEqual(row(ddcAvailable: false, ddcReachable: true),
-                       .init(visible: true, shown: .software, hardwareSelectable: true))
+                       .init(visible: true, shown: .software, hardwareSelectable: true, fallback: true))
+    }
+
+    /// Saved by a click on Software during a fallback: no longer a fallback.
+    func testSavedChoiceIsNotAFallback() {
+        XCTAssertFalse(row(choseSoftware: true, ddcAvailable: false, ddcReachable: true).fallback)
     }
 
     func testMonitorWithoutDDCGetsNoRow() {
@@ -40,6 +45,6 @@ final class BrightnessControlRouteTests: XCTestCase {
 
     func testHDRShowsSoftwareAndLocksHardware() {
         XCTAssertEqual(row(hdr: true, ddcAvailable: true, ddcReachable: true),
-                       .init(visible: true, shown: .software, hardwareSelectable: false))
+                       .init(visible: true, shown: .software, hardwareSelectable: false, fallback: false))
     }
 }

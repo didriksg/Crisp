@@ -11,6 +11,9 @@ enum BrightnessControlRoute: Equatable {
         let shown: BrightnessControlRoute
         /// False in HDR, where the monitor discards brightness writes.
         let hardwareSelectable: Bool
+        /// Software shows because three writes failed, not because the user chose it:
+        /// it ends at the next reconnect unless a click saves it.
+        let fallback: Bool
     }
 
     /// `choseSoftware` is the user's saved choice. `ddcAvailable` is nil before the first
@@ -21,7 +24,8 @@ enum BrightnessControlRoute: Equatable {
         Row(
             visible: choseSoftware || ddcAvailable == true || ddcReachable,
             shown: choseSoftware || hdr || ddcAvailable == false ? .software : .hardware,
-            hardwareSelectable: !hdr
+            hardwareSelectable: !hdr,
+            fallback: !choseSoftware && !hdr && ddcAvailable == false
         )
     }
 }

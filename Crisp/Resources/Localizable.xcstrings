@@ -461,6 +461,22 @@
         }
       }
     },
+    "The monitor stopped answering. Click to keep brightness in software." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示器已停止响应。点按即可一直用软件调节亮度。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "顯示器已停止回應。按一下即可一律以軟體調整亮度。"
+          }
+        }
+      }
+    },
     "The pointer jumps to the nearest display where edges don't line up" : {
       "localizations" : {
         "zh-Hans" : {

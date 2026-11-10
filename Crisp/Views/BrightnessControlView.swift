@@ -10,41 +10,65 @@ import SwiftUI
 struct BrightnessControlHeadBlock: View {
     @ObservedObject var display: DisplayInfo
     @ObservedObject var state: PanelSectionState
+    @State private var routeChanges = 0
 
     var body: some View {
+        // Read so a route change that publishes nothing on the display redraws the row.
+        _ = routeChanges
         let row = BrightnessService.shared.brightnessControlRow(for: display)
-        if row.visible {
-            ExpandableRow(
-                icon: "dial.medium",
-                iconActive: false,
-                label: "Brightness Control",
-                subtitle: row.shown == .hardware ? String(localized: "Hardware") : String(localized: "Software"),
-                isExpanded: state.openBinding(\.brightnessControlOpenIDs, display.displayID)
-            )
+        return Group {
+            if row.visible {
+                ExpandableRow(
+                    icon: "dial.medium",
+                    iconActive: false,
+                    label: "Brightness Control",
+                    subtitle: row.shown == .hardware ? String(localized: "Hardware") : String(localized: "Software"),
+                    isExpanded: state.openBinding(\.brightnessControlOpenIDs, display.displayID)
+                )
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: BrightnessService.routeChanged)) { _ in
+            routeChanges += 1
         }
     }
 }
 
 struct BrightnessControlBodyBlock: View {
     @ObservedObject var display: DisplayInfo
+    @State private var routeChanges = 0
 
     var body: some View {
+        _ = routeChanges
         let row = BrightnessService.shared.brightnessControlRow(for: display)
-        if row.visible {
-            VStack(alignment: .leading, spacing: 0) {
-                CheckmarkRow(label: String(localized: "Hardware"), isSelected: row.shown == .hardware) {
-                    BrightnessService.shared.setBrightnessControl(.hardware, for: display)
-                }
-                .allowsHitTesting(row.hardwareSelectable)
-                .opacity(row.hardwareSelectable ? 1 : 0.5)
-                caption(row.hardwareSelectable
-                    ? "Changes the monitor's backlight."
-                    : "HDR is on, so the monitor sets its own backlight.")
-                CheckmarkRow(label: String(localized: "Software"), isSelected: row.shown == .software) {
-                    BrightnessService.shared.setBrightnessControl(.software, for: display)
-                }
-                caption("Darkens the picture. For a monitor that ignores brightness commands.")
+        return Group {
+            if row.visible { list(row) }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: BrightnessService.routeChanged)) { _ in
+            routeChanges += 1
+        }
+    }
+
+    private func list(_ row: BrightnessControlRoute.Row) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            CheckmarkRow(label: String(localized: "Hardware"), isSelected: row.shown == .hardware) {
+                BrightnessService.shared.setBrightnessControl(.hardware, for: display)
             }
+            .allowsHitTesting(row.hardwareSelectable)
+            .opacity(row.hardwareSelectable ? 1 : 0.5)
+            caption(row.hardwareSelectable
+                ? "Changes the monitor's backlight."
+                : "HDR is on, so the monitor sets its own backlight.")
+            CheckmarkRow(label: String(localized: "Software"), isSelected: row.shown == .software) {
+                BrightnessService.shared.setBrightnessControl(.software, for: display)
+            }
+            // A checked row takes no click, and a fallback is checked but not saved.
+            .simultaneousGesture(TapGesture().onEnded {
+                guard row.fallback, PanelOpenGuard.allowsActivation else { return }
+                BrightnessService.shared.setBrightnessControl(.software, for: display)
+            })
+            caption(row.fallback
+                ? "The monitor stopped answering. Click to keep brightness in software."
+                : "Darkens the picture. For a monitor that ignores brightness commands.")
         }
     }
 

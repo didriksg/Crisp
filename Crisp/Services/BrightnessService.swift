@@ -599,6 +599,7 @@ final class BrightnessService: @unchecked Sendable {
             on ? hdrDimmedDisplays.insert(displayID).inserted : hdrDimmedDisplays.remove(displayID) != nil
         }
         if changed {
+            Self.brightnessRouteChanged()
             Self.log.notice("display \(displayID, privacy: .public): HDR mode \(on ? "on, brightness routed to software gamma" : "off, brightness back on DDC", privacy: .public)")
         }
     }
@@ -738,6 +739,7 @@ final class BrightnessService: @unchecked Sendable {
         }
         guard let settled else { return }
         if settled.firstSuccess {
+            Self.brightnessRouteChanged()
             Self.log.notice("display \(displayID, privacy: .public): DDC brightness write acknowledged, brightness over DDC")
         }
         if settled.hasNewerTarget {
@@ -785,6 +787,7 @@ final class BrightnessService: @unchecked Sendable {
             return
         }
         if outcome.streak == 3 {
+            Self.brightnessRouteChanged()
             Self.log.notice("display \(displayID, privacy: .public): 3 consecutive DDC brightness writes failed, brightness now software gamma until reconnect")
         }
         queue.async {
@@ -1168,6 +1171,14 @@ extension BrightnessService {
     }
 
     // MARK: - Brightness Control row
+
+    /// Posted on the main queue when HDR, a fallback or a first good write changes what
+    /// the Brightness Control row shows: none of them publishes on the display.
+    static let routeChanged = Notification.Name("crisp.brightnessRouteChanged")
+
+    private static func brightnessRouteChanged() {
+        DispatchQueue.main.async { NotificationCenter.default.post(name: routeChanged, object: nil) }
+    }
 
     /// What the Brightness Control row shows for this display.
     @MainActor
