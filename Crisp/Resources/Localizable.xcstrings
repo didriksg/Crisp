@@ -3858,6 +3858,22 @@
         }
       }
     },
+    "Presses the volume keys for the selected sound output. Needs Accessibility, like the brightness keys." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "为所选的声音输出按下音量键。与亮度键一样需要辅助功能权限。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "為所選的聲音輸出按下音量鍵。與亮度鍵一樣需要輔助使用權限。"
+          }
+        }
+      }
+    },
     "Support Crisp" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -4329,6 +4345,54 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "音量控制"
+          }
+        }
+      }
+    },
+    "Volume Down" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "调低音量"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "調低音量"
+          }
+        }
+      }
+    },
+    "Volume Up" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "调高音量"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "調高音量"
+          }
+        }
+      }
+    },
+    "Mute" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "静音"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "靜音"
           }
         }
       }

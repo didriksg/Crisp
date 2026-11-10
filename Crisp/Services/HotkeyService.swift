@@ -19,7 +19,12 @@ final class HotkeyService {
         case preset(UUID)
         case hidpiToggle
         case brightness(up: Bool)
+        case volume(up: Bool)
+        case muteVolume
     }
+
+    /// An action that may repeat while its hotkey is held down.
+    private typealias RepeatAction = @MainActor @Sendable () -> Void
 
     private var handlerRef: EventHandlerRef?
     private var registrations: [UInt32: (ref: EventHotKeyRef, target: Target)] = [:]
@@ -31,9 +36,9 @@ final class HotkeyService {
     /// briefly overlap, and a Bool would re-arm while one still records.
     private var suspensions = 0
 
-    /// Held-down repeat for the brightness shortcuts. Carbon hotkeys fire once per
-    /// press and never repeat, where the brightness keys step for as long as they
-    /// are held, so the repeat is ours to run: kEventHotKeyReleased stops it.
+    /// Held-down repeat for the brightness and volume shortcuts. Carbon hotkeys
+    /// fire once per press and never repeat, where the keys step for as long as
+    /// they are held, so the repeat is ours to run: kEventHotKeyReleased stops it.
     private var repeatTimer: Timer?
     /// Stops the repeat even if a release never arrives (another app taking the
     /// combo, the modifier going up first). Well past a full sweep of the sixteen
@@ -51,8 +56,9 @@ final class HotkeyService {
     }
 
     /// Rebuilds every registration from current state: one hotkey per preset
-    /// with a shortcut, plus the static Toggle HiDPI action. Idempotent; called
-    /// from launch, PresetService.savePresets(), and the recorder.
+    /// with a shortcut, plus the static Toggle HiDPI, brightness, volume and mute
+    /// actions. Idempotent; called from launch, PresetService.savePresets(), and
+    /// the recorder.
     func syncRegistrations() {
         for reg in registrations.values { UnregisterEventHotKey(reg.ref) }
         registrations = [:]
@@ -71,6 +77,15 @@ final class HotkeyService {
         }
         if let shortcut = SettingsService.shared.brightnessDownShortcut {
             register(shortcut, for: .brightness(up: false))
+        }
+        if let shortcut = SettingsService.shared.volumeUpShortcut {
+            register(shortcut, for: .volume(up: true))
+        }
+        if let shortcut = SettingsService.shared.volumeDownShortcut {
+            register(shortcut, for: .volume(up: false))
+        }
+        if let shortcut = SettingsService.shared.muteShortcut {
+            register(shortcut, for: .muteVolume)
         }
         Self.log.info("synced: \(self.registrations.count) hotkey(s) registered")
     }
@@ -92,7 +107,7 @@ final class HotkeyService {
 
     /// One process-wide handler; events carry the EventHotKeyID that fired. Both
     /// kinds are watched: a press runs the action, a release ends a held brightness
-    /// repeat.
+    /// or volume repeat.
     private func installHandlerIfNeeded() {
         guard handlerRef == nil else { return }
         var eventTypes = [
@@ -135,22 +150,31 @@ final class HotkeyService {
             toggleHiDPIUnderCursor()
         case .brightness(let up):
             BrightnessKeyService.shared.adjustFromShortcut(up: up)
-            startRepeat(up: up)
+            startRepeat { BrightnessKeyService.shared.adjustFromShortcut(up: up) }
+        case .volume(let up):
+            BrightnessKeyService.shared.adjustVolumeFromShortcut(up: up)
+            startRepeat { BrightnessKeyService.shared.adjustVolumeFromShortcut(up: up) }
+        case .muteVolume:
+            BrightnessKeyService.shared.toggleVolumeMuteFromShortcut()
         case nil:
             break
         }
     }
 
-    /// A hotkey came back up. Only the brightness shortcuts repeat, so only they
-    /// have something to stop; a preset shortcut released while brightness is held
-    /// must not cut that repeat short.
+    /// A hotkey came back up. Only the brightness and volume shortcuts repeat, so
+    /// only they have something to stop; a preset shortcut released while one is
+    /// held must not cut that repeat short.
     private func releaseHeld(id: UInt32) {
-        if case .brightness = registrations[id]?.target { stopRepeat() }
+        switch registrations[id]?.target {
+        case .brightness, .volume: stopRepeat()
+        default: break
+        }
     }
 
     /// Keeps stepping while the shortcut is held, after the system's own repeat
-    /// delay and at the system's own rate, so it feels like a held brightness key.
-    private func startRepeat(up: Bool) {
+    /// delay and at the system's own rate, so it feels like a held brightness or
+    /// volume key.
+    private func startRepeat(_ action: @escaping RepeatAction) {
         stopRepeat()
         let deadline = Date().addingTimeInterval(Self.repeatCeiling)
         let timer = Timer(fire: Date().addingTimeInterval(NSEvent.keyRepeatDelay),
@@ -159,9 +183,7 @@ final class HotkeyService {
             // The timer stays out of the main-actor block below, as in the key service.
             guard Date() < deadline else { timer.invalidate(); return }
             // Added to the main run loop below, so it fires on the main actor.
-            MainActor.assumeIsolated {
-                BrightnessKeyService.shared.adjustFromShortcut(up: up)
-            }
+            MainActor.assumeIsolated { action() }
         }
         RunLoop.main.add(timer, forMode: .common)
         repeatTimer = timer

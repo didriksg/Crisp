@@ -398,6 +398,38 @@ final class BrightnessKeyService: @unchecked Sendable {
         adjustDisplays([display], up: up)
     }
 
+    /// Volume shortcuts from Settings > Keyboard Shortcuts (#23, #160) press the
+    /// real volume keys, so macOS steps whatever output is selected and draws its
+    /// own banner, and the tap above still routes a DDC monitor's press. Posting
+    /// needs Accessibility, like the brightness keys.
+    func adjustVolumeFromShortcut(up: Bool) {
+        postMediaKey(up ? Self.nxKeytypeSoundUp : Self.nxKeytypeSoundDown)
+    }
+
+    func toggleVolumeMuteFromShortcut() {
+        postMediaKey(Self.nxKeytypeMute)
+    }
+
+    /// One key down and up as NX_SYSDEFINED events (subtype 8, the media keys),
+    /// with no modifier flags, so a held shortcut modifier does not turn the press
+    /// into Option+Volume (Sound settings) or a fine step.
+    private func postMediaKey(_ key: Int) {
+        // Not CGPreflightPostEventAccess: it kept answering false after a grant
+        // until relaunch, while this one follows the grant live.
+        guard AXIsProcessTrusted() else {
+            Self.log.notice("volume shortcut: no Accessibility, key press not posted")
+            return
+        }
+        for state in [0xa, 0xb] {
+            NSEvent.otherEvent(
+                with: .systemDefined, location: .zero,
+                modifierFlags: NSEvent.ModifierFlags(rawValue: UInt(state << 8)),
+                timestamp: 0, windowNumber: 0, context: nil, subtype: 8,
+                data1: (key << 16) | (state << 8), data2: -1
+            )?.cgEvent?.post(tap: .cghidEventTap)
+        }
+    }
+
     /// Moves each display to its next stop through BrightnessService's smooth
     /// fade, and shows the HUD. Backs every key mode and the shortcuts; `fine`
     /// is the quarter step Option+Shift asks for (a shortcut always moves a
