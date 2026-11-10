@@ -567,21 +567,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let dm = displayManager
         let state = sectionState
         let settings = SettingsService.shared
-        func host<V: View>(_ id: String, @ViewBuilder _ content: () -> V) -> NSView {
-            let h = CountedHostingView(rootView: AnyView(
-                BlockHost(onHeight: { [weak self] h in self?.canvas.contentChanged(id, height: h) }) {
-                    content()
-                }
-                .environmentObject(dm)
-            ))
-            // Blocks near the window's edges otherwise get a phantom safe-area
-            // inset, misplacing clicks. See docs/panel-resize.md (failure map #9).
-            h.safeAreaRegions = []
-            return h
-        }
         func block<V: View>(_ id: String, isOpen: @escaping () -> Bool = { true },
                             @ViewBuilder _ content: () -> V) -> PanelBlock {
-            PanelBlock(id: id, host: host(id, content), isOpen: isOpen)
+            PanelBlock(id: id, host: hostPanelBlock(id, content), isOpen: isOpen)
         }
 
         var blocks: [PanelBlock] = []
@@ -610,6 +598,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 b.liveInFlight = live
                 return b
             }
+            blocks.append(detail("dgroup-picture", isOpen: detailOpen) {
+                GroupHeaderBlock(title: "Picture")
+            })
             blocks.append(detail("dres-head", isOpen: detailOpen, live: true) {
                 ResolutionHeadBlock(controller: modeC, state: state)
             })
@@ -635,6 +626,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             blocks.append(detail("dmode-tail", isOpen: detailOpen) {
                 ModeTailBlock(controller: modeC)
             })
+            blocks.append(detail("dgroup-color", isOpen: detailOpen) {
+                GroupHeaderBlock(title: "Color")
+            })
             blocks.append(detail("dprof-head", isOpen: detailOpen, live: true) {
                 ProfileHeadBlock(controller: profC, state: state)
             })
@@ -650,6 +644,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 detailOpen() && state.imageOpenIDs.contains(id)
             }) {
                 ImageBodyBlock(display: display, state: state)
+            })
+            blocks.append(detail("dmid", isOpen: detailOpen) {
+                DetailMiddleBlock(display: display)
             })
             blocks.append(detail("dinput-head", isOpen: detailOpen, live: true) {
                 InputHeadBlock(display: display, state: state)
@@ -1012,6 +1009,19 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 // MARK: - Panel window
 
 extension AppDelegate {
+    private func hostPanelBlock<V: View>(_ id: String, @ViewBuilder _ content: () -> V) -> NSView {
+        let h = CountedHostingView(rootView: AnyView(
+            BlockHost(onHeight: { [weak self] h in self?.canvas.contentChanged(id, height: h) }) {
+                content()
+            }
+            .environmentObject(displayManager)
+        ))
+        // Blocks near the window's edges otherwise get a phantom safe-area
+        // inset, misplacing clicks. See docs/panel-resize.md (failure map #9).
+        h.safeAreaRegions = []
+        return h
+    }
+
     private func makePanel() -> MenuPanel {
         let p = MenuPanel(
             contentRect: .zero,

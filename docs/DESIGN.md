@@ -105,6 +105,8 @@ What we do, and the rule it traces to.
   inline instead of pushing a second navigation level. *Menus HIG: disclosure
   over indentation/depth.*
 
+- **Display rows come in headed groups.** A display's detail rows are split into Picture, Color, Brightness and Connection, each opened by a divider and a `SectionHeader`, the way the Battery menu heads Energy Mode. A group with no row on that display gets no header. *Menus HIG: group related items, with a header where it helps.*
+
 - **Empty states are centered.** "No virtual displays yet" is centered, the
   native empty-state idiom, not an orphaned indented row.
 

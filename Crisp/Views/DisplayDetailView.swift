@@ -119,28 +119,53 @@ struct ImageBodyBlock: View {
 }
 
 /// The plain rows below the dropdown sections.
+/// The detail rows come in groups, each opened by a divider and a header, the way the
+/// Battery and Wi-Fi menus group theirs: Picture, Color, Brightness, Connection.
+struct GroupHeaderBlock: View {
+    let title: String
+    var divider = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if divider { SectionDivider() }
+            SectionHeader(title: title)
+        }
+        // Alone in a block it would be centered like any narrow block content.
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// Ends the Color group, holds the Brightness group, and opens Connection, whose
+/// Input row is a dropdown block of its own.
+struct DetailMiddleBlock: View {
+    @ObservedObject var display: DisplayInfo
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Last in Color, just above Extra Brightness: cause before effect (boost
+            // on an SDR external switches HDR on).
+            HDRToggleView(display: display)
+
+            // A group with no row on this display gets no header.
+            if BrightnessBoostService.shared.isEligible(display)
+                || SystemAutoBrightness.supported(display.displayID) {
+                GroupHeaderBlock(title: "Brightness", divider: true)
+                ExtraBrightnessView(display: display)
+                SystemAutoBrightnessView(display: display)
+            }
+
+            GroupHeaderBlock(title: "Connection", divider: true)
+        }
+    }
+}
+
 struct DetailTailBlock: View {
     let display: DisplayInfo
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            SectionDivider()
-
-            BrightnessOverrideView(display: display)
-
             VolumeOverrideView(display: display)
 
-            // Above Extra Brightness: cause before effect (boost on an SDR
-            // external switches HDR on).
-            HDRToggleView(display: display)
-
-            ExtraBrightnessView(display: display)
-
-            SystemAutoBrightnessView(display: display)
-
-            NotchView(display: display)
-
-            // Grouped with Disconnect: both act on the display as a whole.
             MainDisplayView(display: display)
 
             // Always last: it removes the section it's in.
