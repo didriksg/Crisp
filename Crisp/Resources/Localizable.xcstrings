@@ -333,22 +333,6 @@
         }
       }
     },
-    "Dim in the picture instead of the monitor's backlight, for a monitor that ignores brightness commands. Raise the monitor's own brightness to full first: the dimmer can only go darker than the backlight it is stuck at." : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "对于无视亮度命令的显示器，让画面变暗，而不是调节背光。请先把显示器自身的亮度调到最高：调光只能比卡住的背光更暗。"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "對於無視亮度命令的顯示器，讓畫面變暗，而不是調節背光。請先把顯示器自身的亮度調到最高：調光只能比卡住的背光更暗。"
-          }
-        }
-      }
-    },
     "Input" : {
       "localizations" : {
         "zh-Hans" : {
@@ -409,22 +393,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "設定顯示器輸入來源"
-          }
-        }
-      }
-    },
-    "Software Brightness" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "软件亮度"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "軟體亮度"
           }
         }
       }
@@ -873,6 +841,22 @@
         }
       }
     },
+    "Brightness Control" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "亮度控制"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "亮度控制"
+          }
+        }
+      }
+    },
     "Brightness control mode: DDC hardware" : {
       "localizations" : {
         "zh-Hans" : {
@@ -1046,6 +1030,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "包含項目"
+          }
+        }
+      }
+    },
+    "Changes the monitor's backlight." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "调节显示器的背光。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "調整顯示器的背光。"
           }
         }
       }
@@ -1534,6 +1534,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "自訂…"
+          }
+        }
+      }
+    },
+    "Darkens the picture. For a monitor that ignores brightness commands." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "调暗画面。适用于忽略亮度指令的显示器。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "調暗畫面。適用於忽略亮度指令的顯示器。"
           }
         }
       }
@@ -2217,6 +2233,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "綠色"
+          }
+        }
+      }
+    },
+    "Hardware" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "硬件"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "硬體"
+          }
+        }
+      }
+    },
+    "HDR is on, so the monitor sets its own backlight." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "HDR 已开启，因此由显示器自行控制背光。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "HDR 已開啟，因此由顯示器自行控制背光。"
           }
         }
       }

@@ -294,6 +294,9 @@ final class BrightnessService: @unchecked Sendable {
     /// the write path reads it per coalesced write, off-main.
     private static let forcedSoftwareKey = "crisp.brightnessForcedSoftware"
     private var forcedSoftwareUUIDs: Set<String> = []
+    /// Displays with a successful brightness write since they came online: tells a monitor
+    /// that lost DDC from one that never had it (BrightnessControlRoute). Same lock.
+    private var ddcAnswered: Set<CGDirectDisplayID> = []
 
     // MARK: - Public API
 
@@ -604,7 +607,7 @@ final class BrightnessService: @unchecked Sendable {
         // Single choke point for every DDC brightness write: routes the full
         // range to gamma while the monitor is in HDR mode or the user forced
         // software brightness for it. DDC resumes automatically when HDR goes
-        // off (the forced route needs the row turned back off by hand).
+        // off (the forced route stays until the row is set back to Hardware).
         let hdrDimmed = ddcAvailableLock.withLock { hdrDimmedDisplays.contains(displayID) }
         if hdrDimmed || isSoftwareForced(displayID: displayID) {
             applyLatestSoftwareBrightness(percent, for: displayID)
@@ -727,6 +730,7 @@ final class BrightnessService: @unchecked Sendable {
             let firstSuccess = ddcAvailableLock.withLock { () -> Bool in
                 let was = ddcAvailable[displayID]
                 ddcAvailable[displayID] = true
+                ddcAnswered.insert(displayID)
                 return was != true
             }
             ddcFailStreak[displayID] = 0
@@ -907,6 +911,7 @@ final class BrightnessService: @unchecked Sendable {
             ddcAvailableLock.withLock {
                 for displayID in displayIDs {
                     ddcAvailable.removeValue(forKey: displayID)
+                    ddcAnswered.remove(displayID)
                     ddcMaxBrightness.removeValue(forKey: displayID)
                 }
             }
@@ -1162,21 +1167,52 @@ extension BrightnessService {
         display.objectWillChange.send()
     }
 
+    // MARK: - Brightness Control row
+
+    /// What the Brightness Control row shows for this display.
+    @MainActor
+    func brightnessControlRow(for display: DisplayInfo) -> BrightnessControlRoute.Row {
+        let id = display.displayID
+        // Intel has no channel cache, so there the row comes with the first good write.
+        #if arch(arm64)
+        let hasChannel = DDCService.shared.hasKnownChannel(for: id)
+        #else
+        let hasChannel = false
+        #endif
+        return ddcAvailableLock.withLock {
+            BrightnessControlRoute.row(
+                choseSoftware: forcedSoftwareUUIDs.contains(display.displayUUID),
+                hdr: hdrDimmedDisplays.contains(id),
+                ddcAvailable: ddcAvailable[id],
+                ddcReachable: hasChannel || ddcAnswered.contains(id)
+            )
+        }
+    }
+
+    /// The row's click. Hardware also clears a fallback latch, so the write that
+    /// follows tries the monitor again; three more failures latch it back.
+    @MainActor
+    func setBrightnessControl(_ route: BrightnessControlRoute, for display: DisplayInfo) {
+        if route == .hardware {
+            let id = display.displayID
+            ddcPumpLock.withLock { ddcFailStreak[id] = 0 }
+            ddcAvailableLock.withLock {
+                if ddcAvailable[id] == false { ddcAvailable.removeValue(forKey: id) }
+            }
+        }
+        setSoftwareBrightnessForced(route == .software, for: display)
+    }
+
     // MARK: - Software Brightness (Gamma Table Fallback)
 
     /// Applies brightness via gamma table for displays where DDC is unavailable:
-    /// a linear ramp from 0 to `factor`, scaled past 1.0 above 100% for the
-    /// external boost region. See docs/brightness-notes.md (gamma and software
-    /// brightness). Delegates to GammaService when it has an active adjustment,
-    /// so the two don't overwrite each other's transfer table.
+    /// a linear ramp from 0 to `factor` (5% floor, never fully black), scaled
+    /// past 1.0 above 100% for the external boost region. See
+    /// docs/brightness-notes.md (gamma and software brightness). Delegates to
+    /// GammaService when it has an active adjustment, so the two don't
+    /// overwrite each other's transfer table.
     func setSoftwareBrightness(_ brightness: Double, for displayID: CGDirectDisplayID) {
-        // Forced-software displays hold their backlight wherever the monitor
-        // keeps it (usually full), so a 5% floor there is a glow the slider can
-        // never get past: their 0% is a true black. Every other software route
-        // keeps the floor (black never goes fully black). Read before the
-        // factors lock so the two locks never nest.
-        let floor: Double = isSoftwareForced(displayID: displayID) ? 0.0 : 0.05
-        let factor = max(floor, brightness / 100.0)
+        let factor = max(0.05, brightness / 100.0)
         softwareBrightnessLock.withLock { softwareBrightnessFactors[displayID] = factor }
         saveSoftwareBrightness(factor: factor, for: displayID)
 

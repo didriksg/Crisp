@@ -1005,6 +1005,17 @@ extension AppDelegate {
         blocks.append(detail("dmid", isOpen: detailOpen) {
             DetailMiddleBlock(display: display)
         })
+        blocks.append(detail("dbright-head", isOpen: detailOpen, live: true) {
+            BrightnessControlHeadBlock(display: display, state: state)
+        })
+        blocks.append(detail("dbright-body", isOpen: {
+            detailOpen() && state.brightnessControlOpenIDs.contains(id)
+        }) {
+            BrightnessControlBodyBlock(display: display)
+        })
+        blocks.append(detail("dgroup-connection", isOpen: detailOpen) {
+            GroupHeaderBlock(title: "Connection", divider: true)
+        })
         blocks.append(detail("dinput-head", isOpen: detailOpen, live: true) {
             InputHeadBlock(display: display, state: state)
         })

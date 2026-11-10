@@ -227,6 +227,12 @@ final class DDCService: ObservableObject, @unchecked Sendable {
         return String(cString: buf)
     }
 
+    /// Whether a DDC channel is known for the display, from the cache only: cheap enough
+    /// for a view body. False until the first read or write has looked the channel up.
+    func hasKnownChannel(for displayID: CGDirectDisplayID) -> Bool {
+        avServiceLock.withLock { avServiceCache[displayID] != nil }
+    }
+
     /// Finds and caches the IOAVService for a display; nil for built-ins or displays
     /// with no AV path. Matching strategy: see buildAVServiceMapByProximity.
     private func findAVService(for displayID: CGDirectDisplayID) -> IOAVServiceRef? {
