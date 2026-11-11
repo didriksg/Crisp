@@ -30,6 +30,14 @@ final class DisplayColorModeTests: XCTestCase {
         }
     }
 
+    func testAutomaticTakesThePreferredFormatAtTheCurrentTiming() {
+        let modes = [mode(id: 1, refresh: 165, depth: 8), mode(id: 2, refresh: 165, depth: 10),
+                     mode(id: 3, refresh: 165, depth: 10, encoding: "YCbCr422LimitedRange")]
+        let preferred = mode(id: 9, refresh: 170, depth: 10, encoding: "rgbfullrange")
+        XCTAssertEqual(DisplayColorMode.automatic(in: modes, preferred: preferred)?.id, 2)
+        XCTAssertNil(DisplayColorMode.automatic(in: modes, preferred: mode(depth: 12)))
+    }
+
     func testPrivateRefreshRateMatchingHasTightTolerance() {
         let saved = SavedColorMode(mode(), timing: nil)
         XCTAssertTrue(saved.matches(mode(refresh: 60.019)))

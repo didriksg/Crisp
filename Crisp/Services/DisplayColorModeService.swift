@@ -44,9 +44,19 @@ final class DisplayColorModeService {
         !display.isBuiltin && preferredMode(for: display.displayUUID) != nil
     }
 
-    /// Automatic releases Crisp's override; macOS chooses on subsequent display changes.
-    func useAutomaticMode(for display: DisplayInfo) {
+    /// Automatic releases Crisp's override and switches to the format macOS prefers. With no
+    /// such format at the current timing, macOS chooses on the next display change.
+    func useAutomaticMode(for display: DisplayInfo) async -> DisplayColorModeSnapshot? {
         UserDefaults.standard.removeObject(forKey: Self.preferenceKey(for: display.displayUUID))
+        guard isCurrentDisplay(display), !applyingUUIDs.contains(display.displayUUID),
+              let context = modeContext(for: display.displayID),
+              let preferredObject = readValue(context.display, "preferredMode") as? NSObject,
+              let preferred = makeMode(preferredObject),
+              let mode = DisplayColorMode.automatic(in: context.compatibleModes.map { $0.mode }, preferred: preferred),
+              let target = context.compatibleModes.first(where: { $0.mode.id == mode.id }) else { return nil }
+        applyingUUIDs.insert(display.displayUUID)
+        defer { applyingUUIDs.remove(display.displayUUID) }
+        return await applyMode(target, in: context, for: display.displayID)
     }
 
     /// No private display work or delayed task is started for displays without a choice.

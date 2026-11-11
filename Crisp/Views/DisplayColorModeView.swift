@@ -27,9 +27,14 @@ final class DisplayColorModeController: ObservableObject {
 
     func selectAutomatic() {
         guard !isApplying else { return }
-        DisplayColorModeService.shared.useAutomaticMode(for: display)
         isAutomatic = true
         errorMessage = nil
+        isApplying = true
+        Task {
+            let switched = await DisplayColorModeService.shared.useAutomaticMode(for: display)
+            isApplying = false
+            if let switched { snapshot = switched } else { reload() }
+        }
     }
 
     func select(_ mode: DisplayColorMode) {
