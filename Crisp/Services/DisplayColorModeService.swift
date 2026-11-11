@@ -226,7 +226,8 @@ final class DisplayColorModeService {
             refreshRate: refreshRate,
             bitDepth: bitDepth,
             colorMode: colorMode,
-            hdrMode: hdrMode
+            hdrMode: hdrMode,
+            isVRR: readBoolean(object, "isVRR") ?? false
         )
     }
 

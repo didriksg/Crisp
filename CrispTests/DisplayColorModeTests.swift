@@ -130,6 +130,13 @@ final class DisplayColorModeTests: XCTestCase {
                        "\(mode(depth: 8).bitDepthLabel) YCbCr 4:2:2")
     }
 
+    func testFixedAndVariableRefreshTwinsAreDifferentTimings() {
+        var vrr = mode(id: 2)
+        vrr.isVRR = true
+        XCTAssertFalse(mode(id: 1).sameTiming(as: vrr))
+        XCTAssertTrue(vrr.sameTiming(as: vrr))
+    }
+
     func testMenuOrderPutsRGBFirstThenLessSubsamplingThenDepthThenFullRange() {
         let aoc = [mode(id: 1, depth: 8, encoding: "YCbCr444LimitedRange"),
                    mode(id: 2, depth: 10, encoding: "YCbCr422LimitedRange"),

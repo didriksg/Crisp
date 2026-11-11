@@ -9,6 +9,8 @@ struct DisplayColorMode: Identifiable, Equatable, Sendable {
     let bitDepth: Int
     let colorMode: String
     let hdrMode: String
+    /// macOS lists each format twice at a rate with variable refresh, once fixed and once VRR.
+    var isVRR = false
 
     var bitDepthLabel: String {
         String(format: NSLocalizedString("%d-bit", comment: "Display color mode bit depth"), bitDepth)
@@ -45,6 +47,7 @@ struct DisplayColorMode: Identifiable, Equatable, Sendable {
         width == other.width && height == other.height
             && abs(refreshRate - other.refreshRate) < 0.02
             && hdrMode.caseInsensitiveCompare(other.hdrMode) == .orderedSame
+            && isVRR == other.isVRR
     }
 
     var summary: String {
