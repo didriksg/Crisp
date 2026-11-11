@@ -1,26 +1,25 @@
 import SwiftUI
 
-/// Per-display manual volume enable (issue #57). Some monitors (LG 27UP850N
-/// over USB-C) accept DDC volume writes but never answer the 0x62 probe read,
-/// so volumeSupported can never turn on by itself and the whole volume
-/// feature stays hidden. This row appears only for externals in that state
-/// and forces write-only volume for the display (persisted by UUID in
-/// VolumeService). Probe-confirmed monitors never show it.
+/// Per-display DDC volume switch, on every external (persisted by UUID in
+/// VolumeService). On for a monitor that never answers the 0x62 probe read
+/// forces write-only volume (issue #57, LG 27UP850N over USB-C). Off stops
+/// volume commands to a monitor that answers, for one whose DDC stops after
+/// repeated volume writes (#245).
 struct VolumeOverrideView: View {
     @ObservedObject var display: DisplayInfo
+    @ObservedObject private var settings = SettingsService.shared
     @State private var isHovered = false
 
     var body: some View {
-        if !display.isBuiltin,
-           !display.volumeSupported || VolumeService.shared.isForced(display) {
+        if !display.isBuiltin, settings.showVolumeSliders {
             HStack {
                 MenuItemIcon(systemName: "speaker.wave.2.fill", color: .blue, active: display.volumeSupported)
                 Text("Volume Control")
                     .font(.body)
                 Spacer()
                 Toggle("", isOn: Binding(
-                    get: { VolumeService.shared.isForced(display) },
-                    set: { VolumeService.shared.setForced($0, for: display) }
+                    get: { display.volumeSupported },
+                    set: { VolumeService.shared.setEnabled($0, for: display) }
                 ))
                 .toggleStyle(.switch)
                 .labelsHidden()
@@ -30,7 +29,7 @@ struct VolumeOverrideView: View {
             .padding(.vertical, 3)
             .menuRowHover(isHovered)
             .onHover { isHovered = $0 }
-            .help("Force volume control for a monitor that doesn't report it. Crisp can set the volume but not read the current level.")
+            .help("Speaker volume over DDC. Turn it off if the monitor stops answering, or on if it doesn't report volume.")
         }
     }
 }
