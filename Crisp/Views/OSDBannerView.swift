@@ -111,8 +111,10 @@ struct OSDBannerView: View {
     /// The fill ends on the tick for the level, not a plain fraction of the
     /// track, except at the top of the range, which runs to the track's end.
     /// Measured: see docs/osd-notes.md (Track (inactive vs. key window)).
+    /// Muted, the system draws no fill at all, not the first tick's stub.
     private func fillWidth(_ width: CGFloat) -> CGFloat {
-        model.level >= 1 ? width : Self.tickInset + (width - 2 * Self.tickInset) * model.level
+        if model.image == .mute { return 0 }
+        return model.level >= 1 ? width : Self.tickInset + (width - 2 * Self.tickInset) * model.level
     }
 
     /// How far the tick dots' centres sit in from each end of the track.

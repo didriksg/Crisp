@@ -316,6 +316,7 @@ struct CreateVirtualDisplayForm: View {
     @State private var customWidth: String
     @State private var customHeight: String
     @State private var autoCreate: Bool
+    @State private var refreshRate: Double
 
     static let presetOptions: [(label: String, width: Int, height: Int)] = [
         ("1920×1080 (FHD)", 1920, 1080),
@@ -342,6 +343,7 @@ struct CreateVirtualDisplayForm: View {
         self.onConfirm = onConfirm
         _name = State(initialValue: editing?.name ?? String(localized: "Virtual Display"))
         _autoCreate = State(initialValue: editing?.autoCreate ?? true)
+        _refreshRate = State(initialValue: editing?.refreshRate ?? 60)
         // A non-preset size selects "Custom" and prefills width/height.
         let presetIdx = editing.flatMap { e in
             Self.presetOptions.firstIndex(where: { $0.width == e.width && $0.height == e.height })
@@ -398,6 +400,19 @@ struct CreateVirtualDisplayForm: View {
                 }
             }
 
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Refresh Rate")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                Picker("Refresh Rate", selection: $refreshRate) {
+                    ForEach(refreshRateOptions, id: \.self) { rate in
+                        Text(verbatim: RefreshRateFormat.label(rate)).tag(rate)
+                    }
+                }
+                .pickerStyle(.menu)
+                .labelsHidden()
+            }
+
             VStack(alignment: .leading, spacing: 6) {
                 Text("Options")
                     .font(.caption2)
@@ -433,6 +448,12 @@ struct CreateVirtualDisplayForm: View {
                         .strokeBorder(Color.primary.opacity(0.10), lineWidth: 1)
                 )
         )
+    }
+
+    private var refreshRateOptions: [Double] {
+        let options = VirtualDisplayService.refreshRateOptions
+        // Preserve a previously stored custom rate when editing an existing display.
+        return options.contains(refreshRate) ? options : (options + [refreshRate]).sorted()
     }
 
     private var confirmTitle: String {
@@ -479,7 +500,7 @@ struct CreateVirtualDisplayForm: View {
             name: name.isEmpty ? String(localized: "Virtual Display") : name,
             width: res.width,
             height: res.height,
-            refreshRate: editing?.refreshRate ?? 60,
+            refreshRate: refreshRate,
             hiDPI: true,
             autoCreate: autoCreate
         )

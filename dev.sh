@@ -10,7 +10,7 @@
 # Override the target app with:  CRISP_APP=/path/to/Crisp.app ./dev.sh
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "$(dirname "$0")" && pwd -P)"
 cd "$ROOT"
 APP="${CRISP_APP:-/Applications/Crisp.app}"
 
@@ -50,10 +50,23 @@ echo "==> Compiling Crisp $VERSION ($BUILD)..."
     Crisp/Views/*.swift Crisp/Utilities/*.swift \
     -o Crisp-bin
 
+# Same sources as release.sh, so the app and its crispctl come from one branch.
+echo "==> Compiling crispctl..."
+swiftc -O -swift-version 6 -target arm64-apple-macos14.0 \
+    Sources/crispctl/*.swift Crisp/Models/CrispControlModel.swift Crisp/Models/BrightnessKeySteps.swift \
+    -o crispctl-bin
+
 echo "==> Swapping into ${APP}..."
-pkill -x Crisp 2>/dev/null || true
-sleep 1
+# Quit, not kill: killed with a virtual display on, Crisp is started again by
+# launchd within ~150 ms, from the old binary, before the copy below lands.
+if pgrep -x Crisp >/dev/null; then
+    osascript -e 'quit app "Crisp"' >/dev/null 2>&1 || true
+    for _ in 1 2 3 4 5 6 7 8 9 10; do pgrep -x Crisp >/dev/null || break; sleep 0.5; done
+    pkill -x Crisp 2>/dev/null || true
+    sleep 1
+fi
 cp Crisp-bin "$APP/Contents/MacOS/Crisp"
+cp crispctl-bin "$APP/Contents/MacOS/crispctl"
 if [ -n "$AI_DEV" ]; then
     echo "==> Writing Shortcuts actions metadata..."
     appintents_metadata "$APP/Contents/MacOS/Crisp" "$APP/Contents/Resources" arm64
@@ -104,6 +117,7 @@ fi
 # Framework first (its seal broke when XPCServices got stripped), then the app,
 # no --deep. Autoupdate/Updater.app inside keep Sparkle's own valid signatures.
 codesign --force -s "$SIGN_ID" "$APP/Contents/Frameworks/Sparkle.framework"
+codesign --force -s "$SIGN_ID" "$APP/Contents/MacOS/crispctl"
 codesign --force -s "$SIGN_ID" --entitlements Crisp/Crisp.entitlements "$APP"
 
 echo "==> Launching..."

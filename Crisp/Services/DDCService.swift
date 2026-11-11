@@ -292,6 +292,19 @@ final class DDCService: ObservableObject, @unchecked Sendable {
         avServiceLock.unlock()
     }
 
+    /// Each message goes out twice, 10 ms before each copy, as in MonitorControl, BetterDisplay
+    /// and m1ddc: some monitors act only on the second copy (docs/ddc-notes.md, PR #245).
+    private func arm64Send(_ avService: IOAVServiceRef, _ buf: inout [UInt8]) -> IOReturn {
+        var ret = kIOReturnSuccess
+        for _ in 0..<2 {
+            Thread.sleep(forTimeInterval: 0.01)
+            ret = IOAVServiceWriteI2C(avService, 0x37, 0x51, &buf, UInt32(buf.count))
+            // A deaf channel can take seconds per call, so a failed first copy ends it.
+            guard ret == kIOReturnSuccess else { break }
+        }
+        return ret
+    }
+
     /// ARM64 DDC write: Set VCP Feature over IOAVService.
     /// Payload: [0x84, 0x03, vcpCode, valueHigh, valueLow, checksum], checksum XORed
     /// from 0x50 (0x6E DDC dest ^ 0x51 sub-address) over the payload bytes.
@@ -308,7 +321,7 @@ final class DDCService: ObservableObject, @unchecked Sendable {
         for b in payload { checksum ^= b }
 
         var buf: [UInt8] = payload + [checksum]
-        let ret = IOAVServiceWriteI2C(avService, 0x37, 0x51, &buf, UInt32(buf.count))
+        let ret = arm64Send(avService, &buf)
         if ret != kIOReturnSuccess {
             Self.log.debug("write \(Self.hex(command), privacy: .public)=\(value, privacy: .public) display \(displayID, privacy: .public): I2C error \(String(format: "0x%08X", ret), privacy: .public)")
         }
@@ -334,15 +347,14 @@ final class DDCService: ObservableObject, @unchecked Sendable {
         for b in requestPayload { requestChecksum ^= b }
         var requestBuf: [UInt8] = requestPayload + [requestChecksum]
 
-        let writeRet = IOAVServiceWriteI2C(avService, 0x37, 0x51, &requestBuf, UInt32(requestBuf.count))
+        let writeRet = arm64Send(avService, &requestBuf)
         guard writeRet == kIOReturnSuccess else {
             return fail("request write I2C error \(String(format: "0x%08X", writeRet))")
         }
 
-        // Wait for the display to prepare its DDC/CI reply (~40ms per spec)
-        Thread.sleep(forTimeInterval: 0.04)
+        Thread.sleep(forTimeInterval: 0.05)
 
-        var replyBuf = [UInt8](repeating: 0, count: 12)
+        var replyBuf = [UInt8](repeating: 0, count: 11)
         let readRet = IOAVServiceReadI2C(avService, 0x37, 0x51, &replyBuf, UInt32(replyBuf.count))
         guard readRet == kIOReturnSuccess else {
             return fail("reply read I2C error \(String(format: "0x%08X", readRet))")
@@ -388,6 +400,8 @@ final class DDCService: ObservableObject, @unchecked Sendable {
     private func arm64CapabilitiesChunk(displayID: CGDirectDisplayID, offset: Int) -> CapabilitiesChunk {
         guard let avService = findAVService(for: displayID) else { return .noChannel }
         var request = DDCCapabilities.request(offset: offset)
+        // One copy: doubled chunk requests stopped a monitor's DDC until a replug (PR #245),
+        // and a failed read only falls back to the standard input list.
         guard IOAVServiceWriteI2C(avService, 0x37, 0x51, &request, UInt32(request.count)) == kIOReturnSuccess else {
             return .bad
         }
@@ -938,7 +952,7 @@ final class DDCService: ObservableObject, @unchecked Sendable {
                             current: r.current, max: r.max, timestamp: Date()
                         )
                         self.cacheLock.unlock()
-                        // No extra delay here, arm64Read already waits 40ms per DDC/CI spec
+                        // No extra delay here, arm64Read already waits for the reply
                     } else {
                         result[code] = nil
                     }
