@@ -20,18 +20,16 @@ final class CrispControlRotationTests: XCTestCase {
     }
 
     func testRotationRefusesWhatThePanelHasNoRowFor() {
-        let builtin = CrispControlDisplay(id: 1, name: "Built-in", brightness: 50, isBuiltin: true, uuid: "B")
         let virtual = CrispControlDisplay(id: 8, name: "Virtual", brightness: 50, isBuiltin: false, uuid: "V")
         let held = CrispControlDisplay(id: 9, name: "M32UC", brightness: 0, isBuiltin: false, uuid: "H", connected: false)
         let cases: [(String, String)] = [
-            (#"{"command":"setRotation","selector":"1","rotation":90}"#, "rotation is not available for the built-in display"),
             (#"{"command":"getRotation","selector":"8"}"#, "rotation is not available for this display"),
             (#"{"command":"getRotation","selector":"9"}"#, "display is not connected"),
             (#"{"command":"setRotation","selector":"7","rotation":45}"#, "rotation must be 0, 90, 180 or 270"),
             (#"{"command":"getRotation"}"#, "display is required")
         ]
         for (request, error) in cases {
-            let result = handle(request, displays: [display, builtin, virtual, held])
+            let result = handle(request, displays: [display, virtual, held])
             XCTAssertEqual(result.response.error, error, request)
             XCTAssertNil(result.rotationChange, request)
         }

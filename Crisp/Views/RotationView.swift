@@ -11,6 +11,8 @@ final class RotationController: ObservableObject {
     private let displayManager: DisplayManager
     @Published private(set) var current: DisplayRotation
     @Published private(set) var pending: DisplayRotation?
+    /// The resolution list's failure line, for 3 s.
+    @Published private(set) var errorMessage: String?
 
     init(display: DisplayInfo, displayManager: DisplayManager) {
         self.display = display
@@ -29,9 +31,13 @@ final class RotationController: ObservableObject {
         guard pending == nil else { return }
         pending = rotation
         Task {
-            _ = await displayManager.rotate(display, to: rotation)
+            let ok = await displayManager.rotate(display, to: rotation)
             reload()
             pending = nil
+            guard !ok else { return }
+            withAnimation { errorMessage = String(localized: "Unable to rotate to \(rotation.label), please try again") }
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            withAnimation { errorMessage = nil }
         }
     }
 }
@@ -70,6 +76,20 @@ struct RotationListBlock: View {
                     ) {
                         controller.select(rotation)
                     }
+                }
+                if let msg = controller.errorMessage {
+                    HStack(spacing: 6) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.caption2)
+                            .foregroundColor(.red)
+                        Text(msg)
+                            .font(.caption2)
+                            .foregroundColor(.red)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .transition(.opacity)
                 }
             }
         }

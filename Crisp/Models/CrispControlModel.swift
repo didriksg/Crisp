@@ -472,9 +472,6 @@ enum CrispControlModel {
         guard let display = target(of: request, in: displays) else {
             return .init(.failure("display not found"), nil, nil, nil)
         }
-        guard !display.isBuiltin else {
-            return .init(.failure("rotation is not available for the built-in display"), nil, nil, nil)
-        }
         guard display.connected ?? true else {
             return .init(.failure("display is not connected"), nil, nil, nil)
         }
@@ -839,9 +836,10 @@ enum CrispControlCLIModel {
         Entry(group: .display, usage: "display rotation get <display>", summary: "Read a display's rotation",
               detail: "The rotation in degrees: 0, 90, 180 or 270."),
         Entry(group: .display, usage: "display rotation set <display> 0|90|180|270", summary: "Rotate a display", detail: """
-            The same as the Rotation row in the menu: only this display turns. External
-            displays only. Asking for the rotation it is already at succeeds and changes
-            nothing. The reply comes after the window server has answered.
+            The same as the Rotation row in the menu: only this display turns, and the
+            ones beside it move to stay beside it. Asking for the rotation it is already
+            at succeeds and changes nothing. The reply comes after the window server has
+            answered.
             """),
         Entry(group: .brightness, usage: "brightness get <display>", summary: "Read brightness and its live maximum", detail: ""),
         Entry(group: .brightness, usage: "brightness set <display> <percent>", summary: "Set brightness", detail: """

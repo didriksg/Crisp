@@ -180,13 +180,12 @@ final class ResolutionService: @unchecked Sendable {
 
     // MARK: - Rotation (#258)
 
-    /// Externals on Apple Silicon only: System Settings offers no rotation for the built-in,
-    /// a Crisp virtual display is not a screen to turn, and the #65 mirror drives its
-    /// target's mode. The setter is untested on Intel.
+    /// Physical displays on Apple Silicon, the built-in too (System Settings offers it no
+    /// rotation, but the call works on it): a Crisp virtual display is not a screen to turn,
+    /// and the #65 mirror drives its target's mode. The setter is untested on Intel.
     func canRotate(_ display: DisplayInfo) -> Bool {
         #if arch(arm64)
-        !display.isBuiltin
-            && !VirtualDisplayService.shared.isVirtualDisplay(display.displayID)
+        !VirtualDisplayService.shared.isVirtualDisplay(display.displayID)
             && !MirroredModeService.shared.isActive(for: display.displayID)
         #else
         false

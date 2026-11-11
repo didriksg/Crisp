@@ -4151,6 +4151,22 @@
         }
       }
     },
+    "Unable to rotate to %@, please try again" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法旋转到 %@，请重试"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無法旋轉到 %@，請重試"
+          }
+        }
+      }
+    },
     "Unable to switch to %@, please try again" : {
       "localizations" : {
         "zh-Hans" : {
