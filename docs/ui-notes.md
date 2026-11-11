@@ -12,7 +12,7 @@ A click on the brightness slider glides to the target over 200ms instead of jump
 
 ## BrightnessSliderView: control size by OS
 
-Control Center's brightness slider grew on macOS 27: measured on its display panel the track is 6pt and the knob 16pt, against the 4pt track and 14pt knob that SwiftUI's .small control size draws. .regular matches the macOS 27 size, so the brightness sliders switch to .regular on macOS 27 or later and keep .small on macOS 26 and earlier.
+Control Center's brightness slider grew on macOS 27: measured on its display panel the track is 6pt and the knob 16pt, against the 4pt track and 14pt knob that SwiftUI's .small control size draws. .regular matches the macOS 27 size, so the brightness sliders and the volume slider under them switch to .regular on macOS 27 or later and keep .small on macOS 26 and earlier.
 
 ## Color.secondaryReadable
 

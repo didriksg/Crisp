@@ -20,7 +20,8 @@ struct VolumeSliderView: View {
                     VolumeService.shared.setVolume(localVolume, for: display)
                 }
             }
-            .controlSize(.small)
+            // Same size as the brightness slider above it (docs/ui-notes.md).
+            .controlSize(SystemLook.isMacOS27OrLater ? .regular : .small)
             .accessibilityLabel("Speaker volume")
             .accessibilityValue("\(Int(localVolume))%")
             .onChange(of: localVolume) { _, newValue in
