@@ -9,6 +9,8 @@ struct ArrangementView: View {
     @EnvironmentObject var displayManager: DisplayManager
     @State private var draggedID: CGDirectDisplayID?
     @State private var dragOffset: CGSize = .zero
+    /// Center guide of the current drag, in screen coordinates (#259).
+    @State private var centerGuide: ArrangementSnap.Guide?
     @State private var dragError: String?
     @State private var hoveredID: CGDirectDisplayID?
 
@@ -70,7 +72,7 @@ struct ArrangementView: View {
                     DragGesture(minimumDistance: 0, coordinateSpace: .named("arranger"))
                         .onChanged { value in
                             draggedID = display.displayID
-                            dragOffset = snappedCanvasOffset(for: display, translation: value.translation, canvasSize: canvasSize)
+                            updateDrag(for: display, translation: value.translation, canvasSize: canvasSize)
                             DisplayIdentifierOverlay.show(for: display.displayID)
                         }
                         .onEnded { value in
@@ -81,6 +83,7 @@ struct ArrangementView: View {
                             }
                             draggedID = nil
                             dragOffset = .zero
+                            centerGuide = nil
                             DisplayIdentifierOverlay.hide()
                         }
                 )
@@ -89,6 +92,21 @@ struct ArrangementView: View {
                     y: rect.midY + (isDragged ? dragOffset.height : 0)
                 )
                 .zIndex(identified ? 2 : 0)
+        }
+
+        if let guide = centerGuide, let id = draggedID, let rect = layout[id] {
+            let scale = canvasScale(canvasSize: canvasSize)
+            let origin = CGDisplayBounds(id).origin
+            let toCanvas = { (p: CGPoint) in
+                CGPoint(x: rect.minX + (p.x - origin.x) * scale, y: rect.minY + (p.y - origin.y) * scale)
+            }
+            Path { path in
+                path.move(to: toCanvas(guide.from))
+                path.addLine(to: toCanvas(guide.to))
+            }
+            .stroke(Color.accentColor, lineWidth: 1)
+            .allowsHitTesting(false)
+            .zIndex(2.5)
         }
 
         // Hover/drag name callout: its own canvas layer, not a thumbnail overlay
@@ -161,7 +179,7 @@ struct ArrangementView: View {
     }
 
     /// Proposed screen-space rect for the dragged display, snapped to the other displays.
-    private func snappedScreenRect(for display: DisplayInfo, translation: CGSize, scale: CGFloat) -> CGRect {
+    private func snappedScreenRect(for display: DisplayInfo, translation: CGSize, scale: CGFloat) -> ArrangementSnap.Result {
         let proposed = CGDisplayBounds(display.displayID)
             .offsetBy(dx: translation.width / scale, dy: translation.height / scale)
         let others = displayManager.displays
@@ -170,24 +188,26 @@ struct ArrangementView: View {
         // Resolve overlap first, then edge-snap: displays can never overlap,
         // matching the native Arrange Displays sheet.
         let resolved = resolveOverlaps(proposed, others: others)
-        return snappedRect(resolved, others: others, threshold: 10 / scale)
+        // Center leeway is smaller than the edge one: see docs/ui-notes.md (ArrangementView: center snap leeway).
+        return ArrangementSnap.snapped(resolved, others: others, edgeThreshold: 10 / scale, centerThreshold: 4 / scale)
     }
 
-    /// Canvas-space drag offset with snapping applied, for live thumbnail feedback.
-    private func snappedCanvasOffset(for display: DisplayInfo, translation: CGSize, canvasSize: CGSize) -> CGSize {
+    /// Sets the canvas-space drag offset and center guide with snapping applied, for live feedback.
+    private func updateDrag(for display: DisplayInfo, translation: CGSize, canvasSize: CGSize) {
         let scale = canvasScale(canvasSize: canvasSize)
-        guard scale > 0 else { return translation }
+        guard scale > 0 else { dragOffset = translation; return }
         let bounds = CGDisplayBounds(display.displayID)
-        let snapped = snappedScreenRect(for: display, translation: translation, scale: scale)
-        return CGSize(width: (snapped.minX - bounds.minX) * scale,
-                      height: (snapped.minY - bounds.minY) * scale)
+        let snap = snappedScreenRect(for: display, translation: translation, scale: scale)
+        dragOffset = CGSize(width: (snap.rect.minX - bounds.minX) * scale,
+                            height: (snap.rect.minY - bounds.minY) * scale)
+        centerGuide = snap.centerGuide
     }
 
     /// Converts the drag to screen coordinates, snaps, and applies the position.
     private func applyDrag(for display: DisplayInfo, translation: CGSize, canvasSize: CGSize) {
         let scale = canvasScale(canvasSize: canvasSize)
         guard scale > 0 else { return }
-        let snapped = snappedScreenRect(for: display, translation: translation, scale: scale)
+        let snapped = snappedScreenRect(for: display, translation: translation, scale: scale).rect
         let newX = Int(snapped.minX.rounded())
         let newY = Int(snapped.minY.rounded())
 
@@ -208,46 +228,6 @@ struct ArrangementView: View {
 }
 
 // MARK: - Snap Logic
-
-/// "Edge hug" snapping only: hugs a neighbor's side (with optional cross-axis
-/// edge alignment). No center alignment or isolated edge alignment.
-func snappedRect(_ rect: CGRect, others: [CGRect], threshold: CGFloat) -> CGRect {
-    var r = rect
-    var bestDX = CGFloat.infinity
-    var partnerX: CGRect?
-    var bestDY = CGFloat.infinity
-    var partnerY: CGRect?
-    for o in others {
-        for dx in [o.maxX - r.minX, o.minX - r.maxX] where abs(dx) < abs(bestDX) {
-            bestDX = dx
-            partnerX = o
-        }
-        for dy in [o.maxY - r.minY, o.minY - r.maxY] where abs(dy) < abs(bestDY) {
-            bestDY = dy
-            partnerY = o
-        }
-    }
-    let canX = abs(bestDX) <= threshold
-    let canY = abs(bestDY) <= threshold
-    if canX && (!canY || abs(bestDX) <= abs(bestDY)) {
-        // Hug horizontally, then optionally align top/bottom edges
-        r.origin.x += bestDX
-        if let o = partnerX,
-           let align = [o.minY - r.minY, o.maxY - r.maxY].min(by: { abs($0) < abs($1) }),
-           abs(align) <= threshold {
-            r.origin.y += align
-        }
-    } else if canY {
-        // Hug vertically, then optionally align left/right edges
-        r.origin.y += bestDY
-        if let o = partnerY,
-           let align = [o.minX - r.minX, o.maxX - r.maxX].min(by: { abs($0) < abs($1) }),
-           abs(align) <= threshold {
-            r.origin.x += align
-        }
-    }
-    return r
-}
 
 /// Pushes `rect` out of any overlapping display, iterating to settle against
 /// multiple neighbors (capped to avoid an oscillation looping forever).
