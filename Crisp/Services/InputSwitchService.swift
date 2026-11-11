@@ -44,11 +44,14 @@ final class InputSwitchService: ObservableObject {
     }
 
     /// Whether the display gets an Input row: an external whose DDC answers.
+    /// Gated on write capability, not the brightness route: a display forced
+    /// onto software brightness (acks-but-ignores brightness writes) can
+    /// still take input-switch writes just fine.
     func isAvailable(for display: DisplayInfo) -> Bool {
         guard !display.isBuiltin, !display.hasNativeBrightness else { return false }
         let uuid = display.displayUUID
         return macInput[uuid] != nil || listed[uuid]?.isEmpty == false
-            || BrightnessService.shared.brightnessBackend(for: display) == .ddc
+            || BrightnessService.shared.isDDCAvailable(for: display.displayID) == true
     }
 
     // MARK: - Reads

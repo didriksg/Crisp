@@ -74,8 +74,6 @@ struct BrightnessSliderView: View {
     /// Debug switch: `defaults write com.crisp.app crisp.showBrightnessControlMode -bool true`
     /// (relaunch) shows the DDC/software mode row on every slider, for support threads.
     /// Read once at launch; no Settings row on purpose.
-    /// ponytail: reads the DDC latch only; an HDR-dimmed external shows "DDC" while
-    /// writing gamma. Fold in BrightnessService.hdrDimmedDisplays if that misleads.
     static let showControlMode = UserDefaults.standard.bool(forKey: "crisp.showBrightnessControlMode")
 
     var body: some View {
@@ -198,6 +196,9 @@ struct BrightnessSliderView: View {
             localBrightness = display.brightness
             updateDDCStatus()
         }
+        .onReceive(NotificationCenter.default.publisher(for: BrightnessService.routeChanged)) { _ in
+            updateDDCStatus()
+        }
         .onChange(of: display.brightness) { _, newValue in
             // Holds at the click target until the fade catches up (see click-glide above).
             if clickGliding {
@@ -240,6 +241,12 @@ struct BrightnessSliderView: View {
     }
 
     private func updateDDCStatus() {
+        // Software by the user's choice or in HDR: writes still ack there, so the
+        // latch alone would say "DDC" while brightness goes through gamma.
+        if BrightnessService.shared.brightnessControlRow(for: display).shown == .software {
+            ddcStatus = .some(false)
+            return
+        }
         ddcStatus = BrightnessService.shared.isDDCAvailable(for: display.displayID)
     }
 

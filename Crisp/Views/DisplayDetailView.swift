@@ -135,8 +135,8 @@ struct GroupHeaderBlock: View {
     }
 }
 
-/// Ends the Color group, holds the Brightness group, and opens Connection, whose
-/// Input row is a dropdown block of its own.
+/// Ends the Color group and holds the Brightness group's switches. Its Brightness
+/// Control row is a dropdown block of its own, after this one.
 struct DetailMiddleBlock: View {
     @ObservedObject var display: DisplayInfo
 
@@ -148,13 +148,12 @@ struct DetailMiddleBlock: View {
 
             // A group with no row on this display gets no header.
             if BrightnessBoostService.shared.isEligible(display)
-                || SystemAutoBrightness.supported(display.displayID) {
+                || SystemAutoBrightness.supported(display.displayID)
+                || BrightnessService.shared.brightnessControlRow(for: display).visible {
                 GroupHeaderBlock(title: "Brightness", divider: true)
                 ExtraBrightnessView(display: display)
                 SystemAutoBrightnessView(display: display)
             }
-
-            GroupHeaderBlock(title: "Connection", divider: true)
         }
     }
 }

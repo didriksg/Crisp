@@ -461,6 +461,22 @@
         }
       }
     },
+    "The monitor stopped answering. Click to keep brightness in software." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示器已停止响应。点按即可一直用软件调节亮度。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "顯示器已停止回應。按一下即可一律以軟體調整亮度。"
+          }
+        }
+      }
+    },
     "The pointer jumps to the nearest display where edges don't line up" : {
       "localizations" : {
         "zh-Hans" : {
@@ -841,6 +857,22 @@
         }
       }
     },
+    "Brightness Control" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "亮度控制"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "亮度控制"
+          }
+        }
+      }
+    },
     "Brightness control mode: DDC hardware" : {
       "localizations" : {
         "zh-Hans" : {
@@ -1014,6 +1046,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "包含項目"
+          }
+        }
+      }
+    },
+    "Changes the monitor's backlight." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "调节显示器的背光。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "調整顯示器的背光。"
           }
         }
       }
@@ -1502,6 +1550,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "自訂…"
+          }
+        }
+      }
+    },
+    "Darkens the picture. For a monitor that ignores brightness commands." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "调暗画面。适用于忽略亮度指令的显示器。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "調暗畫面。適用於忽略亮度指令的顯示器。"
           }
         }
       }
@@ -2185,6 +2249,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "綠色"
+          }
+        }
+      }
+    },
+    "Hardware" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "硬件"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "硬體"
+          }
+        }
+      }
+    },
+    "HDR is on, so the monitor sets its own backlight." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "HDR 已开启，因此由显示器自行控制背光。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "HDR 已開啟，因此由顯示器自行控制背光。"
           }
         }
       }
