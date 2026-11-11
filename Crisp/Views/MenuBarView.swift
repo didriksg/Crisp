@@ -436,7 +436,6 @@ private struct SupportLinkRow: View {
 
 struct SettingsView: View {
     @ObservedObject private var settings = SettingsService.shared
-    @ObservedObject private var volumeService = VolumeService.shared
     // SettingsView stays mounted across panel opens, so expansion state must be reset
     // explicitly on close like every other section.
     @State private var showSupport = false
@@ -596,9 +595,9 @@ struct SettingsView: View {
                 }
             }
 
-            // Hidden while no connected monitor exposes DDC volume (#23); the toggle
-            // would control nothing. Hiding the sliders does not disable the volume keys.
-            if displayManager.displays.contains(where: { $0.volumeSupported || volumeService.isForced($0) }) {
+            // Shown while an external is connected: it also shows or hides each card's
+            // Volume Control switch. Hiding the sliders does not disable the volume keys.
+            if displayManager.displays.contains(where: { !$0.isBuiltin }) {
                 Toggle(isOn: Binding(
                     get: { settings.showVolumeSliders },
                     set: { newValue in withAnimation(.panelResize) { settings.showVolumeSliders = newValue } }

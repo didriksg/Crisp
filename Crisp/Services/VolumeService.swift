@@ -38,24 +38,33 @@ final class VolumeService: ObservableObject {
     /// 0x62 writes but never answer a 0x62 read, so the probe can't prove
     /// support. Forced displays run write-only at the assumed max of 100.
     private let forcedKey = "crisp.volumeForcedDisplays"
-    /// Published so the Settings block's Show Volume Sliders row re-checks on
-    /// toggle; DisplayInfo.volumeSupported alone only re-renders one card.
-    @Published private var forcedCapable: Set<String> =
+    private var forcedCapable: Set<String> =
         Set(UserDefaults.standard.stringArray(forKey: "crisp.volumeForcedDisplays") ?? [])
 
-    func isForced(_ display: DisplayInfo) -> Bool {
-        forcedCapable.contains(display.displayUUID)
-    }
+    /// UUIDs the user turned volume off for, though the monitor answers 0x62:
+    /// some stop answering DDC after repeated Set VCP writes (two Alienwares,
+    /// #245), which also takes their input switching until a replug.
+    private let disabledKey = "crisp.volumeDisabledDisplays"
+    private var disabled: Set<String> =
+        Set(UserDefaults.standard.stringArray(forKey: "crisp.volumeDisabledDisplays") ?? [])
 
-    func setForced(_ on: Bool, for display: DisplayInfo) {
+    /// The card's Volume Control switch. On for a monitor that never answered
+    /// the probe forces write-only volume (#57); off stops every volume read
+    /// and write to the monitor, and the volume keys pass through.
+    func setEnabled(_ on: Bool, for display: DisplayInfo) {
+        let uuid = display.displayUUID
         if on {
-            forcedCapable.insert(display.displayUUID)
+            disabled.remove(uuid)
+            if !rememberedCapable.contains(uuid) { forcedCapable.insert(uuid) }
         } else {
-            forcedCapable.remove(display.displayUUID)
+            disabled.insert(uuid)
+            forcedCapable.remove(uuid)
+            pending.removeValue(forKey: display.displayID)
         }
         UserDefaults.standard.set(Array(forcedCapable), forKey: forcedKey)
-        // Un-forcing keeps the feature only if a real probe ever succeeded.
-        display.volumeSupported = on || rememberedCapable.contains(display.displayUUID)
+        UserDefaults.standard.set(Array(disabled), forKey: disabledKey)
+        display.volumeSupported = on
+        if on { refreshVolume(for: display) }
     }
 
     /// Drop per-display state for a disconnected display so a reused
@@ -72,7 +81,7 @@ final class VolumeService: ObservableObject {
     /// adopts the monitor's level, failure leaves the feature hidden. Safe to
     /// re-run on every refresh; a monitor answering late heals next pass.
     func refreshVolume(for display: DisplayInfo) {
-        guard !display.isBuiltin else { return }
+        guard !display.isBuiltin, !disabled.contains(display.displayUUID) else { return }
         // Seed from memory (or the user's force override) so a failed probe
         // can't hide the feature; the read below still adopts the monitor's
         // current level whenever it works.

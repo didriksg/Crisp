@@ -54,6 +54,16 @@ ships as a result. Read this before touching DDCService or chasing a
 - `scripts/ddc-stress-probe.swift`: interleaves garbage-channel reads
   with healthy-channel writes/reads, for cross-contamination testing.
 
+## Message shape (Apple Silicon)
+
+Crisp sends each DDC/CI message twice, with 10 ms before each copy, waits 50 ms for a reply and reads 11 bytes. MonitorControl (`Arm64DDC.swift`), AppleSiliconDDC (BetterDisplay) and m1ddc (`DDC_ITERATIONS 2`, "depending on display this must be set higher") use the same defaults, all from one author. Until 2026-11 Crisp sent one copy, waited 40 ms and read 12 bytes.
+
+Why: PR #245 (@janosmiko) measured an Alienware AW2725DF and AW3423DWF (DP through a Thunderbolt 4 dock, M3 Max) that act only on the second copy. A single Get VCP got only null replies (`6E 80 BE`) at any wait from 40 to 200 ms, and a single Set VCP changed nothing. With no gap before the copies, a 40 ms wait and a 12-byte read, doubled reads stopped their DDC (I2C error `0xE00002CA`) after 15 to 34 requests; with the shape above, 880 doubled reads stayed valid. Doubled Set VCP writes still stop their DDC after 8 to 151 writes at any pacing, and BetterDisplay's writes did the same within 300 brightness changes; only a dock replug brings it back. That is their firmware: Crisp has no model list for it, so on those monitors the brightness slider can take the DDC down, and input switching with it.
+
+Cost on the U3419W (direct cable, 2026-11-02, Crisp quit, VCP 0x10 and 0x60): without retries, one copy gave 400 of 400 valid replies and two copies 385 of 400 (11 null replies, 4 replies missing their first byte, as if the second copy cut into the reply to the first). With Crisp's 3 attempts, 0 of 200 reads failed, 7 needed a second attempt, and a read took 95 ms instead of 53. Brightness sweeps 100 to 40 and back at 50 ms pacing gave no write errors and no visible flash with either shape.
+
+The capabilities read keeps one copy: doubled chunk requests stopped the Alienwares' DDC at byte 208, and a failed capabilities read only falls back to the standard input list.
+
 ## Measured monitor behavior
 
 **AOC Q27G3XMN** (DP, 165Hz): reads are unreliable by design defect.

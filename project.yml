@@ -89,6 +89,7 @@ targets:
       - path: Crisp/Models/EdgeCrossing.swift
       - path: Crisp/Models/DDCInputSource.swift
       - path: Crisp/Models/DisplayRotation.swift
+      - path: Crisp/Models/ArrangementSnap.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.crisp.tests

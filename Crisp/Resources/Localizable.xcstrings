@@ -1964,18 +1964,18 @@
         }
       }
     },
-    "Force volume control for a monitor that doesn't report it. Crisp can set the volume but not read the current level." : {
+    "Speaker volume over DDC. Turn it off if the monitor stops answering, or on if it doesn't report volume." : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "为不报告音量支持的显示器强制启用音量控制。Crisp 可以设置音量，但无法读取当前音量。"
+            "value" : "通过 DDC 控制扬声器音量。如果显示器停止响应，请关闭此项；如果显示器不报告音量，请打开此项。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "為不報告音量支援的顯示器強制啟用音量控制。Crisp 可以設定音量，但無法讀取目前音量。"
+            "value" : "透過 DDC 控制揚聲器音量。如果顯示器停止回應，請關閉此項目；如果顯示器不報告音量，請開啟此項目。"
           }
         }
       }
