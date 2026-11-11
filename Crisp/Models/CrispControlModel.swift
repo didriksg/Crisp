@@ -84,6 +84,8 @@ struct CrispControlRequest: Codable, Equatable {
         case setInput
         case listVirtualDisplays
         case setVirtualDisplay
+        case getRotation
+        case setRotation
     }
 
     let command: Command
@@ -99,6 +101,8 @@ struct CrispControlRequest: Codable, Equatable {
     let value: Double?
     /// `setInput`: the input as a person typed it, a name or a number.
     let input: String?
+    /// `setRotation`: 0, 90, 180 or 270 degrees.
+    let rotation: Int?
     init(
         command: Command,
         display: UInt32? = nil,
@@ -107,7 +111,8 @@ struct CrispControlRequest: Codable, Equatable {
         enabled: Bool? = nil,
         setting: CrispControlImageSetting? = nil,
         value: Double? = nil,
-        input: String? = nil
+        input: String? = nil,
+        rotation: Int? = nil
     ) {
         self.command = command
         self.display = display
@@ -117,7 +122,13 @@ struct CrispControlRequest: Codable, Equatable {
         self.setting = setting
         self.value = value
         self.input = input
+        self.rotation = rotation
     }
+}
+/// A display's rotation in degrees: 0, 90, 180 or 270 (#258).
+struct CrispControlRotationState: Codable, Equatable {
+    let displayID: UInt32
+    let degrees: Int
 }
 /// One input of a monitor (#196): the VCP 0x60 value and its connector name.
 struct CrispControlInput: Codable, Equatable {
@@ -228,6 +239,7 @@ struct CrispControlResponse: Codable, Equatable {
     let inputs: CrispControlInputs?
     let virtualDisplays: [CrispControlVirtualDisplay]?
     let virtualDisplay: CrispControlVirtualDisplay?
+    let rotation: CrispControlRotationState?
     let error: String?
 
     init(
@@ -243,6 +255,7 @@ struct CrispControlResponse: Codable, Equatable {
         inputs: CrispControlInputs? = nil,
         virtualDisplays: [CrispControlVirtualDisplay]? = nil,
         virtualDisplay: CrispControlVirtualDisplay? = nil,
+        rotation: CrispControlRotationState? = nil,
         error: String? = nil
     ) {
         self.ok = ok
@@ -257,6 +270,7 @@ struct CrispControlResponse: Codable, Equatable {
         self.inputs = inputs
         self.virtualDisplays = virtualDisplays
         self.virtualDisplay = virtualDisplay
+        self.rotation = rotation
         self.error = error
     }
     static func success() -> Self { Self(ok: true) }
@@ -276,6 +290,7 @@ struct CrispControlResponse: Codable, Equatable {
         Self(ok: true, virtualDisplays: virtualDisplays)
     }
     static func success(virtualDisplay: CrispControlVirtualDisplay) -> Self { Self(ok: true, virtualDisplay: virtualDisplay) }
+    static func success(rotation: CrispControlRotationState) -> Self { Self(ok: true, rotation: rotation) }
     static func failure(_ error: String) -> Self { Self(ok: false, error: error) }
 }
 struct CrispControlBrightnessChange: Equatable {
@@ -303,6 +318,11 @@ struct CrispControlVirtualDisplayChange: Equatable {
     let id: String
     let enabled: Bool
 }
+/// A rotation to make. Only made when the request asks for another rotation.
+struct CrispControlRotationChange: Equatable {
+    let displayID: UInt32
+    let degrees: Int
+}
 struct CrispControlResult {
     let response: CrispControlResponse
     let brightnessChange: CrispControlBrightnessChange?
@@ -317,6 +337,7 @@ struct CrispControlResult {
     let inputListDisplayID: UInt32?
     let inputChange: CrispControlInputChange?
     let virtualDisplayChange: CrispControlVirtualDisplayChange?
+    let rotationChange: CrispControlRotationChange?
 
     init(
         _ response: CrispControlResponse,
@@ -328,7 +349,8 @@ struct CrispControlResult {
         imageChange: CrispControlImageChange? = nil,
         inputListDisplayID: UInt32? = nil,
         inputChange: CrispControlInputChange? = nil,
-        virtualDisplayChange: CrispControlVirtualDisplayChange? = nil
+        virtualDisplayChange: CrispControlVirtualDisplayChange? = nil,
+        rotationChange: CrispControlRotationChange? = nil
     ) {
         self.response = response
         self.brightnessChange = brightnessChange
@@ -340,6 +362,7 @@ struct CrispControlResult {
         self.inputListDisplayID = inputListDisplayID
         self.inputChange = inputChange
         self.virtualDisplayChange = virtualDisplayChange
+        self.rotationChange = rotationChange
     }
 }
 enum CrispControlModel {
@@ -397,7 +420,8 @@ enum CrispControlModel {
         brightnessBoostState: (UInt32) -> CrispControlBrightnessBoostState? = { _ in nil },
         presets: [CrispControlPreset] = [],
         imageAdjustment: (UInt32) -> CrispControlImageAdjustment? = { _ in nil },
-        virtualDisplays: [CrispControlVirtualDisplay] = []
+        virtualDisplays: [CrispControlVirtualDisplay] = [],
+        rotation: (UInt32) -> Int? = { _ in nil }
     ) -> CrispControlResult {
         guard let request = try? JSONDecoder().decode(CrispControlRequest.self, from: data) else {
             return .init(.failure("invalid request"), nil, nil, nil)
@@ -432,7 +456,40 @@ enum CrispControlModel {
             return handleInput(request, displays: displays)
         case .listVirtualDisplays, .setVirtualDisplay:
             return handleVirtualDisplay(request, virtualDisplays: virtualDisplays)
+        case .getRotation, .setRotation:
+            return handleRotation(request, displays: displays, rotation: rotation)
         }
+    }
+
+    /// `rotation` is nil where the panel shows no Rotation row (virtual, mirrored, Intel).
+    /// Asking for the rotation a display is already at succeeds and changes nothing.
+    private static func handleRotation(
+        _ request: CrispControlRequest, displays: [CrispControlDisplay], rotation: (UInt32) -> Int?
+    ) -> CrispControlResult {
+        guard hasDisplaySelector(request) else {
+            return .init(.failure("display is required"), nil, nil, nil)
+        }
+        guard let display = target(of: request, in: displays) else {
+            return .init(.failure("display not found"), nil, nil, nil)
+        }
+        guard !display.isBuiltin else {
+            return .init(.failure("rotation is not available for the built-in display"), nil, nil, nil)
+        }
+        guard display.connected ?? true else {
+            return .init(.failure("display is not connected"), nil, nil, nil)
+        }
+        guard let current = rotation(display.id) else {
+            return .init(.failure("rotation is not available for this display"), nil, nil, nil)
+        }
+        guard request.command == .setRotation else {
+            return .init(.success(rotation: .init(displayID: display.id, degrees: current)), nil, nil, nil)
+        }
+        guard let degrees = request.rotation, [0, 90, 180, 270].contains(degrees) else {
+            return .init(.failure("rotation must be 0, 90, 180 or 270"), nil, nil, nil)
+        }
+        let settled = CrispControlRotationState(displayID: display.id, degrees: degrees)
+        let change = degrees == current ? nil : CrispControlRotationChange(displayID: display.id, degrees: degrees)
+        return .init(.success(rotation: settled), nil, nil, nil, rotationChange: change)
     }
 
     /// Inputs are read and written over the display's DDC channel, which only a
@@ -714,7 +771,7 @@ enum CrispControlCLIModel {
         }
         var description: String {
             switch self {
-            case .display: return "List, connect and disconnect the displays Crisp controls, and switch their inputs."
+            case .display: return "List, connect and disconnect the displays Crisp controls, switch their inputs and rotate them."
             case .brightness: return "Read and set brightness and Extra Brightness."
             case .hdr: return "Read and switch HDR on external displays."
             case .image: return "Read and set Image Adjustment: contrast, gamma, color temperature and the other sliders."
@@ -778,6 +835,13 @@ enum CrispControlCLIModel {
             disconnected, and 'display connect' switches it back to this Mac. On the last
             active display it switches without the disconnect. The reply comes after the
             window server has answered.
+            """),
+        Entry(group: .display, usage: "display rotation get <display>", summary: "Read a display's rotation",
+              detail: "The rotation in degrees: 0, 90, 180 or 270."),
+        Entry(group: .display, usage: "display rotation set <display> 0|90|180|270", summary: "Rotate a display", detail: """
+            The same as the Rotation row in the menu: only this display turns. External
+            displays only. Asking for the rotation it is already at succeeds and changes
+            nothing. The reply comes after the window server has answered.
             """),
         Entry(group: .brightness, usage: "brightness get <display>", summary: "Read brightness and its live maximum", detail: ""),
         Entry(group: .brightness, usage: "brightness set <display> <percent>", summary: "Set brightness", detail: """
@@ -938,6 +1002,8 @@ enum CrispControlCLIModel {
         case .applyPreset: return 30
         // Creation waits up to 10 s for the window server, then for the native mode.
         case .setVirtualDisplay: return 15
+        // The window server takes up to 2 s, then the mode list is read again.
+        case .setRotation: return 10
         default: return 2
         }
     }
@@ -1021,7 +1087,17 @@ enum CrispControlCLIModel {
             }
         }
         return imageRequest(arguments) ?? presetRequest(arguments) ?? virtualRequest(arguments)
-            ?? connectionRequest(arguments)
+            ?? connectionRequest(arguments) ?? rotationRequest(arguments)
+    }
+    private static func rotationRequest(_ arguments: [String]) -> CrispControlRequest? {
+        guard arguments.count >= 4, arguments[0...1] == ["display", "rotation"], !arguments[3].isEmpty else { return nil }
+        switch (arguments[2], arguments.count) {
+        case ("get", 4): return .init(command: .getRotation, selector: arguments[3])
+        case ("set", 5):
+            guard let degrees = Int(arguments[4]), [0, 90, 180, 270].contains(degrees) else { return nil }
+            return .init(command: .setRotation, selector: arguments[3], rotation: degrees)
+        default: return nil
+        }
     }
     private static func presetRequest(_ arguments: [String]) -> CrispControlRequest? {
         if arguments == ["preset", "list"] { return .init(command: .listPresets) }
@@ -1091,7 +1167,9 @@ enum CrispControlText {
         case .getBrightnessBoost:
             guard let boost = response.brightnessBoost else { return "" }
             return boost.eligible ? onOff(boost.enabled) : "off (not eligible)"
-        case .getHDR: return response.hdr.map { onOff($0.enabled) } ?? ""
+        // One value each; a reply carries only its own.
+        case .getHDR, .getRotation:
+            return response.hdr.map { onOff($0.enabled) } ?? response.rotation.map { String($0.degrees) } ?? ""
         case .connectDisplay, .disconnectDisplay, .toggleDisplay, .setInput:
             guard let display = response.display else { return "" }
             return display.name + ((display.connected ?? true) ? " connected" : " disconnected")
@@ -1105,7 +1183,7 @@ enum CrispControlText {
                 + presets.map { [$0.active ? "*" : "", $0.name, $0.captures.joined(separator: ","), $0.id] })
         case .applyPreset: return (response.skippedDisplays ?? []).map { "skipped \($0): not connected" }.joined(separator: "\n")
         case .listVirtualDisplays, .setVirtualDisplay: return virtualText(response)
-        case .setBrightness, .setBrightnessBoost, .setHDR, .setImage, .resetImage: return ""
+        case .setBrightness, .setBrightnessBoost, .setHDR, .setImage, .resetImage, .setRotation: return ""
         }
     }
 

@@ -29,13 +29,7 @@ final class RotationController: ObservableObject {
         guard pending == nil else { return }
         pending = rotation
         Task {
-            if await ResolutionService.shared.setRotation(rotation, on: display.displayID) {
-                // Width and height swap: the mode list must be read again. The full refresh
-                // also moves the remembered-disconnect baseline to the new rotation.
-                await display.loadDetails()
-                display.currentDisplayMode = DisplayMode.currentMode(for: display.displayID)
-            }
-            displayManager.refreshDisplays()
+            _ = await displayManager.rotate(display, to: rotation)
             reload()
             pending = nil
         }

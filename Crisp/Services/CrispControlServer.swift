@@ -194,7 +194,11 @@ final class CrispControlServer {
                         .controlValues(displayID: id, uuid: display.displayUUID, name: display.name)
                 }
             },
-            virtualDisplays: VirtualDisplayService.shared.configs.map(Self.listed)
+            virtualDisplays: VirtualDisplayService.shared.configs.map(Self.listed),
+            rotation: { id in
+                managedDisplays.first(where: { $0.displayID == id && ResolutionService.shared.canRotate($0) })
+                    .map { _ in DisplayRotation(degrees: CGDisplayRotation(id)).rawValue }
+            }
         )
         if let change = result.brightnessChange {
             guard let display = managedDisplays.first(where: { $0.displayID == change.displayID }) else {
@@ -246,7 +250,26 @@ final class CrispControlServer {
         if let change = result.inputChange {
             return await switchInput(change, among: managedDisplays, listed: displays)
         }
+        return await rotationOrVirtualDisplayReply(to: result, among: managedDisplays)
+    }
+
+    /// The last two kinds of change, split out of handle for its complexity cap.
+    private func rotationOrVirtualDisplayReply(to result: CrispControlResult, among displays: [DisplayInfo]) async -> Data {
+        if let change = result.rotationChange { return await rotate(change, among: displays) }
         return await virtualDisplayReply(to: result)
+    }
+
+    /// The panel's Rotation row: the same call, then the rotation read back.
+    private func rotate(_ change: CrispControlRotationChange, among displays: [DisplayInfo]) async -> Data {
+        guard let display = displays.first(where: { $0.displayID == change.displayID }),
+              let rotation = DisplayRotation(rawValue: change.degrees) else {
+            return CrispControlModel.encode(.failure("display not found"))
+        }
+        guard await displayManager.rotate(display, to: rotation) else {
+            return CrispControlModel.encode(.failure("the window server refused the rotation"))
+        }
+        let degrees = DisplayRotation(degrees: CGDisplayRotation(change.displayID)).rawValue
+        return CrispControlModel.encode(.success(rotation: .init(displayID: change.displayID, degrees: degrees)))
     }
 
     /// The panel's Activate and Deactivate: the same create and destroy, nothing more.
