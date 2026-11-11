@@ -178,6 +178,32 @@ final class ResolutionService: @unchecked Sendable {
         return await cgsFallback(modeID: UInt32(bitPattern: cgMode.ioDisplayModeID), on: targetID, scope: scope)
     }
 
+    // MARK: - Rotation (#258)
+
+    /// Externals on Apple Silicon only: System Settings offers no rotation for the built-in,
+    /// a Crisp virtual display is not a screen to turn, and the #65 mirror drives its
+    /// target's mode. The setter is untested on Intel.
+    func canRotate(_ display: DisplayInfo) -> Bool {
+        #if arch(arm64)
+        !display.isBuiltin
+            && !VirtualDisplayService.shared.isVirtualDisplay(display.displayID)
+            && !MirroredModeService.shared.isActive(for: display.displayID)
+        #else
+        false
+        #endif
+    }
+
+    /// Turns one display; the others keep their mode, rotation and origin (measured,
+    /// docs/display-notes.md). The call blocks 0.4 to 1.9 s, so it runs off the main thread.
+    func setRotation(_ rotation: DisplayRotation, on displayID: CGDirectDisplayID) async -> Bool {
+        let degrees = Int32(rotation.rawValue)
+        let err = await Task.detached(priority: .userInitiated) {
+            SLSSetDisplayRotation(displayID, degrees)
+        }.value
+        Self.log.notice("display \(displayID, privacy: .public) rotation set to \(degrees, privacy: .public) degrees: \(err == .success ? "ok" : "failed \(err.rawValue)", privacy: .public)")
+        return err == .success
+    }
+
     // MARK: - Mirror resolution
 
     /// Returns the display ID that should receive the mode change, plus a flag indicating
