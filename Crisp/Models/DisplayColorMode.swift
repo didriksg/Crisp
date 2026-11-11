@@ -50,6 +50,15 @@ struct DisplayColorMode: Identifiable, Equatable, Sendable {
             && isVRR == other.isVRR
     }
 
+    /// Automatic: the mode at the current timing with the format macOS prefers. CADisplay's
+    /// preferred mode can be at another refresh rate, so only its format is used.
+    static func automatic(in modes: [DisplayColorMode], preferred: DisplayColorMode) -> DisplayColorMode? {
+        modes.first {
+            $0.bitDepth == preferred.bitDepth
+                && $0.colorMode.caseInsensitiveCompare(preferred.colorMode) == .orderedSame
+        }
+    }
+
     var summary: String {
         [bitDepthLabel, colorEncoding, rangeLabel ?? "", hdrMode].filter { !$0.isEmpty }.joined(separator: " ")
     }
