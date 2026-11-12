@@ -3263,6 +3263,38 @@
         }
       }
     },
+    "Rotation" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "旋转"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "旋轉"
+          }
+        }
+      }
+    },
+    "Standard" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "标准"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "標準"
+          }
+        }
+      }
+    },
     "Refusing to disconnect: it would leave no active display." : {
       "localizations" : {
         "zh-Hans" : {
@@ -4115,6 +4147,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "請按下快速鍵…（按 Esc 取消）"
+          }
+        }
+      }
+    },
+    "Unable to rotate to %@, please try again" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法旋转到 %@，请重试"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無法旋轉到 %@，請重試"
           }
         }
       }

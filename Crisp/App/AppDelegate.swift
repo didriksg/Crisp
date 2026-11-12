@@ -590,13 +590,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             func detail<V: View>(_ sub: String, isOpen: @escaping () -> Bool,
                                  live: Bool = false,
                                  @ViewBuilder _ content: () -> V) -> PanelBlock {
-                let b = block("\(sub)-\(uuid)", isOpen: isOpen) {
-                    content()
-                        .padding(.leading, 4)
-                }
-                b.banded = true
-                b.liveInFlight = live
-                return b
+                detailBlock("\(sub)-\(uuid)", isOpen: isOpen, live: live, content)
             }
             blocks.append(detail("dgroup-picture", isOpen: detailOpen) {
                 GroupHeaderBlock(title: "Picture")
@@ -623,6 +617,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             }) {
                 RefreshListBlock(controller: modeC)
             })
+            blocks += rotationBlocks(display, detailOpen: detailOpen)
             blocks.append(detail("dmode-tail", isOpen: detailOpen) {
                 ModeTailBlock(controller: modeC)
             })
@@ -1009,6 +1004,31 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 // MARK: - Panel window
 
 extension AppDelegate {
+    /// One block of the expanded display detail: indented, on the shaded band.
+    private func detailBlock<V: View>(_ id: String, isOpen: @escaping () -> Bool, live: Bool,
+                                      @ViewBuilder _ content: () -> V) -> PanelBlock {
+        let b = PanelBlock(id: id, host: hostPanelBlock(id) { content().padding(.leading, 4) }, isOpen: isOpen)
+        b.banded = true
+        b.liveInFlight = live
+        return b
+    }
+
+    /// The Rotation row's head and list (#258). Built here, not in rebuildBlocksIfNeeded,
+    /// which is at its length cap.
+    private func rotationBlocks(_ display: DisplayInfo, detailOpen: @escaping () -> Bool) -> [PanelBlock] {
+        let id = display.displayID, uuid = display.displayUUID, state = sectionState
+        let controller = RotationController(display: display, displayManager: displayManager)
+        let listOpen = { detailOpen() && state.rotationOpenIDs.contains(id) }
+        return [
+            detailBlock("drot-head-\(uuid)", isOpen: detailOpen, live: true) {
+                RotationHeadBlock(controller: controller, state: state)
+            },
+            detailBlock("drot-body-\(uuid)", isOpen: listOpen, live: false) {
+                RotationListBlock(controller: controller)
+            }
+        ]
+    }
+
     private func hostPanelBlock<V: View>(_ id: String, @ViewBuilder _ content: () -> V) -> NSView {
         let h = CountedHostingView(rootView: AnyView(
             BlockHost(onHeight: { [weak self] h in self?.canvas.contentChanged(id, height: h) }) {
