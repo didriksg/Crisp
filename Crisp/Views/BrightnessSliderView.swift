@@ -14,6 +14,9 @@ struct BrightnessStepButton: View {
         Button(action: {}) {
             Image(systemName: systemName)
                 .font(.system(size: 15))
+                // Widest glyph (speaker.wave.3.fill, 24pt), so stacked
+                // brightness and volume tracks line up.
+                .frame(width: 24)
         }
         .buttonStyle(HoldRepeatButtonStyle(action: action))
         .accessibilityHidden(true)
