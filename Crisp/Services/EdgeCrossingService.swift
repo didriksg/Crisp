@@ -11,6 +11,8 @@ final class EdgeCrossingService {
     private var monitors: [Any] = []
     private var screenObserver: NSObjectProtocol?
     private var displayBounds: [CGRect] = []
+    /// The last jump, while a move back can still take it back.
+    private var lastJump: EdgeReturn?
 
     func setEnabled(_ enabled: Bool) {
         if enabled { start() } else { stop() }
@@ -44,6 +46,7 @@ final class EdgeCrossingService {
         monitors = []
         if let screenObserver { NotificationCenter.default.removeObserver(screenObserver) }
         screenObserver = nil
+        lastJump = nil
     }
 
     private func refreshBounds() {
@@ -52,17 +55,35 @@ final class EdgeCrossingService {
         var ids = [CGDirectDisplayID](repeating: 0, count: Int(count))
         CGGetActiveDisplayList(count, &ids, &count)
         displayBounds = ids.prefix(Int(count)).map(CGDisplayBounds)
+        lastJump = nil
     }
 
     private func handle(_ event: NSEvent) {
         guard displayBounds.count > 1, let cgEvent = event.cgEvent else { return }
         let delta = CGVector(dx: cgEvent.getDoubleValueField(.mouseEventDeltaX),
                              dy: cgEvent.getDoubleValueField(.mouseEventDeltaY))
-        guard let target = EdgeCrossing.target(from: cgEvent.location, delta: delta, displays: displayBounds)
+        let point = cgEvent.location
+        if let jump = lastJump {
+            switch jump.step(at: point, delta: delta) {
+            case .back(let origin):
+                lastJump = nil
+                warp(to: origin)
+                return
+            case .expire: lastJump = nil
+            case .wait: break
+            }
+        }
+        guard let target = EdgeCrossing.target(from: point, delta: delta, displays: displayBounds),
+              let from = displayBounds.first(where: { $0.contains(point) })
         else { return }
+        lastJump = EdgeReturn(origin: point, from: from, landing: target)
+        warp(to: target)
+    }
+
+    private func warp(to point: CGPoint) {
         // A warp holds back hardware input for 0.25 s by default, which reads as a stuck
         // pointer; CGAssociateMouseAndMouseCursorPosition does not lift it on macOS 27.
         CGEventSource(stateID: .combinedSessionState)?.localEventsSuppressionInterval = 0
-        CGWarpMouseCursorPosition(target)
+        CGWarpMouseCursorPosition(point)
     }
 }
