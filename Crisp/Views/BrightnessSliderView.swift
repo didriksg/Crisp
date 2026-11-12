@@ -269,6 +269,7 @@ struct CombinedBrightnessView: View {
     @State private var dragConfirmed: Bool = false
     @State private var deferredFirstChange: Bool = false
     @State private var clickGliding: Bool = false
+    @State private var routeChanges = 0
 
     /// Externals define the shared scale; unlike the built-in panel, their
     /// current DDC percentage is already the combined control's reference.
@@ -356,7 +357,9 @@ struct CombinedBrightnessView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        // Read so a route change that publishes nothing on the display redraws the handle.
+        _ = routeChanges
+        return VStack(alignment: .leading, spacing: 2) {
             // Matches DisplayRowView's bold title so this reads as another row.
             // 14pt inset matches the display titles; the slider below uses 12pt.
             Text("Combined")
@@ -441,6 +444,14 @@ struct CombinedBrightnessView: View {
             }
         }
         .onAppear {
+            combinedBrightness = averageBrightness
+        }
+        .onReceive(NotificationCenter.default.publisher(for: BrightnessService.routeChanged)) { _ in
+            // A fallback latch, HDR, and a click in the Brightness Control row
+            // change which curve the readback uses without moving any display's
+            // brightness, so the probe-driven sync keeps the old handle position.
+            routeChanges += 1
+            guard !isDragging else { return }
             combinedBrightness = averageBrightness
         }
     }
