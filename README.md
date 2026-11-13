@@ -52,7 +52,7 @@ Installed from `didriksg/tap` earlier? `brew upgrade` moves you to the main cask
 - **System toggles**: Dark Mode, Night Shift, and True Tone, one click from the menu bar
 - **Color**: ICC profile switching, XDR reference presets, HDR on/off per display, and image adjustment (gamma, contrast, gain, invert colors)
 - **Virtual displays**: create HiDPI virtual screens
-- **Extras**: combined brightness slider, auto brightness following the built-in display, a toggle for macOS's own ambient auto-brightness, keep awake, notch hiding, launch at login
+- **Extras**: combined brightness slider, auto brightness following the built-in display, a toggle for macOS's own ambient auto-brightness, keep awake for 15/30 minutes, 1/2 hours or indefinitely (with a countdown visible even when Tools is collapsed), notch hiding, launch at login
 
 ## How does it compare?
 

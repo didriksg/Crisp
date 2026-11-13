@@ -92,6 +92,7 @@ targets:
       - path: Crisp/Models/DisplayRotation.swift
       - path: Crisp/Models/ArrangementSnap.swift
       - path: Crisp/Models/DebugReport.swift
+      - path: Crisp/Models/KeepAwakeDuration.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.crisp.tests
