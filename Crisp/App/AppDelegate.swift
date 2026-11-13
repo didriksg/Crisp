@@ -677,11 +677,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             }
         })
         let toolshead = block("toolshead") {
-            VStack(alignment: .leading, spacing: 0) {
-                SectionDivider()
-                ExpandableRowStateful(icon: "wrench.and.screwdriver.fill", iconActive: false,
-                                      label: "Tools", state: state, key: \.showTools)
-            }
+            ToolsHeaderBlock(state: state)
         }
         toolshead.liveInFlight = true
         blocks.append(toolshead)
