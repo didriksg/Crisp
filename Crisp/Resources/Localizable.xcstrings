@@ -3810,6 +3810,38 @@
         }
       }
     },
+    "Switch Virtual Displays" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "切换虚拟显示器"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "切換虛擬顯示器"
+          }
+        }
+      }
+    },
+    "Turning on a virtual display turns off the others." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "开启一个虚拟显示器时会关闭其他的。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "開啟一個虛擬顯示器時會關閉其他的。"
+          }
+        }
+      }
+    },
     "Show Volume Sliders" : {
       "localizations" : {
         "zh-Hans" : {

@@ -616,6 +616,21 @@ struct SettingsView: View {
                 .padding(.vertical, 3)
             }
 
+            Toggle(isOn: $settings.exclusiveVirtualDisplays) {
+                HStack(spacing: 8) {
+                    MenuItemIcon(systemName: "display.2", color: .blue, active: settings.exclusiveVirtualDisplays)
+                        .accessibilityHidden(true)
+                    Text("Switch Virtual Displays")
+                        .font(.body)
+                    Spacer()
+                }
+            }
+            .toggleStyle(.switch)
+            .controlSize(.small)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 3)
+            .help("Turning on a virtual display turns off the others.")
+
             if PhysicalDisplayToggleService.shared.isSupported {
                 Toggle(isOn: Binding(
                     get: { settings.showConnectionSwitches },
