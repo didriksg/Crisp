@@ -73,6 +73,8 @@ final class SettingsService: ObservableObject, @unchecked Sendable {
         static let colorPickerHistory     = "crisp.colorPickerHistory"
         static let brightnessKeyTarget    = "crisp.brightnessKeyTarget"
         static let brightnessKeySelected  = "crisp.brightnessKeySelectedDisplays"
+        static let volumeKeyTarget        = "crisp.volumeKeyTarget"
+        static let volumeKeySelected      = "crisp.volumeKeySelectedDisplays"
         static let hidpiShortcut          = "crisp.hidpiShortcut"
         static let brightnessUpShortcut   = "crisp.brightnessUpShortcut"
         static let brightnessDownShortcut = "crisp.brightnessDownShortcut"
@@ -175,6 +177,16 @@ final class SettingsService: ObservableObject, @unchecked Sendable {
         didSet {
             defaults.set(Array(brightnessKeySelectedDisplayUUIDs), forKey: Keys.brightnessKeySelected)
         }
+    }
+
+    /// Which displays the volume and mute keys drive (#276).
+    @Published var volumeKeyTarget: VolumeKeyTarget = .audioOutput {
+        didSet { defaults.set(volumeKeyTarget.rawValue, forKey: Keys.volumeKeyTarget) }
+    }
+
+    /// Displays for the `.selected` volume-key target, by DisplayInfo.displayUUID.
+    @Published var volumeKeySelectedDisplayUUIDs: Set<String> = [] {
+        didSet { defaults.set(Array(volumeKeySelectedDisplayUUIDs), forKey: Keys.volumeKeySelected) }
     }
 
     /// Global shortcut that toggles the display under the pointer between HiDPI and
@@ -341,6 +353,9 @@ final class SettingsService: ObservableObject, @unchecked Sendable {
         brightnessKeyTarget = defaults.string(forKey: Keys.brightnessKeyTarget)
             .flatMap(BrightnessKeyTarget.init(rawValue:)) ?? .underCursor
         brightnessKeySelectedDisplayUUIDs = Set(defaults.stringArray(forKey: Keys.brightnessKeySelected) ?? [])
+        volumeKeyTarget = defaults.string(forKey: Keys.volumeKeyTarget)
+            .flatMap(VolumeKeyTarget.init(rawValue:)) ?? .audioOutput
+        volumeKeySelectedDisplayUUIDs = Set(defaults.stringArray(forKey: Keys.volumeKeySelected) ?? [])
         hidpiShortcut = defaults.data(forKey: Keys.hidpiShortcut)
             .flatMap { try? JSONDecoder().decode(KeyboardShortcut.self, from: $0) }
         brightnessUpShortcut = defaults.data(forKey: Keys.brightnessUpShortcut)

@@ -1,6 +1,8 @@
 import Foundation
 import CoreGraphics
 import CoreAudio
+import AudioToolbox
+import IOKit
 import AppKit
 import os.log
 
@@ -158,14 +160,10 @@ final class VolumeService: ObservableObject {
 
     // MARK: - Volume-key routing
 
-    /// The external display whose speakers own the default audio output, or
-    /// nil to pass the keys through untouched. Matches by device name, with a
-    /// single-candidate HDMI/DisplayPort fallback when names differ.
-    /// ponytail: name + transport matching; per-display audio binding UI if
-    /// same-model multi-monitor setups misroute.
-    func displayForDefaultAudioOutput(in displays: [DisplayInfo]) -> DisplayInfo? {
+    /// The displays the volume keys drive, or empty to pass them through (#276).
+    func volumeKeyTargets(in displays: [DisplayInfo]) -> [DisplayInfo] {
         let candidates = displays.filter { !$0.isBuiltin && $0.volumeSupported }
-        guard !candidates.isEmpty else { return nil }
+        guard !candidates.isEmpty else { return [] }
 
         var deviceID = AudioDeviceID(0)
         var size = UInt32(MemoryLayout<AudioDeviceID>.size)
@@ -176,17 +174,87 @@ final class VolumeService: ObservableObject {
         )
         guard AudioObjectGetPropertyData(
             AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &deviceID
-        ) == noErr, deviceID != 0 else { return nil }
+        ) == noErr, deviceID != 0 else { return [] }
 
-        if let name = audioDeviceName(deviceID),
-           let byName = candidates.first(where: { $0.name == name }) {
-            return byName
+        let transport = audioTransportType(deviceID)
+        let output = VolumeKeyRouting.Output(
+            displayUUID: audioDeviceUID(deviceID).flatMap { displayUUID(owningAudioDeviceUID: $0, among: candidates) },
+            name: audioDeviceName(deviceID),
+            isDisplayAudio: transport == kAudioDeviceTransportTypeHDMI
+                || transport == kAudioDeviceTransportTypeDisplayPort,
+            hasSystemVolume: hasSystemVolume(deviceID)
+        )
+        let settings = SettingsService.shared
+        let picked = VolumeKeyRouting.targets(
+            output: output,
+            candidates: candidates.map { .init(name: $0.name, uuid: $0.displayUUID) },
+            target: settings.volumeKeyTarget,
+            selectedUUIDs: settings.volumeKeySelectedDisplayUUIDs
+        )
+        return picked.map { candidates[$0] }
+    }
+
+    /// The candidate whose DisplayPort/HDMI audio device has this UID, or nil to
+    /// leave it to the names. See docs/ddc-notes.md (volume keys and the audio output).
+    private func displayUUID(owningAudioDeviceUID uid: String, among candidates: [DisplayInfo]) -> String? {
+        #if arch(arm64)
+        var iterator: io_iterator_t = 0
+        guard IOServiceGetMatchingServices(
+            kIOMainPortDefault, IOServiceMatching("DCPAVAudioDriver"), &iterator
+        ) == KERN_SUCCESS else { return nil }
+        defer { IOObjectRelease(iterator) }
+
+        var controller: String?
+        var entry = IOIteratorNext(iterator)
+        while entry != IO_OBJECT_NULL {
+            let deviceUID = IORegistryEntryCreateCFProperty(
+                entry, "device UID" as CFString, kCFAllocatorDefault, 0
+            )?.takeRetainedValue() as? String
+            if deviceUID == uid, controller == nil {
+                var path = [CChar](repeating: 0, count: 512)
+                if IORegistryEntryGetPath(entry, kIOServicePlane, &path) == KERN_SUCCESS {
+                    let bytes = path.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }
+                    controller = String(bytes: bytes, encoding: .utf8)
+                        .flatMap(VolumeKeyRouting.displayController(inRegistryPath:))
+                }
+            }
+            IOObjectRelease(entry)
+            entry = IOIteratorNext(iterator)
         }
-        if candidates.count == 1, let transport = audioTransportType(deviceID),
-           transport == kAudioDeviceTransportTypeHDMI || transport == kAudioDeviceTransportTypeDisplayPort {
-            return candidates[0]
-        }
+        guard let controller else { return nil }
+        return candidates.first { display in
+            DDCService.shared.channelLocation(for: display.displayID)
+                .flatMap(VolumeKeyRouting.displayController(inRegistryPath:)) == controller
+        }?.displayUUID
+        #else
         return nil
+        #endif
+    }
+
+    private func audioDeviceUID(_ deviceID: AudioDeviceID) -> String? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyDeviceUID,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var uid: Unmanaged<CFString>?
+        var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+        guard AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &uid) == noErr,
+              let cf = uid?.takeRetainedValue() else { return nil }
+        return cf as String
+    }
+
+    /// Whether macOS sets this device's volume itself: true for built-in speakers
+    /// and headphones, false for HDMI/DisplayPort audio and a Multi-Output Device.
+    private func hasSystemVolume(_ deviceID: AudioDeviceID) -> Bool {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwareServiceDeviceProperty_VirtualMainVolume,
+            mScope: kAudioObjectPropertyScopeOutput,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        guard AudioObjectHasProperty(deviceID, &address) else { return false }
+        var settable: DarwinBoolean = false
+        return AudioObjectIsPropertySettable(deviceID, &address, &settable) == noErr && settable.boolValue
     }
 
     private func audioDeviceName(_ deviceID: AudioDeviceID) -> String? {

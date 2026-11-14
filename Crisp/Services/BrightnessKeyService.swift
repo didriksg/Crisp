@@ -332,30 +332,33 @@ final class BrightnessKeyService: @unchecked Sendable {
     nonisolated private func routeVolumePress(keyCode: Int, event: CGEvent) -> Unmanaged<CGEvent>? {
         // Resolved synchronously on the main thread (this tap runs on the main run
         // loop): consume only when a live DDC-volume display owns the audio output.
-        let target = MainActor.assumeIsolated {
-            VolumeService.shared.displayForDefaultAudioOutput(in: DisplayManagerAccessor.shared.displays)
+        let targets = MainActor.assumeIsolated {
+            VolumeService.shared.volumeKeyTargets(in: DisplayManagerAccessor.shared.displays)
         }
-        guard let target else { return Unmanaged.passUnretained(event) }
+        guard let primary = targets.first else { return Unmanaged.passUnretained(event) }
 
         // Option+Shift moves a quarter of a stop, the same finer grid the brightness
         // keys use. Read off the event here, where the flags still are.
         let fine = event.flags.contains([.maskAlternate, .maskShift])
         Task { @MainActor in
             let service = VolumeService.shared
-            switch keyCode {
-            case Self.nxKeytypeMute:
-                service.toggleMute(for: target)
-            case Self.nxKeytypeSoundUp:
-                service.setVolume(BrightnessKeySteps.next(from: target.volume, up: true, fine: fine), for: target)
-            default:
-                service.setVolume(BrightnessKeySteps.next(from: target.volume, up: false, fine: fine), for: target)
+            // Several targets (identical monitors, a selection) each step from their own level.
+            for target in targets {
+                switch keyCode {
+                case Self.nxKeytypeMute:
+                    service.toggleMute(for: target)
+                case Self.nxKeytypeSoundUp:
+                    service.setVolume(BrightnessKeySteps.next(from: target.volume, up: true, fine: fine), for: target)
+                default:
+                    service.setVolume(BrightnessKeySteps.next(from: target.volume, up: false, fine: fine), for: target)
+                }
             }
             if let screen = NSScreen.screens.first(where: {
-                ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID) == target.displayID
+                ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID) == primary.displayID
             }) {
                 BrightnessHUDService.shared.show(
-                    level: target.volume,
-                    image: target.volume <= 0 ? .mute : .volume,
+                    level: primary.volume,
+                    image: primary.volume <= 0 ? .mute : .volume,
                     on: screen
                 )
             }

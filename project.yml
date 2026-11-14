@@ -87,6 +87,7 @@ targets:
       - path: Crisp/Models/BrightnessKeySteps.swift
       - path: Crisp/Models/ScreenCount.swift
       - path: Crisp/Models/DDCVolumeMax.swift
+      - path: Crisp/Models/VolumeKeyRouting.swift
       - path: Crisp/Models/EdgeCrossing.swift
       - path: Crisp/Models/DDCInputSource.swift
       - path: Crisp/Models/DisplayRotation.swift
