@@ -1948,6 +1948,22 @@
         }
       }
     },
+    "Fine Volume Steps" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "精细音量步进"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "精細音量步進"
+          }
+        }
+      }
+    },
     "Follow the pointer" : {
       "localizations" : {
         "zh-Hans" : {

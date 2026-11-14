@@ -616,6 +616,23 @@ struct SettingsView: View {
                 .padding(.vertical, 3)
             }
 
+            // Shown once a monitor has speaker volume.
+            if physicalDisplays.contains(where: { !$0.isBuiltin && $0.volumeSupported }) {
+                Toggle(isOn: $settings.fineVolumeSteps) {
+                    HStack(spacing: 8) {
+                        MenuItemIcon(systemName: "speaker.wave.1.fill", color: .blue, active: settings.fineVolumeSteps)
+                            .accessibilityHidden(true)
+                        Text("Fine Volume Steps")
+                            .font(.body)
+                        Spacer()
+                    }
+                }
+                .toggleStyle(.switch)
+                .controlSize(.small)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 3)
+            }
+
             if PhysicalDisplayToggleService.shared.isSupported {
                 Toggle(isOn: Binding(
                     get: { settings.showConnectionSwitches },

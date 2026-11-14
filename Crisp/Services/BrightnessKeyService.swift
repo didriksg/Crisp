@@ -339,8 +339,9 @@ final class BrightnessKeyService: @unchecked Sendable {
 
         // Option+Shift moves a quarter of a stop, the same finer grid the brightness
         // keys use. Read off the event here, where the flags still are.
-        let fine = event.flags.contains([.maskAlternate, .maskShift])
+        let fineHeld = event.flags.contains([.maskAlternate, .maskShift])
         Task { @MainActor in
+            let fine = fineHeld || SettingsService.shared.fineVolumeSteps
             let service = VolumeService.shared
             switch keyCode {
             case Self.nxKeytypeMute:

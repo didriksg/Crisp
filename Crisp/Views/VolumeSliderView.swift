@@ -43,7 +43,9 @@ struct VolumeSliderView: View {
     }
 
     /// Volume change per tap of the speaker buttons, matching the volume keys' step.
-    private var volumeStep: Double { 100.0 / 16.0 }
+    private var volumeStep: Double {
+        SettingsService.shared.fineVolumeSteps ? BrightnessKeySteps.fineStep : BrightnessKeySteps.step
+    }
 
     private func step(_ delta: Double) {
         VolumeService.shared.setVolume(display.volume + delta, for: display)

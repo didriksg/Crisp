@@ -62,6 +62,7 @@ final class SettingsService: ObservableObject, @unchecked Sendable {
         static let colorPickerHistory     = "crisp.colorPickerHistory"
         static let brightnessKeyTarget    = "crisp.brightnessKeyTarget"
         static let brightnessKeySelected  = "crisp.brightnessKeySelectedDisplays"
+        static let fineVolumeSteps        = "crisp.fineVolumeSteps"
         static let hidpiShortcut          = "crisp.hidpiShortcut"
         static let brightnessUpShortcut   = "crisp.brightnessUpShortcut"
         static let brightnessDownShortcut = "crisp.brightnessDownShortcut"
@@ -148,6 +149,12 @@ final class SettingsService: ObservableObject, @unchecked Sendable {
         didSet {
             defaults.set(Array(brightnessKeySelectedDisplayUUIDs), forKey: Keys.brightnessKeySelected)
         }
+    }
+
+    /// Volume keys and speaker buttons move a quarter-stop, as with Option+Shift held:
+    /// a sixteenth (6%) is a big jump on monitor speakers.
+    @Published var fineVolumeSteps: Bool = false {
+        didSet { defaults.set(fineVolumeSteps, forKey: Keys.fineVolumeSteps) }
     }
 
     /// Global shortcut that toggles the display under the pointer between HiDPI and
@@ -310,6 +317,7 @@ final class SettingsService: ObservableObject, @unchecked Sendable {
         brightnessKeyTarget = defaults.string(forKey: Keys.brightnessKeyTarget)
             .flatMap(BrightnessKeyTarget.init(rawValue:)) ?? .underCursor
         brightnessKeySelectedDisplayUUIDs = Set(defaults.stringArray(forKey: Keys.brightnessKeySelected) ?? [])
+        fineVolumeSteps = defaults.bool(forKey: Keys.fineVolumeSteps)
         hidpiShortcut = defaults.data(forKey: Keys.hidpiShortcut)
             .flatMap { try? JSONDecoder().decode(KeyboardShortcut.self, from: $0) }
         brightnessUpShortcut = defaults.data(forKey: Keys.brightnessUpShortcut)
