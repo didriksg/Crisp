@@ -49,3 +49,73 @@ struct VolumeSliderView: View {
         VolumeService.shared.setVolume(display.volume + delta, for: display)
     }
 }
+
+/// One speaker volume slider for every external with DDC volume, under the combined
+/// brightness slider. It sets them all to the same level.
+struct CombinedVolumeSliderView: View {
+    let displays: [DisplayInfo]
+    @State private var localVolume: Double = 0
+    @State private var isDragging: Bool = false
+
+    private var averageVolume: Double {
+        guard !displays.isEmpty else { return 0 }
+        return displays.map(\.volume).reduce(0, +) / Double(displays.count)
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            BrightnessStepButton(systemName: "speaker.fill") { step(-volumeStep) }
+
+            Slider(value: $localVolume, in: 0...100) { editing in
+                isDragging = editing
+                if !editing { setAll(localVolume) }
+            }
+            .controlSize(SystemLook.isMacOS27OrLater ? .regular : .small)
+            .accessibilityLabel("Combined speaker volume")
+            .accessibilityValue("\(Int(localVolume))%")
+            .onChange(of: localVolume) { _, newValue in
+                guard isDragging else { return }
+                setAll(newValue)
+            }
+
+            BrightnessStepButton(systemName: "speaker.wave.3.fill") { step(volumeStep) }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 4)
+        .background {
+            // Follows the displays' volume (keys, per-display sliders) while idle.
+            ForEach(displays) { display in
+                VolumeProbe(display: display) {
+                    if !isDragging { localVolume = averageVolume }
+                }
+            }
+        }
+        .onAppear { localVolume = averageVolume }
+    }
+
+    /// Same step as the per-display buttons and the volume keys.
+    private var volumeStep: Double { BrightnessKeySteps.step }
+
+    private func step(_ delta: Double) {
+        localVolume = max(0, min(100, averageVolume + delta))
+        setAll(localVolume)
+    }
+
+    private func setAll(_ volume: Double) {
+        for display in displays {
+            VolumeService.shared.setVolume(volume, for: display)
+        }
+    }
+}
+
+/// Invisible observer of one display's volume, the counterpart of BrightnessProbe.
+private struct VolumeProbe: View {
+    @ObservedObject var display: DisplayInfo
+    let onChange: () -> Void
+
+    var body: some View {
+        Color.clear
+            .frame(width: 0, height: 0)
+            .onChange(of: display.volume) { _, _ in onChange() }
+    }
+}

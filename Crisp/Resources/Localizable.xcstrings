@@ -2799,6 +2799,22 @@
         }
       }
     },
+    "Combined speaker volume" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "合并扬声器音量"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "合併揚聲器音量"
+          }
+        }
+      }
+    },
     "Command Line Tool" : {
       "localizations" : {
         "zh-Hans" : {

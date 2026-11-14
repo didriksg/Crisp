@@ -268,6 +268,11 @@ struct CombinedBrightnessView: View {
     @State private var deferredFirstChange: Bool = false
     @State private var clickGliding: Bool = false
 
+    /// Externals with DDC speaker volume, driven together by the combined volume slider.
+    private var volumeDisplays: [DisplayInfo] {
+        displays.filter { !$0.isBuiltin && $0.volumeSupported }
+    }
+
     /// Externals define the shared scale; unlike the built-in panel, their
     /// current DDC percentage is already the combined control's reference.
     private var referenceDisplays: [DisplayInfo] {
@@ -395,6 +400,10 @@ struct CombinedBrightnessView: View {
                 BrightnessStepButton(systemName: "sun.max.fill") { stepAll(10.0) }
             }
             .padding(.horizontal, 12)
+
+            if settings.showVolumeSliders, volumeDisplays.count > 1 {
+                CombinedVolumeSliderView(displays: volumeDisplays)
+            }
         }
         .padding(.vertical, 6)
         .background {
