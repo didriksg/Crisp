@@ -82,6 +82,7 @@ targets:
       - path: Crisp/Models/KeyboardShortcut.swift
       - path: Crisp/Models/CombinedBrightnessMath.swift
       - path: Crisp/Models/DisplayPreset.swift
+      - path: Crisp/Models/CrispVirtualDisplayIdentity.swift
       - path: Crisp/Models/GammaAdjustment.swift
       - path: Crisp/Models/CrispControlModel.swift
       - path: Crisp/Models/BrightnessKeySteps.swift

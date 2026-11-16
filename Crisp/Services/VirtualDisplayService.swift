@@ -1,9 +1,5 @@
 import CoreGraphics
 import Foundation
-import IOKit
-
-@_silgen_name("CGDisplayIOServicePort")
-private func CGDisplayIOServicePort(_ display: CGDirectDisplayID) -> io_service_t
 
 // CGVirtualDisplay and CGVirtualDisplaySettings are ObjC objects without Sendable
 // conformance, but we only use them sequentially (create on main → pass to background
@@ -31,6 +27,20 @@ final class VirtualDisplayService: ObservableObject, @unchecked Sendable {
         var refreshRate: Double
         var hiDPI: Bool
         var autoCreate: Bool
+
+        var productID: UInt32 {
+            let bytes = id.uuid
+            return UInt32(bytes.0) << 24 | UInt32(bytes.1) << 16 | UInt32(bytes.2) << 8 | UInt32(bytes.3)
+        }
+
+        var serialNumber: UInt32 {
+            let bytes = id.uuid
+            return UInt32(bytes.4) << 24 | UInt32(bytes.5) << 16 | UInt32(bytes.6) << 8 | UInt32(bytes.7)
+        }
+
+        var displayUUID: String {
+            CrispVirtualDisplayIdentity.uuid(productID: productID, serialNumber: serialNumber)
+        }
 
         init(id: UUID = UUID(), name: String, width: Int, height: Int,
              refreshRate: Double = 60.0, hiDPI: Bool = true, autoCreate: Bool = true) {
@@ -64,7 +74,7 @@ final class VirtualDisplayService: ObservableObject, @unchecked Sendable {
 
     /// Vendor ID stamped on every Crisp virtual display's descriptor, and the race-free
     /// signature filtered on: CGDisplayVendorNumber reports it the instant the display is online.
-    static let crispVirtualVendorID: UInt32 = 0xEEEE
+    static let crispVirtualVendorID = CrispVirtualDisplayIdentity.vendorID
 
     // MARK: - Queries
 
@@ -115,9 +125,8 @@ final class VirtualDisplayService: ObservableObject, @unchecked Sendable {
         descriptor.vendorID = Self.crispVirtualVendorID  // must be non-zero or init returns nil
         // Must be unique per config AND stable across recreations (macOS keys per-display
         // settings, including "what to show", on this identity). Both halves from the config UUID.
-        let ident = config.id.uuid
-        descriptor.productID = UInt32(ident.0) << 24 | UInt32(ident.1) << 16 | UInt32(ident.2) << 8 | UInt32(ident.3)
-        descriptor.serialNum = UInt32(ident.4) << 24 | UInt32(ident.5) << 16 | UInt32(ident.6) << 8 | UInt32(ident.7)
+        descriptor.productID = config.productID
+        descriptor.serialNum = config.serialNumber
         // DO NOT set queue or color primaries: not needed, and may interfere with creation.
 
         guard let virtualDisplay = CGVirtualDisplay(descriptor: descriptor) else {
@@ -195,6 +204,28 @@ final class VirtualDisplayService: ObservableObject, @unchecked Sendable {
             activeDisplayObjects.removeValue(forKey: uuid)
         }
         activeConfigIDs.removeAll()
+    }
+
+    func setActive(_ enabled: Bool, configID: UUID) async -> Bool {
+        guard let config = configs.first(where: { $0.id == configID }) else { return false }
+        if enabled {
+            if !isActive(configID), !(await create(config: config)) { return false }
+            guard let displayID = activeDisplayObjects[configID]?.displayID else { return false }
+            for _ in 0..<30 {
+                if CGDisplayIsOnline(displayID) != 0 { return true }
+                try? await Task.sleep(nanoseconds: 100_000_000)
+            }
+            return false
+        }
+        guard let displayID = activeDisplayObjects[configID]?.displayID else { return true }
+        var count: UInt32 = 0
+        guard CGGetActiveDisplayList(0, nil, &count) == .success else { return false }
+        var displays = [CGDirectDisplayID](repeating: 0, count: Int(count))
+        guard CGGetActiveDisplayList(count, &displays, &count) == .success,
+              displays.prefix(Int(count)).contains(where: { $0 != displayID }) else { return false }
+        destroy(configID: configID)
+        await waitForDisplayOffline(displayID)
+        return CGDisplayIsOnline(displayID) == 0
     }
 
     @discardableResult
@@ -281,7 +312,7 @@ final class VirtualDisplayService: ObservableObject, @unchecked Sendable {
                 try? await Task.sleep(nanoseconds: 800_000_000)
                 for config in autoCreateConfigs {
                     // A virtual display from a crashed previous session may still be registered.
-                    guard !virtualDisplayAlreadyExists(width: config.width, height: config.height) else {
+                    guard !virtualDisplayAlreadyExists(config: config) else {
                         continue
                     }
                     _ = await create(config: config)
@@ -290,21 +321,18 @@ final class VirtualDisplayService: ObservableObject, @unchecked Sendable {
         }
     }
 
-    /// True if an online display already matches these dimensions with no IOKit service port
-    /// (virtual displays have none); used by autoCreate to avoid duplicating a crash survivor.
-    private func virtualDisplayAlreadyExists(width: Int, height: Int) -> Bool {
+    private func virtualDisplayAlreadyExists(config: VirtualDisplayConfig) -> Bool {
         var displayCount: UInt32 = 0
         CGGetOnlineDisplayList(0, nil, &displayCount)
         guard displayCount > 0 else { return false }
         var displayIDs = [CGDirectDisplayID](repeating: 0, count: Int(displayCount))
         CGGetOnlineDisplayList(displayCount, &displayIDs, &displayCount)
-        for id in displayIDs {
-            // No service port means virtual; physical displays always have one.
-            let servicePort = CGDisplayIOServicePort(id)
-            guard servicePort == 0 || servicePort == MACH_PORT_NULL else { continue }
-            let w = Int(CGDisplayPixelsWide(id))
-            let h = Int(CGDisplayPixelsHigh(id))
-            if w == width && h == height { return true }
+        for displayID in displayIDs.prefix(Int(displayCount)) {
+            if CGDisplayVendorNumber(displayID) == Self.crispVirtualVendorID,
+               CGDisplayModelNumber(displayID) == config.productID,
+               CGDisplaySerialNumber(displayID) == config.serialNumber {
+                return true
+            }
         }
         return false
     }

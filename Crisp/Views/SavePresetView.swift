@@ -107,7 +107,10 @@ struct SavePresetForm: View {
         _includeColor = State(initialValue: editing?.includesColor ?? false)
         // On when a display is off now: that is what such a preset is saved for.
         _includeConnection = State(initialValue: editing?.includesConnection
-                                   ?? !PhysicalDisplayToggleService.shared.disconnected.isEmpty)
+                                   ?? (!PhysicalDisplayToggleService.shared.disconnected.isEmpty
+                                       || VirtualDisplayService.shared.configs.contains {
+                                           !VirtualDisplayService.shared.isActive($0.id)
+                                       }))
         _recordedShortcut = State(initialValue: editing?.shortcut)
     }
 

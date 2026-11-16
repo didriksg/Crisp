@@ -147,7 +147,13 @@ final class PresetService: ObservableObject, @unchecked Sendable {
                 e.connected = false
                 return e
             }
-            guard let live = displays.first(where: { $0.displayUUID == entry.displayUUID && $0.isOnline }) else {
+            if capture == .connection,
+               let config = VirtualDisplayService.shared.configs.first(where: { entry.matchesDisplay(uuid: $0.displayUUID) }),
+               !VirtualDisplayService.shared.isActive(config.id) {
+                e.connected = false
+                return e
+            }
+            guard let live = displays.first(where: { entry.matchesDisplay(uuid: $0.displayUUID) && $0.isOnline }) else {
                 return e
             }
             switch capture {
@@ -194,11 +200,14 @@ final class PresetService: ObservableObject, @unchecked Sendable {
             applyingPresetID = nil
         }
 
-        let displays = await applyConnection(of: preset)
+        guard let displays = await applyConnection(of: preset) else {
+            activePresetID = nil
+            return
+        }
 
         for entry in preset.displays {
-            guard let display = displays.first(where: { $0.displayUUID == entry.displayUUID }) else { continue }
-            guard display.isOnline else { continue }
+            guard let display = displays.first(where: { entry.matchesDisplay(uuid: $0.displayUUID) }),
+                  display.isOnline else { continue }
             let displayID = display.displayID
 
             // Resolution applies only when the preset includes it (width present); the
@@ -276,28 +285,45 @@ final class PresetService: ObservableObject, @unchecked Sendable {
 
     /// Turns displays on and off before the other settings (#211), so those land on the
     /// display set the preset was saved with. Returns the display list after the change.
-    private func applyConnection(of preset: DisplayPreset) async -> [DisplayInfo] {
+    private func applyConnection(of preset: DisplayPreset) async -> [DisplayInfo]? {
         let toggle = PhysicalDisplayToggleService.shared
+        let virtual = VirtualDisplayService.shared
+        let virtualConfigs = Dictionary(uniqueKeysWithValues: virtual.configs.map { ($0.displayUUID, $0) })
         let displays = DisplayManagerAccessor.shared.displays
+        let inactiveVirtual = virtual.configs.filter { !virtual.isActive($0.id) }.map(\.displayUUID)
         let plan = preset.connectionPlan(
             online: Set(displays.filter(\.isOnline).map(\.displayUUID)),
-            disconnected: Set(toggle.disconnected.map(\.uuid))
+            disconnected: Set(toggle.disconnected.map(\.uuid) + inactiveVirtual)
         )
-        guard plan != PresetConnectionPlan() else { return displays }
         // Reconnects first, so a swap never trips the last-screen guard.
         for uuid in plan.reconnect {
-            _ = await InputSwitchService.shared.reconnect(uuid: uuid)
+            if let config = virtualConfigs[uuid] {
+                guard await virtual.setActive(true, configID: config.id) else { return nil }
+            } else {
+                _ = await InputSwitchService.shared.reconnect(uuid: uuid)
+            }
         }
         for uuid in plan.disconnect {
+            if let config = virtualConfigs[uuid] {
+                guard await virtual.setActive(false, configID: config.id) else { return nil }
+                continue
+            }
             guard let display = displays.first(where: { $0.displayUUID == uuid }) else { continue }
             // A refusal (last active display) leaves it on; the other settings still apply.
             _ = await toggle.disconnect(display, fromPreset: true)
+        }
+        for entry in preset.displays {
+            guard let enabled = entry.connected, var config = virtualConfigs[entry.stableDisplayUUID],
+                  config.autoCreate != enabled else { continue }
+            config.autoCreate = enabled
+            _ = await virtual.updateConfig(config)
         }
         toggle.displayManager?.refreshDisplays()
         let refreshed = DisplayManagerAccessor.shared.displays
         // refreshDisplays loads a returning display's modes in the background; the
         // resolution below needs them now.
-        for display in refreshed where plan.reconnect.contains(display.displayUUID) {
+        for display in refreshed where plan.reconnect.contains(display.displayUUID)
+            || virtual.isVirtualDisplay(display.displayID) {
             await display.loadDetails()
         }
         return refreshed
@@ -341,9 +367,15 @@ final class PresetService: ObservableObject, @unchecked Sendable {
 
     /// A display Crisp disconnected, not already in `entries`, stores only that it is off.
     private func offEntries(excluding entries: [DisplayPresetEntry]) -> [DisplayPresetEntry] {
-        PhysicalDisplayToggleService.shared.disconnected
-            .filter { record in !entries.contains { $0.displayUUID == record.uuid } }
+        var result = PhysicalDisplayToggleService.shared.disconnected
+            .filter { record in !entries.contains { $0.matchesDisplay(uuid: record.uuid) } }
             .map { DisplayPresetEntry(displayUUID: $0.uuid, connected: false) }
+        let virtual = VirtualDisplayService.shared
+        let recorded = Set((entries + result).map(\.stableDisplayUUID))
+        result += virtual.configs
+            .filter { !virtual.isActive($0.id) && !recorded.contains($0.displayUUID) }
+            .map { DisplayPresetEntry(displayUUID: $0.displayUUID, connected: false) }
+        return result
     }
 
     /// A display's Image Adjustment as a preset stores it: the saved values without
@@ -413,13 +445,16 @@ final class PresetService: ObservableObject, @unchecked Sendable {
     /// Returns the preset ID that matches the current display state, if any.
     func currentPresetMatch() -> UUID? {
         let displays = DisplayManagerAccessor.shared.displays
-        let disconnected = Set(PhysicalDisplayToggleService.shared.disconnected.map(\.uuid))
+        let virtual = VirtualDisplayService.shared
+        let disconnected = Set((PhysicalDisplayToggleService.shared.disconnected.map(\.uuid)
+            + virtual.configs.filter { !virtual.isActive($0.id) }.map(\.displayUUID))
+            .map(CrispVirtualDisplayIdentity.canonicalUUID))
         for preset in presets {
             // Match is resolution-defined; brightness/arrangement-only presets don't participate.
             guard preset.includesResolution else { continue }
             let matches = preset.displays.allSatisfy { entry in
-                if entry.connected == false { return disconnected.contains(entry.displayUUID) }
-                guard let display = displays.first(where: { $0.displayUUID == entry.displayUUID }),
+                if entry.connected == false { return disconnected.contains(entry.stableDisplayUUID) }
+                guard let display = displays.first(where: { entry.matchesDisplay(uuid: $0.displayUUID) }),
                       display.isOnline else { return false }
                 // Entry without a resolution doesn't gate on it
                 guard let w = entry.width, let h = entry.height else { return true }

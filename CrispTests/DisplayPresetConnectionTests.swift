@@ -46,4 +46,35 @@ final class DisplayPresetConnectionTests: XCTestCase {
         XCTAssertEqual(plan.reconnect, ["DELL"])
         XCTAssertEqual(plan.disconnect, ["BUILTIN"])
     }
+
+    func testVirtualPresetSwapAndRepeatedApplication() {
+        let target = "0000EEEE-1111-2222-3333-444400000000"
+        let previous = "0000EEEE-5555-6666-7777-888800000000"
+        let preset = DisplayPreset(name: "Virtual", icon: "display", displays: [
+            DisplayPresetEntry(displayUUID: target, connected: true),
+            DisplayPresetEntry(displayUUID: previous, connected: false)
+        ])
+        let plan = preset.connectionPlan(online: [previous], disconnected: [target])
+        XCTAssertEqual(plan.reconnect, [target])
+        XCTAssertEqual(plan.disconnect, [previous])
+        XCTAssertEqual(preset.connectionPlan(online: [target], disconnected: [previous]), .init())
+    }
+
+    func testConnectionPlanMatchesLegacyVirtualUUIDSuffixes() {
+        let target = "0000EEEE-1111-2222-3333-444400000000"
+        let previous = "0000EEEE-5555-6666-7777-888800000000"
+        let preset = DisplayPreset(name: "Virtual", icon: "display", displays: [
+            DisplayPresetEntry(displayUUID: "0000EEEE-1111-2222-3333-4444003F0041", connected: true),
+            DisplayPresetEntry(displayUUID: "0000EEEE-5555-6666-7777-888800400042", connected: false)
+        ])
+        let plan = preset.connectionPlan(
+            online: ["0000EEEE-5555-6666-7777-888800410043"], disconnected: [target]
+        )
+        XCTAssertEqual(plan.reconnect, [target])
+        XCTAssertEqual(plan.disconnect, [previous])
+        XCTAssertEqual(
+            preset.connectionPlan(online: ["0000EEEE-1111-2222-3333-444400420044"], disconnected: [previous]),
+            .init()
+        )
+    }
 }
