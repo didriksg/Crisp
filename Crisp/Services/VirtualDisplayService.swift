@@ -89,6 +89,23 @@ final class VirtualDisplayService: ObservableObject, @unchecked Sendable {
         return activeDisplayObjects.values.contains { $0.displayID == displayID }
     }
 
+    func configuredRefreshRate(for displayID: CGDirectDisplayID) -> Double? {
+        guard CGDisplayVendorNumber(displayID) == Self.crispVirtualVendorID else { return nil }
+        let product = CGDisplayModelNumber(displayID)
+        let serial = CGDisplaySerialNumber(displayID)
+        return configs.first(where: { $0.productID == product && $0.serialNumber == serial })?.refreshRate
+    }
+
+    func applyConfiguredRefreshRate(for displayID: CGDirectDisplayID) async {
+        guard let rate = configuredRefreshRate(for: displayID),
+              let current = CGDisplayCopyDisplayMode(displayID) else { return }
+        let config = VirtualDisplayConfig(
+            name: "", width: current.pixelWidth, height: current.pixelHeight,
+            refreshRate: rate, hiDPI: current.pixelWidth > current.width, autoCreate: false
+        )
+        await applyConfiguredResolution(displayID, config: config)
+    }
+
     // MARK: - Create / Destroy
 
     /// Creates a virtual display from the config. Descriptor build and CGVirtualDisplay init
@@ -112,8 +129,6 @@ final class VirtualDisplayService: ObservableObject, @unchecked Sendable {
 
         // CGVirtualDisplay(descriptor:) requires the main thread (returns nil off it).
         let descriptor = CGVirtualDisplayDescriptor()
-        // Size from a fixed PPI so macOS defaults to the native resolution instead of a
-        // scaled Retina mode. See docs/display-notes.md (VirtualDisplayService.create).
         let ppi: Double = 110.0
         descriptor.sizeInMillimeters = CGSize(
             width: Double(w) / ppi * 25.4,
@@ -169,33 +184,30 @@ final class VirtualDisplayService: ObservableObject, @unchecked Sendable {
         activeDisplayObjects[config.id] = virtualDisplay
         activeConfigIDs.insert(config.id)
 
-        // macOS auto-adds a scaled looks-like-1080p default for high-resolution displays
-        // regardless of the modes supplied; force native 1x so it reads as its real resolution.
-        await applyNativeResolution(virtualDisplay.displayID, width: w, height: h, refreshRate: config.refreshRate)
+        await applyConfiguredResolution(virtualDisplay.displayID, config: config)
         return true
     }
 
-    /// macOS assigns its auto-scaled default asynchronously, so this retries briefly until
-    /// the native 1x mode at the configured refresh rate sticks, or gives up.
-    private func applyNativeResolution(_ displayID: CGDirectDisplayID, width: Int, height: Int,
-                                       refreshRate: Double) async {
+    private func applyConfiguredResolution(_ displayID: CGDirectDisplayID, config: VirtualDisplayConfig) async {
         let options = [kCGDisplayShowDuplicateLowResolutionModes as String: true] as CFDictionary
-        for attempt in 0..<5 {
+        let width = config.hiDPI ? config.width / 2 : config.width
+        let height = config.hiDPI ? config.height / 2 : config.height
+        for attempt in 0..<10 {
             if attempt > 0 {
-                await ReconfigEvents.shared.next(for: displayID, matching: .setModeFlag, timeout: 0.3)
+                try? await Task.sleep(nanoseconds: 300_000_000)
             }
             if let cur = CGDisplayCopyDisplayMode(displayID),
-               cur.width == width, cur.pixelWidth == width,
-               abs(cur.refreshRate - refreshRate) < 0.5 { return }
+               cur.width == width, cur.height == height,
+               cur.pixelWidth == config.width, cur.pixelHeight == config.height,
+               abs(cur.refreshRate - config.refreshRate) < 0.5 { continue }
             guard let modes = CGDisplayCopyAllDisplayModes(displayID, options) as? [CGDisplayMode],
-                  let native = modes.first(where: {
-                      $0.pixelWidth == width && $0.pixelHeight == height && $0.width == width
-                          && abs($0.refreshRate - refreshRate) < 0.5
-                  }) ?? modes.first(where: {
-                      $0.pixelWidth == width && $0.pixelHeight == height && abs($0.refreshRate - refreshRate) < 0.5
+                  let target = modes.first(where: {
+                      $0.pixelWidth == config.width && $0.pixelHeight == config.height
+                          && $0.width == width && $0.height == height
+                          && abs($0.refreshRate - config.refreshRate) < 0.5
                   })
             else { continue }
-            _ = await ResolutionService.applyModeSync(native, on: displayID)
+            _ = await ResolutionService.applyModeSync(target, on: displayID)
         }
     }
 

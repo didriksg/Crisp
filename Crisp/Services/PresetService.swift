@@ -220,11 +220,19 @@ final class PresetService: ObservableObject, @unchecked Sendable {
                 switch route {
                 case .mode(let index):
                     MirroredModeService.shared.forgetSaved(for: display)
-                    let mode = display.availableModes[index]
-                    let currentMode = display.currentDisplayMode
+                    let candidate = display.availableModes[index]
+                    let preferredRate = VirtualDisplayService.shared.configuredRefreshRate(for: displayID)
+                    let mode = display.availableModes.first(where: { mode in
+                        mode.width == candidate.width && mode.height == candidate.height
+                            && mode.isHiDPI == candidate.isHiDPI
+                            && preferredRate.map { abs($0 - mode.refreshRate) < 0.5 } == true
+                    }) ?? candidate
+                    let currentMode = preferredRate == nil
+                        ? display.currentDisplayMode : DisplayMode.currentMode(for: displayID)
                     let alreadyActive = currentMode?.width == mode.width
                         && currentMode?.height == mode.height
                         && currentMode?.isHiDPI == mode.isHiDPI
+                        && (preferredRate == nil || abs((currentMode?.refreshRate ?? 0) - mode.refreshRate) < 0.5)
                     if !alreadyActive {
                         // Unmirror first (#65) or WindowServer redirects the change to the
                         // virtual source; a failed unmirror leaves the resolution alone.
@@ -279,8 +287,20 @@ final class PresetService: ObservableObject, @unchecked Sendable {
             }
         }
 
+        await applyVirtualRefreshRates(of: preset, displays: displays)
         activePresetID = preset.id
         // DisplayManager is not a singleton; callers with a DisplayManager ref can call refreshDisplays().
+    }
+
+    private func applyVirtualRefreshRates(of preset: DisplayPreset, displays: [DisplayInfo]) async {
+        for display in displays where display.isOnline {
+            guard VirtualDisplayService.shared.isVirtualDisplay(display.displayID),
+                  preset.displays.contains(where: {
+                      $0.matchesDisplay(uuid: display.displayUUID) && ($0.width != nil || $0.connected == true)
+                  }) else { continue }
+            await VirtualDisplayService.shared.applyConfiguredRefreshRate(for: display.displayID)
+            display.currentDisplayMode = DisplayMode.currentMode(for: display.displayID)
+        }
     }
 
     /// Turns displays on and off before the other settings (#211), so those land on the
