@@ -237,6 +237,38 @@
     "%lld%%" : {
       "shouldTranslate" : false
     },
+    "A switch on each display row that disconnects it" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "每个显示器行上用于断开该显示器的开关"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "每個顯示器列上用來中斷該顯示器連線的開關"
+          }
+        }
+      }
+    },
+    "Advanced Settings…" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "高级设置…"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "進階設定…"
+          }
+        }
+      }
+    },
     "Another input disconnects this display. Reconnect it here to switch back." : {
       "localizations" : {
         "zh-Hans" : {
@@ -269,6 +301,22 @@
         }
       }
     },
+    "Automation" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自动化"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自動化"
+          }
+        }
+      }
+    },
     "Choose Again" : {
       "localizations" : {
         "zh-Hans" : {
@@ -281,6 +329,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "重新選擇"
+          }
+        }
+      }
+    },
+    "Connect an external display to see its settings." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "连接外接显示器以查看其设置。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "連接外接顯示器以檢視其設定。"
           }
         }
       }
@@ -333,6 +397,38 @@
         }
       }
     },
+    "Displays" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示器"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "顯示器"
+          }
+        }
+      }
+    },
+    "General" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "通用"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "一般"
+          }
+        }
+      }
+    },
     "Input" : {
       "localizations" : {
         "zh-Hans" : {
@@ -361,6 +457,70 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "輸入來源 %@"
+          }
+        }
+      }
+    },
+    "Keyboard" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "键盘"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "鍵盤"
+          }
+        }
+      }
+    },
+    "Menu Bar" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "菜单栏"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "選單列"
+          }
+        }
+      }
+    },
+    "Monitor Control" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示器控制"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "顯示器控制"
+          }
+        }
+      }
+    },
+    "No advanced settings on this Mac." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这台 Mac 没有高级设置。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "這台 Mac 沒有進階設定。"
           }
         }
       }

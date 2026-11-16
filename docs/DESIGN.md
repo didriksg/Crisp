@@ -113,6 +113,14 @@ What we do, and the rule it traces to.
 - **Single editor at a time.** Preset editing is an accordion: opening one edit
   form closes any other. Matches how native inline editors behave.
 
+## The Advanced Settings window
+
+Crisp is a menu bar app, and everything a person needs to use it is in the panel. The panel's Settings section keeps the basic settings (what the panel shows, the brightness keys, Launch at Login). Its last row, "Advanced Settings…", opens a separate window with three tabs: General, Keyboard and Displays. The row is the only way in; Cmd-, does not open it.
+
+The test for each setting: it is basic when a normal user needs it, or Crisp looks wrong without it. It is advanced when it fixes an unusual monitor, tunes a default, or serves scripts and power users. When in doubt it is advanced, and its default must be right. A person who never opens the window misses nothing they need. A new per-display option for an unusual monitor goes on that monitor's page in the Displays tab, not on the display card.
+
+The panel rules above (expand in place, checkmark lists, icon chips) are for the panel only. The window is a standard macOS settings window: toolbar tabs and grouped forms, with no glass and no icon chips. How it is built and opened is in `docs/best-practice/settings-window.md`.
+
 ## The deliberate exception
 
 Preset names use a **text field**. This is the one element that runs against the

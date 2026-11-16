@@ -307,40 +307,6 @@ struct UpdateRow: View {
     }
 }
 
-// MARK: - CommandLineToolRow
-
-/// Settings switch that links the bundled crispctl into /usr/local/bin. Shown only
-/// when the bundle carries the tool (release builds); reads on while the link
-/// points at this bundle, so a moved app reads off again until it is relinked.
-struct CommandLineToolRow: View {
-    @State private var installed = CrispctlInstaller.isInstalled
-
-    var body: some View {
-        Toggle(isOn: Binding(
-            get: { installed },
-            set: { newValue in
-                guard PanelOpenGuard.allowsActivation else { return }
-                if newValue { CrispctlInstaller.install() } else { CrispctlInstaller.uninstall() }
-                installed = CrispctlInstaller.isInstalled
-            }
-        )) {
-            HStack(spacing: 8) {
-                MenuItemIcon(systemName: "terminal.fill", color: .indigo, active: installed)
-                    .accessibilityHidden(true)
-                Text("Command Line Tool")
-                    .font(.body)
-                Spacer()
-            }
-        }
-        .toggleStyle(.switch)
-        .controlSize(.small)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 3)
-        .onAppear { installed = CrispctlInstaller.isInstalled }
-        .accessibilityHint("Links crispctl into /usr/local/bin")
-    }
-}
-
 // MARK: - SupportRow
 
 /// Optional "buy me a coffee" link at the bottom of Settings, styled as a normal
@@ -397,6 +363,34 @@ struct SupportRow: View {
     }
 }
 
+/// The last Settings row: opens the Advanced Settings window, which holds what Crisp
+/// works without (docs/DESIGN.md). An action, not a disclosure, so no chevron.
+private struct AdvancedSettingsRow: View {
+    let action: () -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        HStack(spacing: 8) {
+            MenuItemIcon(systemName: "slider.horizontal.3", active: false)
+                .accessibilityHidden(true)
+            Text("Advanced Settings…")
+                .font(.body)
+            Spacer()
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 3)
+        .menuRowHover(isHovered)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            guard PanelOpenGuard.allowsActivation else { return }
+            action()
+        }
+        .onHover { isHovered = $0 }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+    }
+}
+
 /// One external-link row inside the Support submenu: a label with the ↗ affordance
 /// that opens the platform's page in the browser. Brand names are verbatim so they
 /// are never localized or number-grouped.
@@ -440,11 +434,12 @@ struct SettingsView: View {
     // explicitly on close like every other section.
     @State private var showSupport = false
     @State private var showBrightnessKeys = false
-    @State private var showHiDPIShortcut = false
     // AXIsProcessTrusted() isn't observable, so re-read it on every open (below) or the
     // section shows stale state after the user grants/revokes in System Settings. (vx44)
     @State private var isTrusted = AXIsProcessTrusted()
     @EnvironmentObject var displayManager: DisplayManager
+    /// Closes the panel and opens the Advanced Settings window (AppDelegate).
+    let openAdvancedSettings: () -> Void
 
     /// Localized display name for a brightness-key target (row subtitle + choices).
     private func brightnessTargetName(_ target: BrightnessKeyTarget) -> String {
@@ -459,22 +454,6 @@ struct SettingsView: View {
         displayManager.displays.filter {
             !VirtualDisplayService.shared.isVirtualDisplay($0.displayID)
         }
-    }
-
-    /// Effective linear-brightness slope: external peak nits divided by the
-    /// built-in SDR peak, then multiplied by the user's fine tuning.
-    private var combinedBuiltinLuminanceRatio: Double? {
-        guard let builtinMax = physicalDisplays.first(where: { $0.isBuiltin })?.nominalMaxNits else {
-            return nil
-        }
-        let externalMaxima = physicalDisplays.filter { !$0.isBuiltin }.compactMap(\.nominalMaxNits)
-        guard !externalMaxima.isEmpty else { return nil }
-        let externalMax = externalMaxima.reduce(0, +) / Double(externalMaxima.count)
-        return externalMax / builtinMax * settings.combinedBuiltinBrightnessFactor
-    }
-
-    private var combinedBuiltinLuminanceRatioPercent: Int {
-        Int(((combinedBuiltinLuminanceRatio ?? settings.combinedBuiltinBrightnessFactor) * 100).rounded())
     }
 
     /// Opt-in control for brightness-key redirection, shown only while Accessibility is
@@ -561,42 +540,10 @@ struct SettingsView: View {
                 .controlSize(.small)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 3)
-
-                if settings.showCombinedBrightness && physicalDisplays.contains(where: { $0.isBuiltin }) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Absolute brightness ratio")
-                                    .font(.callout)
-                                Text("From each panel's rated nits. HDR monitors report their HDR peak, "
-                                     + "so lower this if the built-in runs too bright")
-                                    .font(.caption2)
-                                    .foregroundColor(.secondary)
-                            }
-                            Spacer()
-                            Text("\(combinedBuiltinLuminanceRatioPercent)%")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                                .monospacedDigit()
-                        }
-                        Slider(
-                            value: $settings.combinedBuiltinBrightnessFactor,
-                            in: CombinedBrightnessMath.builtinAdjustmentRange,
-                            step: 0.02
-                        )
-                        .controlSize(.small)
-                        .accessibilityLabel("Absolute brightness ratio")
-                        .accessibilityValue("\(combinedBuiltinLuminanceRatioPercent)%")
-                    }
-                    .padding(.leading, 46)
-                    .padding(.trailing, 12)
-                    .padding(.vertical, 3)
-                    .curtainReveal(settings.showCombinedBrightness)
-                }
             }
 
-            // Shown while an external is connected: it also shows or hides each card's
-            // Volume Control switch. Hiding the sliders does not disable the volume keys.
+            // Shown while an external is connected. Hiding the sliders does not disable
+            // the volume keys.
             if displayManager.displays.contains(where: { !$0.isBuiltin }) {
                 Toggle(isOn: Binding(
                     get: { settings.showVolumeSliders },
@@ -606,25 +553,6 @@ struct SettingsView: View {
                         MenuItemIcon(systemName: "speaker.wave.2.fill", color: .blue, active: settings.showVolumeSliders)
                             .accessibilityHidden(true)
                         Text("Show Volume Sliders")
-                            .font(.body)
-                        Spacer()
-                    }
-                }
-                .toggleStyle(.switch)
-                .controlSize(.small)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 3)
-            }
-
-            if PhysicalDisplayToggleService.shared.isSupported {
-                Toggle(isOn: Binding(
-                    get: { settings.showConnectionSwitches },
-                    set: { newValue in withAnimation(.panelResize) { settings.showConnectionSwitches = newValue } }
-                )) {
-                    HStack(spacing: 8) {
-                        MenuItemIcon(systemName: "switch.2", color: .orange, active: settings.showConnectionSwitches)
-                            .accessibilityHidden(true)
-                        Text("Show Connection Switches")
                             .font(.body)
                         Spacer()
                     }
@@ -684,9 +612,6 @@ struct SettingsView: View {
                 BrightnessKeysPermissionNotice()
             }
 
-            // Global shortcuts: the curated action list (issue #61).
-            ShortcutsSection(expanded: $showHiDPIShortcut)
-
             Toggle(isOn: Binding(
                 get: { settings.launchAtLogin },
                 set: { newValue in
@@ -711,9 +636,7 @@ struct SettingsView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 3)
 
-            if CrispctlInstaller.isAvailable {
-                CommandLineToolRow()
-            }
+            AdvancedSettingsRow(action: openAdvancedSettings)
 
             SectionDivider()
 
@@ -742,7 +665,6 @@ struct SettingsView: View {
         .onReceive(NotificationCenter.default.publisher(for: .crispPanelDidClose)) { _ in
             showSupport = false
             showBrightnessKeys = false
-            showHiDPIShortcut = false
         }
     }
 }

@@ -164,8 +164,6 @@ struct DetailTailBlock: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            VolumeOverrideView(display: display)
-
             MainDisplayView(display: display)
 
             // Always last: it removes the section it's in.

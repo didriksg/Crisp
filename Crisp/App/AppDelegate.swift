@@ -42,6 +42,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     let displayManager = DisplayManager()
     private lazy var controlServer = CrispControlServer(displayManager: displayManager)
+    private lazy var advancedSettings = AdvancedSettingsWindowController(displayManager: displayManager)
     private var statusItem: NSStatusItem?
     /// Whether the OSD banner is asking for the menu bar item to be lit. The
     /// open panel asks for the same light, so both are read together.
@@ -725,8 +726,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         settingshead.liveInFlight = true
         blocks.append(settingshead)
         blocks.append(block("settingsrows", isOpen: { state.showSettings }) {
-            SettingsView()
-                .padding(.leading, 8)
+            // The panel stays open on a click inside it and sits above normal windows,
+            // so close it first.
+            SettingsView(openAdvancedSettings: { [weak self] in
+                self?.closePanel()
+                self?.advancedSettings.show()
+            })
+            .padding(.leading, 8)
         })
         blocks.append(block("update") { UpdateBlockView() })
 

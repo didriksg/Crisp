@@ -14,7 +14,7 @@ enum CrispControlSkill {
 
     ## Find the tool
 
-    This skill comes from `crispctl skill install claude` (or `codex`), which writes the copy that matches the installed crispctl; run it again after updating Crisp. Run `crispctl version`. If the shell cannot find it, use the copy inside the app: `/Applications/Crisp.app/Contents/MacOS/crispctl`. The Homebrew cask and the Command Line Tool switch in Crisp's Settings both link it into `/usr/local/bin`. If the reply is exit code 1 ("Crisp unreachable"), ask the user to open Crisp; do not start it yourself unless they ask.
+    This skill comes from `crispctl skill install claude` (or `codex`), which writes the copy that matches the installed crispctl; run it again after updating Crisp. Run `crispctl version`. If the shell cannot find it, use the copy inside the app: `/Applications/Crisp.app/Contents/MacOS/crispctl`. The Homebrew cask and the Command Line Tool switch in Crisp's Advanced Settings both link it into `/usr/local/bin`. If the reply is exit code 1 ("Crisp unreachable"), ask the user to open Crisp; do not start it yourself unless they ask.
 
     ## Start here
 

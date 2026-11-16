@@ -15,6 +15,8 @@ struct ShortcutRecorderRow: View {
     @Binding var shortcut: KeyboardShortcut?
     /// Extra leading inset so the row aligns under a section's icon chip.
     var leadingInset: CGFloat = 0
+    /// False in the Advanced Settings window, where a panel close must not cancel a recording.
+    var stopsOnPanelClose = true
     @State private var isRecording = false
     @State private var monitor: Any? = nil
     @State private var isHovered = false
@@ -63,7 +65,7 @@ struct ShortcutRecorderRow: View {
         .accessibilityAddTraits(.isButton)
         .onReceive(NotificationCenter.default.publisher(for: .crispPanelDidClose)) { _ in
             // The panel resigns key on close; an in-flight recording can't finish.
-            stopRecording()
+            if stopsOnPanelClose { stopRecording() }
         }
         .onReceive(NotificationCenter.default.publisher(for: .crispStopShortcutRecording)) { note in
             // The preset form is committing/closing (nil object), or another row
