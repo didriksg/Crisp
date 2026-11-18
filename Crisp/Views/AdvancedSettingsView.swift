@@ -29,20 +29,10 @@ struct AdvancedGeneralTab: View {
         !(autoBrightness.hasPolled && autoBrightness.builtinBrightness <= 0)
     }
 
-    /// Effective linear-brightness slope: external peak nits divided by the
-    /// built-in SDR peak, then multiplied by the user's fine tuning.
-    private var combinedBuiltinLuminanceRatio: Double? {
-        guard let builtinMax = physicalDisplays.first(where: { $0.isBuiltin })?.nominalMaxNits else {
-            return nil
-        }
-        let externalMaxima = physicalDisplays.filter { !$0.isBuiltin }.compactMap(\.nominalMaxNits)
-        guard !externalMaxima.isEmpty else { return nil }
-        let externalMax = externalMaxima.reduce(0, +) / Double(externalMaxima.count)
-        return externalMax / builtinMax * settings.combinedBuiltinBrightnessFactor
-    }
-
+    /// The slider's own value: 100% is Crisp's match from the rated nits. The effective
+    /// ratio (external nits / built-in nits x this) read as a second, unrelated number.
     private var ratioPercent: Int {
-        Int(((combinedBuiltinLuminanceRatio ?? settings.combinedBuiltinBrightnessFactor) * 100).rounded())
+        Int((settings.combinedBuiltinBrightnessFactor * 100).rounded())
     }
 
     var body: some View {

@@ -33,7 +33,7 @@ Activation calls to try, in this order, and stop at the first that passes the li
 1. `NSApp.activate()`, called in the same click, before `makeKeyAndOrderFront(nil)`.
 2. `NSApp.activate(ignoringOtherApps: true)`. It keeps the policy and gives no warning today.
 3. A titled `NSPanel` with `.nonactivatingPanel`, which takes key without app activation, as the menu panel does. This is a judgment, not tested.
-4. A temporary `.regular` activation policy while the window is open, which shows a Dock icon. This goes against the spec, so only on Didrik's word.
+4. A temporary `.regular` activation policy while the window is open, which shows a Dock icon. This goes against the spec, so only on Didrik's word. Chosen on 2026-11-18: in the live test the row brought the window to the front, but once another app was clicked the window went behind it and there was no Dock icon or Cmd-Tab entry to get it back. Crisp now switches to `.regular` when the window opens and back to `.accessory` when it closes.
 
 ## Window setup
 

@@ -27,8 +27,9 @@ final class AdvancedSettingsWindowController: NSWindowController, NSWindowDelega
             let index = tabs.tabView.indexOfTabViewItem(withIdentifier: tab)
             if index != NSNotFound { tabs.selectedTabViewItemIndex = index }
         }
-        // A request on macOS 14 and later; the live test in the best-practice note
-        // decides whether this is enough.
+        // A Dock icon and a Cmd-Tab entry while the window is open (Didrik, 2026-11-18): an
+        // accessory app's window behind other apps could not be found again.
+        NSApp.setActivationPolicy(.regular)
         NSApp.activate()
         window?.makeKeyAndOrderFront(nil)
     }
@@ -85,6 +86,7 @@ final class AdvancedSettingsWindowController: NSWindowController, NSWindowDelega
     func windowWillClose(_ notification: Notification) {
         // A recording in this window must not leave every hotkey suspended.
         NotificationCenter.default.post(name: .crispStopShortcutRecording, object: nil)
+        NSApp.setActivationPolicy(.accessory)
     }
 }
 
