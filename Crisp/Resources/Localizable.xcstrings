@@ -1308,22 +1308,6 @@
         }
       }
     },
-    "Combined Brightness" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "合并亮度"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "合併亮度"
-          }
-        }
-      }
-    },
     "Combined brightness" : {
       "localizations" : {
         "zh-Hans" : {

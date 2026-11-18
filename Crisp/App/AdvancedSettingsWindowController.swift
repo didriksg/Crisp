@@ -49,7 +49,7 @@ final class AdvancedSettingsWindowController: NSWindowController, NSWindowDelega
                 guard let tabs else { return }
                 let show = !advancedSettingsDisplays(displays).isEmpty
                 let shown = tabs.tabViewItems.contains(displaysTab)
-                if show, !shown { tabs.addTabViewItem(displaysTab) }
+                if show, !shown { tabs.insertTabViewItem(displaysTab, at: min(2, tabs.tabViewItems.count)) }  // after Keyboard
                 if !show, shown { tabs.removeTabViewItem(displaysTab) }
             }
         }

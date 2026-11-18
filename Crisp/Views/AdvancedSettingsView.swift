@@ -11,6 +11,7 @@ private let tabWidth: CGFloat = 520
 
 struct AdvancedGeneralTab: View {
     @ObservedObject private var settings = SettingsService.shared
+    @ObservedObject private var autoBrightness = AutoBrightnessService.shared
     @EnvironmentObject var displayManager: DisplayManager
     @State private var cliInstalled = CrispctlInstaller.isInstalled
 
@@ -18,11 +19,14 @@ struct AdvancedGeneralTab: View {
         displayManager.displays.filter { !VirtualDisplayService.shared.isVirtualDisplay($0.displayID) }
     }
 
-    /// The ratio is used only by the combined slider, with the built-in and an external both on.
-    private var showsRatio: Bool {
-        settings.showCombinedBrightness
-            && physicalDisplays.contains(where: { $0.isBuiltin })
-            && physicalDisplays.contains(where: { !$0.isBuiltin })
+    /// The ratio relates the built-in to the externals, so it needs both to be on.
+    private var hasBuiltinAndExternal: Bool {
+        physicalDisplays.contains(where: { $0.isBuiltin }) && physicalDisplays.contains(where: { !$0.isBuiltin })
+    }
+
+    /// Auto Brightness follows the built-in's own brightness, so a Mac without one has none.
+    private var hasBuiltin: Bool {
+        !(autoBrightness.hasPolled && autoBrightness.builtinBrightness <= 0)
     }
 
     /// Effective linear-brightness slope: external peak nits divided by the
@@ -46,75 +50,89 @@ struct AdvancedGeneralTab: View {
         // No built-in panel to turn off on a Mac with no battery (a disconnected built-in
         // leaves the display list, so the battery is the laptop test), nor on Intel.
         let showsAutoDisconnect = showsSwitches && PhysicalDisplayToggleService.hasBattery
-        let showsCLI = CrispctlInstaller.isAvailable
         Form {
-                    Section {
-                        Toggle("Launch at Login", isOn: Binding(
-                            get: { settings.launchAtLogin },
-                            set: { newValue in
-                                if newValue { LaunchService.shared.enable() } else { LaunchService.shared.disable() }
-                                settings.launchAtLogin = LaunchService.shared.isEnabled
-                            }
-                        ))
+            Section {
+                Toggle("Launch at Login", isOn: Binding(
+                    get: { settings.launchAtLogin },
+                    set: { newValue in
+                        if newValue { LaunchService.shared.enable() } else { LaunchService.shared.disable() }
+                        settings.launchAtLogin = LaunchService.shared.isEnabled
                     }
-                    if showsRatio {
-                        Section("Combined Brightness") {
-                            VStack(alignment: .leading, spacing: 4) {
-                                HStack(alignment: .firstTextBaseline) {
-                                    Text("Absolute brightness ratio")
-                                    Spacer()
-                                    Text("\(ratioPercent)%").monospacedDigit().foregroundStyle(.secondary)
-                                }
-                                Slider(
-                                    value: $settings.combinedBuiltinBrightnessFactor,
-                                    in: CombinedBrightnessMath.builtinAdjustmentRange
-                                )
-                                .accessibilityLabel("Absolute brightness ratio")
-                                .accessibilityValue("\(ratioPercent)%")
-                                Text("From each panel's rated nits. HDR monitors report their HDR peak, "
-                                     + "so lower this if the built-in runs too bright")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
+                ))
+            }
+            Section("Brightness") {
+                if hasBuiltin {
+                    Toggle(isOn: $autoBrightness.isEnabled) {
+                        Text("Auto Brightness")
+                        Text("External displays follow the built-in display's brightness")
+                    }
+                    if autoBrightness.isEnabled {
+                        Toggle(isOn: $autoBrightness.relativeMode) {
+                            Text("Keep display offsets")
+                            Text("External displays follow the built-in but keep the difference you set")
                         }
                     }
-                    if showsAutoDisconnect {
-                        Section("Displays") {
-                            Toggle(isOn: $settings.disconnectBuiltinWhenDocked) {
-                                Text("Auto-Disconnect Built-in")
-                                Text("Turns the built-in display off while an external display is connected")
-                            }
-                            .onChange(of: settings.disconnectBuiltinWhenDocked) { _, isOn in
-                                if isOn {
-                                    PhysicalDisplayToggleService.shared.reapplyParkedIfDocked()
-                                } else {
-                                    PhysicalDisplayToggleService.shared.clearParked()
-                                }
-                            }
+                }
+                Toggle("Show Combined Brightness", isOn: $settings.showCombinedBrightness)
+                if settings.showCombinedBrightness && hasBuiltinAndExternal {
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(alignment: .firstTextBaseline) {
+                            Text("Absolute brightness ratio")
+                            Spacer()
+                            Text("\(ratioPercent)%").monospacedDigit().foregroundStyle(.secondary)
+                        }
+                        Slider(
+                            value: $settings.combinedBuiltinBrightnessFactor,
+                            in: CombinedBrightnessMath.builtinAdjustmentRange
+                        )
+                        .accessibilityLabel("Absolute brightness ratio")
+                        .accessibilityValue("\(ratioPercent)%")
+                        Text("From each panel's rated nits. HDR monitors report their HDR peak, "
+                             + "so lower this if the built-in runs too bright")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            if showsAutoDisconnect {
+                Section("Displays") {
+                    Toggle(isOn: $settings.disconnectBuiltinWhenDocked) {
+                        Text("Auto-Disconnect Built-in")
+                        Text("Turns the built-in display off while an external display is connected")
+                    }
+                    .onChange(of: settings.disconnectBuiltinWhenDocked) { _, isOn in
+                        if isOn {
+                            PhysicalDisplayToggleService.shared.reapplyParkedIfDocked()
+                        } else {
+                            PhysicalDisplayToggleService.shared.clearParked()
                         }
                     }
-                    if showsSwitches {
-                        Section("Menu Bar") {
-                            Toggle(isOn: $settings.showConnectionSwitches) {
-                                Text("Show Connection Switches")
-                                Text("A switch on each display row that disconnects it")
-                            }
-                        }
+                }
+            }
+            Section("Menu Bar") {
+                // Hiding the sliders does not disable the volume keys.
+                Toggle("Show Volume Sliders", isOn: $settings.showVolumeSliders)
+                if showsSwitches {
+                    Toggle(isOn: $settings.showConnectionSwitches) {
+                        Text("Show Connection Switches")
+                        Text("A switch on each display row that disconnects it")
                     }
-                    if showsCLI {
-                        Section("Automation") {
-                            Toggle(isOn: Binding(
-                                get: { cliInstalled },
-                                set: { newValue in
-                                    if newValue { CrispctlInstaller.install() } else { CrispctlInstaller.uninstall() }
-                                    cliInstalled = CrispctlInstaller.isInstalled
-                                }
-                            )) {
-                                Text("Command Line Tool")
-                                Text("Links crispctl into /usr/local/bin")
-                            }
+                }
+            }
+            if CrispctlInstaller.isAvailable {
+                Section("Automation") {
+                    Toggle(isOn: Binding(
+                        get: { cliInstalled },
+                        set: { newValue in
+                            if newValue { CrispctlInstaller.install() } else { CrispctlInstaller.uninstall() }
+                            cliInstalled = CrispctlInstaller.isInstalled
                         }
+                    )) {
+                        Text("Command Line Tool")
+                        Text("Links crispctl into /usr/local/bin")
                     }
+                }
+            }
         }
         .formStyle(.grouped)
         .onAppear {
@@ -132,15 +150,15 @@ struct AdvancedGeneralTab: View {
 struct AdvancedKeyboardTab: View {
     @ObservedObject private var settings = SettingsService.shared
     @EnvironmentObject var displayManager: DisplayManager
-    // The target choice shows once Accessibility is granted; until then the panel's Settings
-    // asks for it (it stays there so everyone sees it). AXIsProcessTrusted() is not
-    // observable, so it is re-read when Crisp becomes active again.
+    // Until Accessibility is granted the section asks for it (the panel asks too, so people
+    // who never open this window are asked); then it picks which displays the keys adjust.
+    // AXIsProcessTrusted() is not observable, so it is re-read when Crisp becomes active.
     @State private var isTrusted = AXIsProcessTrusted()
 
     var body: some View {
         Form {
-            if isTrusted {
-                Section {
+            Section {
+                if isTrusted {
                     Picker("Brightness Keys", selection: $settings.brightnessKeyTarget) {
                         ForEach(BrightnessKeyTarget.allCases, id: \.self) { Text(targetName($0)).tag($0) }
                     }
@@ -158,6 +176,16 @@ struct AdvancedKeyboardTab: View {
                                 }
                             ))
                         }
+                    }
+                } else {
+                    // Also in the panel, which is where most people meet it.
+                    Toggle(isOn: Binding(
+                        get: { false },
+                        set: { if $0 { BrightnessKeyService.requestAccess() } }
+                    )) {
+                        Text("Use brightness keys on external displays")
+                        // swiftlint:disable:next line_length - localized literal, splitting would change its catalog key
+                        Text("Brightness keys need Accessibility access to redirect them to external displays. Grant it once and they start working, no restart.")
                     }
                 }
             }

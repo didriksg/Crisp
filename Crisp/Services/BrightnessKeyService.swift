@@ -452,3 +452,18 @@ final class BrightnessKeyService: @unchecked Sendable {
         }
     }
 }
+
+extension BrightnessKeyService {
+    /// Arms the key tap and asks for Accessibility: the system prompt, plus the exact
+    /// System Settings pane, since the one-shot prompt may already be gone. Nothing is
+    /// asked at launch; the panel's Settings and Advanced Settings > Keyboard call this.
+    static func requestAccess() {
+        shared.start()
+        // kAXTrustedCheckOptionPrompt is a global var in the Command Line Tools SDK;
+        // name the key outright rather than string-literal it.
+        _ = AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": true] as CFDictionary)
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+}

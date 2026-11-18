@@ -460,8 +460,7 @@ struct SettingsView: View {
                     set: { on in
                         requesting = on
                         if on {
-                            requestAccess()
-                            BrightnessKeyService.shared.start()
+                            BrightnessKeyService.requestAccess()
                         } else {
                             BrightnessKeyService.shared.stop()
                         }
@@ -489,17 +488,6 @@ struct SettingsView: View {
             .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
                 // Returning from System Settings without granting: un-stick the toggle.
                 if !AXIsProcessTrusted() { requesting = false }
-            }
-        }
-
-        private func requestAccess() {
-            // kAXTrustedCheckOptionPrompt is a global var in the Command Line Tools SDK;
-            // name the key outright rather than string-literal it.
-            let opts = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
-            _ = AXIsProcessTrustedWithOptions(opts)
-            // Also open the exact pane, since the one-shot system prompt may already be gone.
-            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
-                NSWorkspace.shared.open(url)
             }
         }
     }

@@ -141,8 +141,12 @@ struct AdvancedVirtualDisplaysTab: View {
                 .listStyle(.bordered(alternatesRowBackgrounds: false))
                 .frame(height: 110)
                 .overlay {
+                    // The + below is easy to miss on an empty list, so say what to do here.
                     if service.configs.isEmpty {
-                        Text("No virtual displays yet").foregroundStyle(.secondary)
+                        VStack(spacing: 8) {
+                            Text("No virtual displays yet").foregroundStyle(.secondary)
+                            Button("Create Virtual Display") { add() }
+                        }
                     }
                 }
                 HStack(spacing: 0) {
