@@ -39,6 +39,8 @@ enum SystemAutoBrightness {
 /// display, mirroring System Settings. Absent on sensor-less externals (see supported()).
 struct SystemAutoBrightnessView: View {
     @ObservedObject var display: DisplayInfo
+    /// Plain form switch for Advanced Settings instead of the panel row.
+    var inForm = false
     @State private var isOn = false
 
     // Read the live OS value. Called on appear and on every panel open: the panel
@@ -48,25 +50,15 @@ struct SystemAutoBrightnessView: View {
 
     var body: some View {
         if SystemAutoBrightness.supported(display.displayID) {
-            HStack {
-                MenuItemIcon(systemName: "sun.max", color: .yellow, active: isOn)
-                Text("Automatically adjust brightness")
-                    .font(.body)
-                Spacer()
-                // Custom binding so a programmatic sync() only moves the switch; the
-                // setter writes to the OS solely on real user interaction.
-                Toggle("", isOn: Binding(
-                    get: { isOn },
-                    set: { newValue in
-                        isOn = newValue
-                        SystemAutoBrightness.setEnabled(display.displayID, newValue)
-                    }))
-                    .toggleStyle(.switch)
-                    .labelsHidden()
-                    .controlSize(.small)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 3)
+            // Custom binding so a programmatic sync() only moves the switch; the
+            // setter writes to the OS solely on real user interaction.
+            SettingSwitchRow(inForm: inForm, icon: "sun.max", color: .yellow,
+                             label: "Automatically adjust brightness", isOn: Binding(
+                get: { isOn },
+                set: { newValue in
+                    isOn = newValue
+                    SystemAutoBrightness.setEnabled(display.displayID, newValue)
+                }))
             .onAppear { sync() }
             .onReceive(NotificationCenter.default.publisher(for: .crispPanelDidOpen)) { _ in sync() }
         }

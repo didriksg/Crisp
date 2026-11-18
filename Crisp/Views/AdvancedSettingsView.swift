@@ -241,11 +241,9 @@ struct AdvancedKeyboardTab: View {
 
 // MARK: - Displays
 
-/// The connected external displays as pictures in a row, as System Settings > Displays
-/// shows them, and the selected one's settings below. The row scrolls sideways when the
-/// displays do not fit, so every name and shape stays whole. Built-in and virtual
-/// displays have no advanced setting yet, so they are not listed, and the window shows
-/// this tab only while the row is not empty.
+/// The connected displays as pictures in a row, as System Settings > Displays shows them,
+/// and the selected one's settings below. The row scrolls sideways when the displays do
+/// not fit, so every name and shape stays whole. Virtual displays have their own tab.
 struct AdvancedDisplaysTab: View {
     @EnvironmentObject var displayManager: DisplayManager
     @State private var selection: CGDirectDisplayID?
@@ -267,7 +265,8 @@ struct AdvancedDisplaysTab: View {
             }
             Divider()
             if let selected {
-                AdvancedDisplayPage(display: selected)
+                AdvancedDisplayPage(display: selected, displayManager: displayManager)
+                    .id(selected.displayID)  // fresh controllers per display
             }
         }
         .frame(width: tabWidth)
@@ -317,31 +316,177 @@ private struct DisplayPicture: View {
     }
 }
 
-/// The displays the Displays tab lists; also decides whether the tab is shown.
+/// The displays the Displays tab lists (every one but Crisp's virtual displays); also
+/// decides whether the tab is shown.
 @MainActor
 func advancedSettingsDisplays(_ displays: [DisplayInfo]) -> [DisplayInfo] {
-    displays.filter { !$0.isBuiltin && !VirtualDisplayService.shared.isVirtualDisplay($0.displayID) }
+    displays.filter { !VirtualDisplayService.shared.isVirtualDisplay($0.displayID) }
 }
 
+/// Every setting of one display, grouped by topic as System Settings > Displays groups
+/// them. The card in the panel repeats the ones changed often; a row only in this window
+/// sits in its topic's section like any other (Volume Control). Actions stay in the
+/// panel only: the sliders, Disconnect, input switching and applying a preset.
 private struct AdvancedDisplayPage: View {
     @ObservedObject var display: DisplayInfo
+    @EnvironmentObject var displayManager: DisplayManager
+    @StateObject private var modes: DisplayModeController
+    @StateObject private var color: DisplayProfileController
+    @State private var profiles: [ICCProfile] = []
+    @State private var profilePath: URL?
+    @State private var showsImageAdjustment = false
+    @State private var errorText: String?
+
+    init(display: DisplayInfo, displayManager: DisplayManager) {
+        self.display = display
+        _modes = StateObject(wrappedValue: DisplayModeController(display: display, displayManager: displayManager))
+        _color = StateObject(wrappedValue: DisplayProfileController(display: display))
+    }
 
     var body: some View {
         Form {
-            Section("Monitor Control") {
-                // On for a monitor that never answers the 0x62 probe read forces write-only
-                // volume (#57); off stops volume commands to a monitor whose DDC stops after
-                // repeated volume writes (#245). Shown whatever Show Volume Sliders says:
-                // the volume keys use DDC volume also with the sliders hidden.
-                Toggle(isOn: Binding(
-                    get: { display.volumeSupported },
-                    set: { VolumeService.shared.setEnabled($0, for: display) }
-                )) {
-                    Text("Volume Control")
-                    Text("Speaker volume over DDC. Turn it off if the monitor stops answering, or on if it doesn't report volume.")
+            Section {
+                resolutionPicker
+                if let group = modes.currentGroup, group.hasMultipleRates {
+                    Picker("Refresh Rate", selection: Binding(
+                        get: { modes.currentMode?.id ?? 0 },
+                        set: { id in if let mode = group.modes.first(where: { $0.id == id }) { modes.selectRefresh(mode) } }
+                    )) {
+                        ForEach(group.modes) { Text(verbatim: modes.refreshLabel($0)).tag($0.id) }
+                    }
+                }
+                if !display.isBuiltin {
+                    Toggle(isOn: Binding(get: { modes.smoothOn }, set: { modes.userToggleSmooth($0, fromPanel: false) })) {
+                        Text("Smooth scaling")
+                        if let hint = modes.smoothSubtitle { Text(hint) }
+                    }
+                    .disabled(!HiDPIService.smoothScalingSupported || modes.smoothBusy)
+                    .onAppear {
+                        modes.smoothOn = modes.smoothModesPresent
+                        modes.refreshSmoothWouldPrompt()
+                    }
+                    .onChange(of: modes.smoothModesPresent) { _, present in
+                        if !modes.smoothBusy { modes.smoothOn = present }
+                    }
+                }
+                NotchView(display: display, inForm: true)
+                if let message = modes.errorMessage ?? modes.reconnectHint ?? errorText {
+                    Text(message).font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            Section("Color") {
+                if !color.presetName.isEmpty {
+                    Picker("Preset", selection: Binding(
+                        get: { color.activePresetIndex ?? -1 },
+                        set: { index in
+                            if DisplayPresetService.shared.setActivePreset(index: index, for: display.displayID) {
+                                color.reload()
+                            }
+                        }
+                    )) {
+                        ForEach(color.presets, id: \.index) { Text(verbatim: $0.name).tag($0.index) }
+                    }
+                } else {
+                    Picker("Color Profile", selection: Binding(
+                        get: { profilePath },
+                        set: { path in
+                            guard let profile = profiles.first(where: { $0.path == path }) else { return }
+                            if ColorProfileService.shared.setProfile(profile, for: display.displayID) {
+                                profilePath = path
+                            } else {
+                                showError(String(localized: "Failed to apply. Please try again."))
+                            }
+                        }
+                    )) {
+                        ForEach(profiles, id: \.path) { Text(verbatim: $0.name).tag(Optional($0.path)) }
+                    }
+                    .task { await loadProfiles() }
+                }
+                HDRToggleView(display: display, inForm: true)
+                LabeledContent("Image Adjustment") {
+                    Button("Adjust…") { showsImageAdjustment = true }
+                }
+            }
+            if BrightnessBoostService.shared.isEligible(display) || SystemAutoBrightness.supported(display.displayID) {
+                Section("Brightness") {
+                    ExtraBrightnessView(display: display, inForm: true)
+                    SystemAutoBrightnessView(display: display, inForm: true)
+                }
+            }
+            Section("Connection") {
+                // A display stops being main only when another one becomes main.
+                Toggle("Main Display", isOn: Binding(get: { display.isMain }, set: { if $0 { makeMain() } }))
+                    .disabled(display.isMain)
+                if !display.isBuiltin {
+                    // On for a monitor that never answers the 0x62 probe read forces write-only
+                    // volume (#57); off stops volume commands to a monitor whose DDC stops after
+                    // repeated volume writes (#245). Shown whatever Show Volume Sliders says:
+                    // the volume keys use DDC volume also with the sliders hidden.
+                    Toggle(isOn: Binding(
+                        get: { display.volumeSupported },
+                        set: { VolumeService.shared.setEnabled($0, for: display) }
+                    )) {
+                        Text("Volume Control")
+                        Text("Speaker volume over DDC. Turn it off if the monitor stops answering, or on if it doesn't report volume.")
+                    }
                 }
             }
         }
         .formStyle(.grouped)
+        .onAppear { color.reload() }
+        .sheet(isPresented: $showsImageAdjustment) {
+            VStack(spacing: 0) {
+                ImageAdjustmentView(display: display, isExpanded: true)
+                    .padding(.vertical, 12)
+                HStack {
+                    Spacer()
+                    Button("Done") { showsImageAdjustment = false }
+                        .keyboardShortcut(.defaultAction)
+                }
+                .padding([.horizontal, .bottom], 16)
+            }
+            .frame(width: 380)
+        }
+    }
+
+    /// The panel's split: the native size first, then HiDPI and Non-HiDPI sizes.
+    private var resolutionPicker: some View {
+        let groups = modes.resolutionGroups
+        return Picker("Resolution", selection: Binding(
+            get: { modes.currentGroup?.id ?? "" },
+            set: { id in if let group = groups.first(where: { $0.id == id }) { modes.selectResolution(group) } }
+        )) {
+            ForEach(groups.filter(\.isDefault)) { Text(verbatim: $0.menuLabel).tag($0.id) }
+            Section("HiDPI") {
+                ForEach(groups.filter { $0.isHiDPI && !$0.isDefault }) { Text(verbatim: $0.resolutionString).tag($0.id) }
+            }
+            Section("Non-HiDPI") {
+                ForEach(groups.filter { !$0.isHiDPI && !$0.isDefault }) { Text(verbatim: $0.menuLabel).tag($0.id) }
+            }
+        }
+    }
+
+    private func loadProfiles() async {
+        let loaded = await ColorProfileService.shared.enumerateProfiles(for: display.displayUUID)
+        let current = ColorProfileService.shared.currentProfileURL(for: display.displayID)
+        profiles = loaded
+        // Match by path: the registry URL and FileManager's can differ in percent-encoding.
+        profilePath = loaded.first(where: { $0.path.path == current?.path })?.path ?? current
+    }
+
+    private func makeMain() {
+        Task { @MainActor in
+            if !(await ArrangementService.shared.setAsMainDisplay(display.displayID, among: displayManager.displays)) {
+                showError(String(localized: "Failed to set main display"))
+            }
+        }
+    }
+
+    private func showError(_ text: String) {
+        errorText = text
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            errorText = nil
+        }
     }
 }

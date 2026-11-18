@@ -253,6 +253,22 @@
         }
       }
     },
+    "Adjust…" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "调整…"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "調整…"
+          }
+        }
+      }
+    },
     "Advanced Settings…" : {
       "localizations" : {
         "zh-Hans" : {
@@ -457,6 +473,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "鍵盤"
+          }
+        }
+      }
+    },
+    "Main Display" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "主显示器"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "主顯示器"
           }
         }
       }
@@ -1846,6 +1878,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "顯示器：%@"
+          }
+        }
+      }
+    },
+    "Done" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "完成"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "完成"
           }
         }
       }

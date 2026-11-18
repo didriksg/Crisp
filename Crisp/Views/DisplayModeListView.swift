@@ -57,7 +57,7 @@ final class DisplayModeController: ObservableObject {
 
     /// Group modes by (resolution + HiDPI), sorted by resolution descending.
     /// Cached; several block views read this per render. The relay above invalidates it.
-    fileprivate var resolutionGroups: [ResolutionGroup] {
+    var resolutionGroups: [ResolutionGroup] {
         if let cachedGroups { return cachedGroups }
         let computed = computeResolutionGroups()
         cachedGroups = computed
@@ -163,7 +163,7 @@ final class DisplayModeController: ObservableObject {
         }
     }
 
-    fileprivate var currentGroup: ResolutionGroup? {
+    var currentGroup: ResolutionGroup? {
         resolutionGroups.first { $0.modes.contains { $0.id == currentMode?.id } }
     }
 
@@ -187,7 +187,7 @@ final class DisplayModeController: ObservableObject {
 
     // MARK: - Actions
 
-    fileprivate func selectResolution(_ group: ResolutionGroup) {
+    func selectResolution(_ group: ResolutionGroup) {
         guard group.id != currentGroup?.id, pendingResolutionID == nil else { return }
         // Keep the current refresh rate when the new resolution offers it. Tolerant match:
         // CG reports fractional rates (59.94) where the CGS-surfaced modes carry whole Hz.
@@ -419,7 +419,8 @@ final class DisplayModeController: ObservableObject {
     /// soft-reconnects so macOS re-enumerates in software. Optimistic: the knob moves now,
     /// a settle re-read adopts whatever actually enumerated. If the soft-reconnect can't
     /// complete, the write still landed; reconnectHint says how to make it take effect (#58).
-    func userToggleSmooth(_ on: Bool) {
+    /// `fromPanel` false (Advanced Settings): skip the panel's key and re-expand handling.
+    func userToggleSmooth(_ on: Bool, fromPanel: Bool = true) {
         guard !smoothBusy, PanelOpenGuard.allowsActivation else { return }
         smoothOn = on   // optimistic; the re-enumeration below confirms it
         smoothBusy = true
@@ -469,16 +470,18 @@ final class DisplayModeController: ObservableObject {
                             localized: "Saved. Unplug and replug the monitor cable, or restart your Mac, to apply.")
                     }
                 }
-                // The blank/auth prompt can steal key focus, greying the switch; re-key the panel.
-                if let panel = NSApp.windows.first(where: { $0 is MenuPanel }), panel.isVisible {
-                    panel.makeKey()
+                if fromPanel {
+                    // The blank/auth prompt can steal key focus, greying the switch; re-key the panel.
+                    if let panel = NSApp.windows.first(where: { $0 is MenuPanel }), panel.isVisible {
+                        panel.makeKey()
+                    }
+                    // The reconnect rebuilt this display's row; ask the menu to re-expand it and
+                    // reopen Resolution so the user lands back where they were.
+                    displayManager.pendingResolutionExpandUUID = targetUUID
+                    // Key theft can continue briefly after the suppression window above releases;
+                    // ignore bare resigns for a grace period. Real outside clicks still dismiss.
+                    PanelOpenGuard.resignKeyGraceUntil = Date().addingTimeInterval(5)
                 }
-                // The reconnect rebuilt this display's row; ask the menu to re-expand it and
-                // reopen Resolution so the user lands back where they were.
-                displayManager.pendingResolutionExpandUUID = targetUUID
-                // Key theft can continue briefly after the suppression window above releases;
-                // ignore bare resigns for a grace period. Real outside clicks still dismiss.
-                PanelOpenGuard.resignKeyGraceUntil = Date().addingTimeInterval(5)
             }
             smoothBusy = false
         }
@@ -904,7 +907,7 @@ private struct DisclosureSubRow: View {
 
 // MARK: - Data model
 
-private struct ResolutionGroup: Identifiable {
+struct ResolutionGroup: Identifiable {
     let width: Int
     let height: Int
     let isHiDPI: Bool

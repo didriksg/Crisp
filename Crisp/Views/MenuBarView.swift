@@ -307,6 +307,39 @@ struct UpdateRow: View {
     }
 }
 
+// MARK: - SettingSwitchRow
+
+/// A switch row: the panel's icon row, or a plain form toggle in Advanced Settings, which
+/// has no icon chips (docs/DESIGN.md). Lets a view keep one copy of its logic for both.
+struct SettingSwitchRow: View {
+    let inForm: Bool
+    let icon: String
+    let color: Color
+    let label: LocalizedStringKey
+    @Binding var isOn: Bool
+    var disabled = false
+
+    var body: some View {
+        if inForm {
+            Toggle(label, isOn: $isOn).disabled(disabled)
+        } else {
+            HStack {
+                MenuItemIcon(systemName: icon, color: color, active: isOn)
+                Text(label)
+                    .font(.body)
+                Spacer()
+                Toggle("", isOn: $isOn)
+                    .toggleStyle(.switch)
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .disabled(disabled)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 3)
+        }
+    }
+}
+
 // MARK: - SupportRow
 
 /// Optional "buy me a coffee" link at the bottom of Settings, styled as a normal
