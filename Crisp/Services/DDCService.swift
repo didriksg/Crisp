@@ -67,7 +67,7 @@ final class DDCService: ObservableObject, @unchecked Sendable {
     // MARK: - IOAVService Cache (ARM64 only)
 
 #if arch(arm64)
-    private var avServiceCache: [CGDirectDisplayID: IOAVServiceRef] = [:]
+    private var avServiceCache: [CGDirectDisplayID: IOAVService] = [:]
     /// Caches a recent "no channel" miss so a slow/wedged display isn't re-probed on every
     /// op (issue #33). See docs/ddc-notes.md (the hold around enable and disable).
     /// Under avServiceLock.
@@ -77,7 +77,7 @@ final class DDCService: ObservableObject, @unchecked Sendable {
     private let avServiceBuildLock = NSLock()
     private var avServiceTopology: UInt64 = 0
     /// Ordered list of all external AVServices found during last enumeration.
-    private var allExternalAVServices: [IOAVServiceRef] = []
+    private var allExternalAVServices: [IOAVService] = []
 #endif
 
     private init() {}
@@ -102,7 +102,7 @@ final class DDCService: ObservableObject, @unchecked Sendable {
     /// Builds a display->AVService map by walking the IOService registry depth-first.
     /// See docs/ddc-notes.md (AVService pairing) for why and the matching order.
     /// Returns the map plus the external AVServices in traversal order.
-    private func buildAVServiceMapByProximity() -> (map: [CGDirectDisplayID: IOAVServiceRef], ordered: [IOAVServiceRef]) {
+    private func buildAVServiceMapByProximity() -> (map: [CGDirectDisplayID: IOAVService], ordered: [IOAVService]) {
         var displayCount: UInt32 = 0
         CGGetOnlineDisplayList(0, nil, &displayCount)
         var displayIDs = [CGDirectDisplayID](repeating: 0, count: Int(displayCount))
@@ -123,7 +123,7 @@ final class DDCService: ObservableObject, @unchecked Sendable {
         ) == KERN_SUCCESS else { return ([:], []) }
         defer { IOObjectRelease(iterator) }
 
-        var ordered: [IOAVServiceRef] = []
+        var ordered: [IOAVService] = []
         var identities: [DDCServiceMatcher.Identity?] = []
         var lastIdentity: DDCServiceMatcher.Identity? = nil
 
@@ -145,7 +145,7 @@ final class DDCService: ObservableObject, @unchecked Sendable {
                 )?.takeRetainedValue() as? String
                 // Some drivers omit "Location"; still attempt those. Skip explicit non-External.
                 if location == nil || location == "External",
-                   let avService = IOAVServiceCreateWithService(kCFAllocatorDefault, entry) {
+                   let avService = IOAVServiceCreateWithService(kCFAllocatorDefault, entry)?.takeRetainedValue() {
                     ordered.append(avService)
                     identities.append(lastIdentity)
                 }
@@ -195,7 +195,7 @@ final class DDCService: ObservableObject, @unchecked Sendable {
             }
         }
 
-        var map: [CGDirectDisplayID: IOAVServiceRef] = [:]
+        var map: [CGDirectDisplayID: IOAVService] = [:]
         // Safe: each display ID is assigned exactly once, so Dictionary's iteration order
         // can't drop or overwrite an entry.
         for (displayID, serviceIndex) in result.byDisplayID {
@@ -229,7 +229,7 @@ final class DDCService: ObservableObject, @unchecked Sendable {
 
     /// Finds and caches the IOAVService for a display; nil for built-ins or displays
     /// with no AV path. Matching strategy: see buildAVServiceMapByProximity.
-    private func findAVService(for displayID: CGDirectDisplayID) -> IOAVServiceRef? {
+    private func findAVService(for displayID: CGDirectDisplayID) -> IOAVService? {
         // Fast path: return cached service if present, or a recent miss as nil.
         avServiceLock.lock()
         if let cached = avServiceCache[displayID] {
@@ -288,7 +288,7 @@ final class DDCService: ObservableObject, @unchecked Sendable {
 
     /// Each message goes out twice, 10 ms before each copy, as in MonitorControl, BetterDisplay
     /// and m1ddc: some monitors act only on the second copy (docs/ddc-notes.md, PR #245).
-    private func arm64Send(_ avService: IOAVServiceRef, _ buf: inout [UInt8]) -> IOReturn {
+    private func arm64Send(_ avService: IOAVService, _ buf: inout [UInt8]) -> IOReturn {
         var ret = kIOReturnSuccess
         for _ in 0..<2 {
             Thread.sleep(forTimeInterval: 0.01)
