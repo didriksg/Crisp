@@ -493,22 +493,6 @@
         }
       }
     },
-    "No advanced settings on this Mac." : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "这台 Mac 没有高级设置。"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "這台 Mac 沒有進階設定。"
-          }
-        }
-      }
-    },
     "Reading the inputs from the monitor…" : {
       "localizations" : {
         "zh-Hans" : {
@@ -1325,6 +1309,22 @@
       }
     },
     "Combined" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "合并亮度"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "合併亮度"
+          }
+        }
+      }
+    },
+    "Combined Brightness" : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {

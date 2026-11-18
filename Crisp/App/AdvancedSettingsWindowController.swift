@@ -28,7 +28,8 @@ final class AdvancedSettingsWindowController: NSWindowController, NSWindowDelega
     }
 
     private func makeWindow() -> NSWindow {
-        let tabs = NSTabViewController()
+        let savedTab = UserDefaults.standard.string(forKey: AdvancedSettingsTabs.lastTabKey)
+        let tabs = AdvancedSettingsTabs()
         tabs.tabStyle = .toolbar
         tabs.addTabViewItem(tab(AdvancedGeneralTab(), label: String(localized: "General"), symbol: "gearshape"))
         tabs.addTabViewItem(tab(AdvancedKeyboardTab(), label: String(localized: "Keyboard"), symbol: "keyboard"))
@@ -43,6 +44,11 @@ final class AdvancedSettingsWindowController: NSWindowController, NSWindowDelega
                 if show, !shown { tabs.addTabViewItem(displaysTab) }
                 if !show, shown { tabs.removeTabViewItem(displaysTab) }
             }
+        }
+
+        if let savedTab {
+            let index = tabs.tabView.indexOfTabViewItem(withIdentifier: savedTab)
+            if index != NSNotFound { tabs.selectedTabViewItemIndex = index }
         }
 
         let window = AdvancedSettingsWindow(contentViewController: tabs)
@@ -63,6 +69,7 @@ final class AdvancedSettingsWindowController: NSWindowController, NSWindowDelega
         host.title = label  // the tab controller passes it on as the window title
         let item = NSTabViewItem(viewController: host)
         item.label = label
+        item.identifier = symbol  // stable across languages, for the saved last tab
         item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
         return item
     }
@@ -70,6 +77,18 @@ final class AdvancedSettingsWindowController: NSWindowController, NSWindowDelega
     func windowWillClose(_ notification: Notification) {
         // A recording in this window must not leave every hotkey suspended.
         NotificationCenter.default.post(name: .crispStopShortcutRecording, object: nil)
+    }
+}
+
+/// Remembers the last tab across launches, as the HIG asks of a settings window.
+private final class AdvancedSettingsTabs: NSTabViewController {
+    static let lastTabKey = "crisp.advancedSettingsLastTab"
+
+    override func tabView(_ tabView: NSTabView, didSelect tabViewItem: NSTabViewItem?) {
+        super.tabView(tabView, didSelect: tabViewItem)
+        if let id = tabViewItem?.identifier as? String {
+            UserDefaults.standard.set(id, forKey: Self.lastTabKey)
+        }
     }
 }
 

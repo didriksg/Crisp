@@ -692,7 +692,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                     KeepAwakeRow()
                 }
                 EdgeCrossingRow()
-                DisconnectBuiltinRow()
                 ExpandableRowStateful(icon: "display.2", iconActive: false,
                                       label: "Virtual Displays", state: state, key: \.showVirtualDisplays)
             }

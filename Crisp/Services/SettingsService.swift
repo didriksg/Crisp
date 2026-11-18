@@ -32,7 +32,15 @@ final class SettingsService: ObservableObject, @unchecked Sendable {
     }()
 
     private init() {
+        // loadAll() stores the login state on every launch, so a missing key means a new
+        // install: Launch at Login starts on there (macOS then shows its "login item
+        // added" notice). An existing user's choice is never changed.
+        let isNewInstall = defaults.object(forKey: Keys.launchAtLogin) == nil
         loadAll()
+        if isNewInstall && !launchAtLogin {
+            LaunchService.shared.enable()
+            launchAtLogin = LaunchService.shared.isEnabled
+        }
         // Re-sync launch-at-login from SMAppService on every panel open (no OS notification
         // exists for login-item changes), so an external toggle reflects without a relaunch.
         NotificationCenter.default.addObserver(

@@ -11,14 +11,88 @@ private let tabWidth: CGFloat = 520
 
 struct AdvancedGeneralTab: View {
     @ObservedObject private var settings = SettingsService.shared
+    @EnvironmentObject var displayManager: DisplayManager
     @State private var cliInstalled = CrispctlInstaller.isInstalled
+
+    private var physicalDisplays: [DisplayInfo] {
+        displayManager.displays.filter { !VirtualDisplayService.shared.isVirtualDisplay($0.displayID) }
+    }
+
+    /// The ratio is used only by the combined slider, with the built-in and an external both on.
+    private var showsRatio: Bool {
+        settings.showCombinedBrightness
+            && physicalDisplays.contains(where: { $0.isBuiltin })
+            && physicalDisplays.contains(where: { !$0.isBuiltin })
+    }
+
+    /// Effective linear-brightness slope: external peak nits divided by the
+    /// built-in SDR peak, then multiplied by the user's fine tuning.
+    private var combinedBuiltinLuminanceRatio: Double? {
+        guard let builtinMax = physicalDisplays.first(where: { $0.isBuiltin })?.nominalMaxNits else {
+            return nil
+        }
+        let externalMaxima = physicalDisplays.filter { !$0.isBuiltin }.compactMap(\.nominalMaxNits)
+        guard !externalMaxima.isEmpty else { return nil }
+        let externalMax = externalMaxima.reduce(0, +) / Double(externalMaxima.count)
+        return externalMax / builtinMax * settings.combinedBuiltinBrightnessFactor
+    }
+
+    private var ratioPercent: Int {
+        Int(((combinedBuiltinLuminanceRatio ?? settings.combinedBuiltinBrightnessFactor) * 100).rounded())
+    }
 
     var body: some View {
         let showsSwitches = PhysicalDisplayToggleService.shared.isSupported
+        // No built-in panel to turn off on a Mac with no battery (a disconnected built-in
+        // leaves the display list, so the battery is the laptop test), nor on Intel.
+        let showsAutoDisconnect = showsSwitches && PhysicalDisplayToggleService.hasBattery
         let showsCLI = CrispctlInstaller.isAvailable
-        Group {
-            if showsSwitches || showsCLI {
-                Form {
+        Form {
+                    Section {
+                        Toggle("Launch at Login", isOn: Binding(
+                            get: { settings.launchAtLogin },
+                            set: { newValue in
+                                if newValue { LaunchService.shared.enable() } else { LaunchService.shared.disable() }
+                                settings.launchAtLogin = LaunchService.shared.isEnabled
+                            }
+                        ))
+                    }
+                    if showsRatio {
+                        Section("Combined Brightness") {
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack(alignment: .firstTextBaseline) {
+                                    Text("Absolute brightness ratio")
+                                    Spacer()
+                                    Text("\(ratioPercent)%").monospacedDigit().foregroundStyle(.secondary)
+                                }
+                                Slider(
+                                    value: $settings.combinedBuiltinBrightnessFactor,
+                                    in: CombinedBrightnessMath.builtinAdjustmentRange
+                                )
+                                .accessibilityLabel("Absolute brightness ratio")
+                                .accessibilityValue("\(ratioPercent)%")
+                                Text("From each panel's rated nits. HDR monitors report their HDR peak, "
+                                     + "so lower this if the built-in runs too bright")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    if showsAutoDisconnect {
+                        Section("Displays") {
+                            Toggle(isOn: $settings.disconnectBuiltinWhenDocked) {
+                                Text("Auto-Disconnect Built-in")
+                                Text("Turns the built-in display off while an external display is connected")
+                            }
+                            .onChange(of: settings.disconnectBuiltinWhenDocked) { _, isOn in
+                                if isOn {
+                                    PhysicalDisplayToggleService.shared.reapplyParkedIfDocked()
+                                } else {
+                                    PhysicalDisplayToggleService.shared.clearParked()
+                                }
+                            }
+                        }
+                    }
                     if showsSwitches {
                         Section("Menu Bar") {
                             Toggle(isOn: $settings.showConnectionSwitches) {
@@ -41,12 +115,11 @@ struct AdvancedGeneralTab: View {
                             }
                         }
                     }
-                }
-                .formStyle(.grouped)
-                .onAppear { cliInstalled = CrispctlInstaller.isInstalled }
-            } else {
-                emptyState("No advanced settings on this Mac.")
-            }
+        }
+        .formStyle(.grouped)
+        .onAppear {
+            cliInstalled = CrispctlInstaller.isInstalled
+            settings.launchAtLogin = LaunchService.shared.isEnabled  // may change in System Settings
         }
         .frame(width: tabWidth)
     }
@@ -58,9 +131,36 @@ struct AdvancedGeneralTab: View {
 /// live on the presets in the panel, not here.
 struct AdvancedKeyboardTab: View {
     @ObservedObject private var settings = SettingsService.shared
+    @EnvironmentObject var displayManager: DisplayManager
+    // The target choice shows once Accessibility is granted; until then the panel's Settings
+    // asks for it (it stays there so everyone sees it). AXIsProcessTrusted() is not
+    // observable, so it is re-read when Crisp becomes active again.
+    @State private var isTrusted = AXIsProcessTrusted()
 
     var body: some View {
         Form {
+            if isTrusted {
+                Section {
+                    Picker("Brightness Keys", selection: $settings.brightnessKeyTarget) {
+                        ForEach(BrightnessKeyTarget.allCases, id: \.self) { Text(targetName($0)).tag($0) }
+                    }
+                    // Keyed by displayUUID so the choice survives reconnects.
+                    if settings.brightnessKeyTarget == .selected {
+                        ForEach(displayManager.displays) { display in
+                            Toggle(display.name, isOn: Binding(
+                                get: { settings.brightnessKeySelectedDisplayUUIDs.contains(display.displayUUID) },
+                                set: { isOn in
+                                    if isOn {
+                                        settings.brightnessKeySelectedDisplayUUIDs.insert(display.displayUUID)
+                                    } else {
+                                        settings.brightnessKeySelectedDisplayUUIDs.remove(display.displayUUID)
+                                    }
+                                }
+                            ))
+                        }
+                    }
+                }
+            }
             Section("Keyboard Shortcuts") {
                 recorder("Toggle HiDPI", \.hidpiShortcut) { settings.hidpiShortcut = $0 }
                 caption("Switches the display under the pointer between HiDPI and low resolution.")
@@ -74,7 +174,19 @@ struct AdvancedKeyboardTab: View {
             }
         }
         .formStyle(.grouped)
+        .onAppear { isTrusted = AXIsProcessTrusted() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            isTrusted = AXIsProcessTrusted()
+        }
         .frame(width: tabWidth)
+    }
+
+    private func targetName(_ target: BrightnessKeyTarget) -> String {
+        switch target {
+        case .underCursor: return String(localized: "Follow the pointer")
+        case .allDisplays: return String(localized: "All connected displays")
+        case .selected:    return String(localized: "Selected displays only")
+        }
     }
 
     /// Commits at once (no form to save): store, take the combo off whatever else held
@@ -204,10 +316,4 @@ private struct AdvancedDisplayPage: View {
         }
         .formStyle(.grouped)
     }
-}
-
-private func emptyState(_ text: LocalizedStringKey) -> some View {
-    Text(text)
-        .foregroundStyle(.secondary)
-        .frame(maxWidth: .infinity, minHeight: 160)
 }
