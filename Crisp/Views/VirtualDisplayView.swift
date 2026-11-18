@@ -245,6 +245,28 @@ private struct VirtualDisplayEditor: View {
     private var isNew: Bool { onCreate != nil }
 
     var body: some View {
+        if isNew {
+            // A sheet sizes to the form's minimum, which is near zero for a grouped form,
+            // so the sheet gets a height and its buttons sit under the form, not over it.
+            VStack(spacing: 0) {
+                form.frame(height: custom ? 236 : 200)
+                HStack {
+                    Spacer()
+                    if isCreating { ProgressView().controlSize(.small) }
+                    Button("Cancel") { dismiss() }
+                        .keyboardShortcut(.cancelAction)
+                    Button("Create") { create() }
+                        .keyboardShortcut(.defaultAction)
+                        .disabled(isCreating || (custom && customSize == nil))
+                }
+                .padding([.horizontal, .bottom], 20)
+            }
+        } else {
+            form.onDisappear { commitName() }
+        }
+    }
+
+    private var form: some View {
         Form {
             Section {
                 TextField("Name", text: $name)
@@ -291,21 +313,7 @@ private struct VirtualDisplayEditor: View {
             }
         }
         .formStyle(.grouped)
-        .onDisappear { if !isNew { commitName() } }
-        .safeAreaInset(edge: .bottom) {
-            if isNew {
-                HStack {
-                    Spacer()
-                    if isCreating { ProgressView().controlSize(.small) }
-                    Button("Cancel") { dismiss() }
-                        .keyboardShortcut(.cancelAction)
-                    Button("Create") { create() }
-                        .keyboardShortcut(.defaultAction)
-                        .disabled(isCreating || (custom && customSize == nil))
-                }
-                .padding([.horizontal, .bottom], 20)
-            }
-        }
+        .scrollDisabled(isNew)
     }
 
     private var sizeIndex: Int {
