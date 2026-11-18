@@ -94,6 +94,23 @@ final class AdvancedSettingsWindowController: NSWindowController, NSWindowDelega
 private final class AdvancedSettingsTabs: NSTabViewController {
     static let lastTabKey = "crisp.advancedSettingsLastTab"
 
+    /// A row shown or hidden inside a tab changes that tab's size, but the tab controller
+    /// resizes the window only on a tab switch. Follow the change, top edge fixed, as
+    /// Apple's settings windows grow and shrink.
+    override func preferredContentSizeDidChange(for viewController: NSViewController) {
+        super.preferredContentSizeDidChange(for: viewController)
+        guard let window = view.window,
+              tabViewItems.indices.contains(selectedTabViewItemIndex),
+              tabViewItems[selectedTabViewItemIndex].viewController === viewController else { return }
+        let size = viewController.preferredContentSize
+        guard size.height > 0 else { return }
+        let old = window.frame
+        var frame = window.frameRect(forContentRect: NSRect(origin: .zero, size: size))
+        frame.origin = NSPoint(x: old.minX, y: old.maxY - frame.height)
+        guard frame.size != old.size else { return }
+        window.setFrame(frame, display: true, animate: true)
+    }
+
     override func tabView(_ tabView: NSTabView, didSelect tabViewItem: NSTabViewItem?) {
         super.tabView(tabView, didSelect: tabViewItem)
         if let id = tabViewItem?.identifier as? String {
