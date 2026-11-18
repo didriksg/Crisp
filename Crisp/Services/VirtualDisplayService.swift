@@ -46,6 +46,11 @@ final class VirtualDisplayService: ObservableObject, @unchecked Sendable {
 
     static let refreshRateOptions: [Double] = [50, 60, 75, 120, 144]
 
+    /// "3840 × 2160 · 60 Hz", the line under a virtual display's name.
+    static func summary(_ config: VirtualDisplayConfig) -> String {
+        "\(config.width) × \(config.height) · \(RefreshRateFormat.label(config.refreshRate))"
+    }
+
     // MARK: - State
 
     @Published var configs: [VirtualDisplayConfig] = []

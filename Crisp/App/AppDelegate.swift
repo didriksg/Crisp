@@ -700,7 +700,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         toolsA.liveInFlight = true   // Virtual Displays chevron
         blocks.append(toolsA)
         blocks.append(block("vdrows", isOpen: { state.showTools && state.showVirtualDisplays }) {
-            VirtualDisplayView()
+            VirtualDisplayView(openManager: { [weak self] in
+                self?.closePanel()
+                self?.advancedSettings.show(tab: AdvancedSettingsWindowController.virtualDisplaysTab)
+            })
                 .padding(.leading, 16)
         })
         let toolsB = block("toolsB", isOpen: { [weak dm] in

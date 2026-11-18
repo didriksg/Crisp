@@ -461,6 +461,22 @@
         }
       }
     },
+    "Manage Virtual Displays…" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "管理虚拟显示器…"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "管理虛擬顯示器…"
+          }
+        }
+      }
+    },
     "Menu Bar" : {
       "localizations" : {
         "zh-Hans" : {
@@ -642,38 +658,6 @@
     },
     "∞" : {
       "shouldTranslate" : false
-    },
-    "Activate" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "启用"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "啟用"
-          }
-        }
-      }
-    },
-    "Active" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "活动"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "使用中"
-          }
-        }
-      }
     },
     "Adds finer in-between steps for how large everything looks" : {
       "localizations" : {
@@ -1420,22 +1404,6 @@
         }
       }
     },
-    "Create" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "创建"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "建立"
-          }
-        }
-      }
-    },
     "Create at launch" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -1499,22 +1467,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "建立虛擬顯示器"
-          }
-        }
-      }
-    },
-    "Creating…" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "正在创建…"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "正在建立…"
           }
         }
       }
@@ -1686,22 +1638,6 @@
     },
     "DDC" : {
       "shouldTranslate" : false
-    },
-    "Deactivate" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "停用"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "停用"
-          }
-        }
-      }
     },
     "Delete" : {
       "localizations" : {
@@ -2980,22 +2916,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "打開可以請我喝咖啡的頁面"
-          }
-        }
-      }
-    },
-    "Options" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "选项"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "選項"
           }
         }
       }
@@ -4488,22 +4408,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "虛擬顯示器"
-          }
-        }
-      }
-    },
-    "Virtual display options" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "虚拟显示器选项"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "虛擬顯示器選項"
           }
         }
       }

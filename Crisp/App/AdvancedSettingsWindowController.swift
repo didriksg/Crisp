@@ -8,6 +8,7 @@ import SwiftUI
 /// scene, and the panel's views have none (docs/best-practice/settings-window.md).
 @MainActor
 final class AdvancedSettingsWindowController: NSWindowController, NSWindowDelegate {
+    static let virtualDisplaysTab = "display.2"
     private let displayManager: DisplayManager
     private var displaysWatch: AnyCancellable?
 
@@ -19,8 +20,13 @@ final class AdvancedSettingsWindowController: NSWindowController, NSWindowDelega
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
-    func show() {
+    /// `tab` is a tab's identifier (its symbol name) to open on, or nil for the last tab.
+    func show(tab: String? = nil) {
         if window == nil { window = makeWindow() }
+        if let tab, let tabs = window?.contentViewController as? NSTabViewController {
+            let index = tabs.tabView.indexOfTabViewItem(withIdentifier: tab)
+            if index != NSNotFound { tabs.selectedTabViewItemIndex = index }
+        }
         // A request on macOS 14 and later; the live test in the best-practice note
         // decides whether this is enough.
         NSApp.activate()
@@ -33,6 +39,8 @@ final class AdvancedSettingsWindowController: NSWindowController, NSWindowDelega
         tabs.tabStyle = .toolbar
         tabs.addTabViewItem(tab(AdvancedGeneralTab(), label: String(localized: "General"), symbol: "gearshape"))
         tabs.addTabViewItem(tab(AdvancedKeyboardTab(), label: String(localized: "Keyboard"), symbol: "keyboard"))
+        tabs.addTabViewItem(tab(AdvancedVirtualDisplaysTab(), label: String(localized: "Virtual Displays"),
+                                symbol: Self.virtualDisplaysTab))
         let displaysTab = tab(AdvancedDisplaysTab(), label: String(localized: "Displays"), symbol: "display")
         // The Displays tab is there only while it has a display to list.
         // DisplayManager publishes on the main thread.
