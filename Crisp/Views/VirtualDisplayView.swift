@@ -113,6 +113,7 @@ struct AdvancedVirtualDisplaysTab: View {
     @State private var selection: UUID?
     @State private var confirmDelete = false
     @State private var errorText: String?
+    @State private var newConfig: VirtualDisplayService.VirtualDisplayConfig?
 
     static let sizes: [(label: String, width: Int, height: Int)] = [
         ("1920×1080 (FHD)", 1920, 1080),
@@ -169,6 +170,10 @@ struct AdvancedVirtualDisplaysTab: View {
             }
         }
         .frame(width: 520)
+        .sheet(item: $newConfig) { config in
+            VirtualDisplayEditor(config: config, onError: showError, onCreate: create)
+                .frame(width: 440)
+        }
         .alert("Confirm Deletion", isPresented: $confirmDelete) {
             Button("Delete", role: .destructive) {
                 if let id = selected?.id { service.removeConfig(id: id) }
@@ -184,19 +189,22 @@ struct AdvancedVirtualDisplaysTab: View {
     }
 
     /// + makes and turns on a new display at the first size not saved yet, then selects it.
+    /// + opens the create sheet, starting at the first size not saved yet.
     private func add() {
         let size = Self.sizes.first { size in
             !service.configs.contains { $0.width == size.width && $0.height == size.height }
         } ?? Self.sizes[0]
-        let config = VirtualDisplayService.VirtualDisplayConfig(
+        newConfig = VirtualDisplayService.VirtualDisplayConfig(
             name: String(localized: "Virtual Display"), width: size.width, height: size.height)
-        Task { @MainActor in
-            if await service.addAndCreate(config) {
-                selection = config.id
-            } else {
-                showError(String(localized: "Failed to create virtual display. Please try again."))
-            }
+    }
+
+    private func create(_ config: VirtualDisplayService.VirtualDisplayConfig) async -> Bool {
+        if await service.addAndCreate(config) {
+            selection = config.id
+            return true
         }
+        showError(String(localized: "Failed to create virtual display. Please try again."))
+        return false
     }
 
     private func showError(_ text: String) {
@@ -208,23 +216,33 @@ struct AdvancedVirtualDisplaysTab: View {
     }
 }
 
+/// The settings of one virtual display. For a saved display (`onCreate` nil) every change
+/// applies at once; for a new one (`onCreate` set, shown in a sheet) nothing happens until
+/// Create, and Cancel drops it.
 private struct VirtualDisplayEditor: View {
-    let config: VirtualDisplayService.VirtualDisplayConfig
     let onError: (String) -> Void
+    let onCreate: ((VirtualDisplayService.VirtualDisplayConfig) async -> Bool)?
+    @Environment(\.dismiss) private var dismiss
+    @State private var draft: VirtualDisplayService.VirtualDisplayConfig
     @State private var name: String
     @State private var custom: Bool
     @State private var customWidth: String
     @State private var customHeight: String
+    @State private var isCreating = false
 
-    init(config: VirtualDisplayService.VirtualDisplayConfig, onError: @escaping (String) -> Void) {
-        self.config = config
+    init(config: VirtualDisplayService.VirtualDisplayConfig, onError: @escaping (String) -> Void,
+         onCreate: ((VirtualDisplayService.VirtualDisplayConfig) async -> Bool)? = nil) {
         self.onError = onError
+        self.onCreate = onCreate
+        _draft = State(initialValue: config)
         _name = State(initialValue: config.name)
         let isPreset = AdvancedVirtualDisplaysTab.sizes.contains { $0.width == config.width && $0.height == config.height }
         _custom = State(initialValue: !isPreset)
         _customWidth = State(initialValue: String(config.width))
         _customHeight = State(initialValue: String(config.height))
     }
+
+    private var isNew: Bool { onCreate != nil }
 
     var body: some View {
         Form {
@@ -261,52 +279,86 @@ private struct VirtualDisplayEditor: View {
                     }
                 }
                 Picker("Refresh Rate", selection: Binding(
-                    get: { config.refreshRate },
+                    get: { draft.refreshRate },
                     set: { rate in save { $0.refreshRate = rate } }
                 )) {
                     ForEach(rateOptions, id: \.self) { Text(verbatim: RefreshRateFormat.label($0)).tag($0) }
                 }
                 Toggle("Create at launch", isOn: Binding(
-                    get: { config.autoCreate },
+                    get: { draft.autoCreate },
                     set: { on in save { $0.autoCreate = on } }
                 ))
             }
         }
         .formStyle(.grouped)
-        .onDisappear { commitName() }
+        .onDisappear { if !isNew { commitName() } }
+        .safeAreaInset(edge: .bottom) {
+            if isNew {
+                HStack {
+                    Spacer()
+                    if isCreating { ProgressView().controlSize(.small) }
+                    Button("Cancel") { dismiss() }
+                        .keyboardShortcut(.cancelAction)
+                    Button("Create") { create() }
+                        .keyboardShortcut(.defaultAction)
+                        .disabled(isCreating || (custom && customSize == nil))
+                }
+                .padding([.horizontal, .bottom], 20)
+            }
+        }
     }
 
     private var sizeIndex: Int {
-        AdvancedVirtualDisplaysTab.sizes.firstIndex { $0.width == config.width && $0.height == config.height } ?? -1
+        AdvancedVirtualDisplaysTab.sizes.firstIndex { $0.width == draft.width && $0.height == draft.height } ?? -1
     }
 
     /// Keeps a rate saved before the list changed selectable.
     private var rateOptions: [Double] {
         let options = VirtualDisplayService.refreshRateOptions
-        return options.contains(config.refreshRate) ? options : (options + [config.refreshRate]).sorted()
+        return options.contains(draft.refreshRate) ? options : (options + [draft.refreshRate]).sorted()
+    }
+
+    /// Same bounds as before the move: 640...8192 by 480...8192.
+    private var customSize: (width: Int, height: Int)? {
+        guard let width = Int(customWidth), let height = Int(customHeight),
+              (640...8192).contains(width), (480...8192).contains(height) else { return nil }
+        return (width, height)
     }
 
     private func commitName() {
         let trimmed = name.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty, trimmed != config.name else { return }
+        guard !trimmed.isEmpty else { return }
         save { $0.name = trimmed }
     }
 
-    /// Same bounds as before the move: 640...8192 by 480...8192.
+    /// On Return only: typing 1920 passes through 192, which must not resize a live display.
     private func commitCustomSize() {
-        guard let width = Int(customWidth), let height = Int(customHeight),
-              (640...8192).contains(width), (480...8192).contains(height) else { return }
-        save { $0.width = width; $0.height = height }
+        guard let size = customSize else { return }
+        save { $0.width = size.width; $0.height = size.height }
     }
 
     private func save(_ change: (inout VirtualDisplayService.VirtualDisplayConfig) -> Void) {
-        var updated = config
+        var updated = draft
         change(&updated)
-        guard updated != config else { return }
+        guard updated != draft else { return }
+        draft = updated
+        guard !isNew else { return }
         Task { @MainActor in
             if !(await VirtualDisplayService.shared.updateConfig(updated)) {
                 onError(String(localized: "Failed to update virtual display. Please try again."))
             }
+        }
+    }
+
+    private func create() {
+        guard let onCreate, !isCreating else { return }
+        commitName()
+        if custom { commitCustomSize() }
+        isCreating = true
+        Task { @MainActor in
+            let ok = await onCreate(draft)
+            isCreating = false
+            if ok { dismiss() }
         }
     }
 }
