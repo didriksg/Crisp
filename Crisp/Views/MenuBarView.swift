@@ -456,6 +456,22 @@ struct SettingsView: View {
         }
     }
 
+    /// Effective linear-brightness slope: external peak nits divided by the
+    /// built-in SDR peak, then multiplied by the user's fine tuning.
+    private var combinedBuiltinLuminanceRatio: Double? {
+        guard let builtinMax = physicalDisplays.first(where: { $0.isBuiltin })?.nominalMaxNits else {
+            return nil
+        }
+        let externalMaxima = physicalDisplays.filter { !$0.isBuiltin }.compactMap(\.nominalMaxNits)
+        guard !externalMaxima.isEmpty else { return nil }
+        let externalMax = externalMaxima.reduce(0, +) / Double(externalMaxima.count)
+        return externalMax / builtinMax * settings.combinedBuiltinBrightnessFactor
+    }
+
+    private var combinedBuiltinLuminanceRatioPercent: Int {
+        Int(((combinedBuiltinLuminanceRatio ?? settings.combinedBuiltinBrightnessFactor) * 100).rounded())
+    }
+
     /// Opt-in control for brightness-key redirection, shown only while Accessibility is
     /// missing: the in-context trigger for the native trust prompt (nothing is requested
     /// at launch). On grant the parent swaps this for the target menu. (b00d.1, jv1b)
@@ -540,6 +556,38 @@ struct SettingsView: View {
                 .controlSize(.small)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 3)
+
+                if settings.showCombinedBrightness && physicalDisplays.contains(where: { $0.isBuiltin }) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Absolute brightness ratio")
+                                    .font(.callout)
+                                Text("From each panel's rated nits. HDR monitors report their HDR peak, "
+                                     + "so lower this if the built-in runs too bright")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                            }
+                            Spacer()
+                            Text("\(combinedBuiltinLuminanceRatioPercent)%")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .monospacedDigit()
+                        }
+                        Slider(
+                            value: $settings.combinedBuiltinBrightnessFactor,
+                            in: CombinedBrightnessMath.builtinAdjustmentRange,
+                            step: 0.02
+                        )
+                        .controlSize(.small)
+                        .accessibilityLabel("Absolute brightness ratio")
+                        .accessibilityValue("\(combinedBuiltinLuminanceRatioPercent)%")
+                    }
+                    .padding(.leading, 46)
+                    .padding(.trailing, 12)
+                    .padding(.vertical, 3)
+                    .curtainReveal(settings.showCombinedBrightness)
+                }
             }
 
             // Shown while an external is connected. Hiding the sliders does not disable

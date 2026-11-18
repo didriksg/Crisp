@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 
 /// The Advanced Settings window: configuration that Crisp works without (docs/DESIGN.md,
@@ -8,6 +9,7 @@ import SwiftUI
 @MainActor
 final class AdvancedSettingsWindowController: NSWindowController, NSWindowDelegate {
     private let displayManager: DisplayManager
+    private var displaysWatch: AnyCancellable?
 
     init(displayManager: DisplayManager) {
         self.displayManager = displayManager
@@ -30,7 +32,18 @@ final class AdvancedSettingsWindowController: NSWindowController, NSWindowDelega
         tabs.tabStyle = .toolbar
         tabs.addTabViewItem(tab(AdvancedGeneralTab(), label: String(localized: "General"), symbol: "gearshape"))
         tabs.addTabViewItem(tab(AdvancedKeyboardTab(), label: String(localized: "Keyboard"), symbol: "keyboard"))
-        tabs.addTabViewItem(tab(AdvancedDisplaysTab(), label: String(localized: "Displays"), symbol: "display"))
+        let displaysTab = tab(AdvancedDisplaysTab(), label: String(localized: "Displays"), symbol: "display")
+        // The Displays tab is there only while it has a display to list.
+        // DisplayManager publishes on the main thread.
+        displaysWatch = displayManager.$displays.sink { [weak tabs] displays in
+            MainActor.assumeIsolated {
+                guard let tabs else { return }
+                let show = !advancedSettingsDisplays(displays).isEmpty
+                let shown = tabs.tabViewItems.contains(displaysTab)
+                if show, !shown { tabs.addTabViewItem(displaysTab) }
+                if !show, shown { tabs.removeTabViewItem(displaysTab) }
+            }
+        }
 
         let window = AdvancedSettingsWindow(contentViewController: tabs)
         window.styleMask = [.titled, .closable]
@@ -47,6 +60,7 @@ final class AdvancedSettingsWindowController: NSWindowController, NSWindowDelega
     private func tab(_ view: some View, label: String, symbol: String) -> NSTabViewItem {
         let host = NSHostingController(rootView: view.environmentObject(displayManager))
         host.sizingOptions = .preferredContentSize
+        host.title = label  // the tab controller passes it on as the window title
         let item = NSTabViewItem(viewController: host)
         item.label = label
         item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
@@ -59,8 +73,13 @@ final class AdvancedSettingsWindowController: NSWindowController, NSWindowDelega
     }
 }
 
-/// Closes on Cmd-W itself: an accessory app's stock menu is not known to carry a Close item.
+/// Closes on Cmd-W itself (an accessory app's stock menu is not known to carry a Close
+/// item) and on Esc. A shortcut recording takes Esc first, to cancel the recording.
 private final class AdvancedSettingsWindow: NSWindow {
+    override func cancelOperation(_ sender: Any?) {
+        performClose(nil)
+    }
+
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         if event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
            event.charactersIgnoringModifiers == "w" {

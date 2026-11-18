@@ -333,22 +333,6 @@
         }
       }
     },
-    "Connect an external display to see its settings." : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "连接外接显示器以查看其设置。"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "連接外接顯示器以檢視其設定。"
-          }
-        }
-      }
-    },
     "Crisp could not read which input this Mac is on. Choose it once in the menu." : {
       "localizations" : {
         "zh-Hans" : {

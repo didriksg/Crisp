@@ -2,7 +2,8 @@ import SwiftUI
 
 // The three tabs of the Advanced Settings window (AdvancedSettingsWindowController).
 // A setting goes here when Crisp works fully without it: it fixes an unusual monitor,
-// tunes a default, or serves scripts and power users (docs/DESIGN.md).
+// tunes a default, or serves scripts and power users (docs/DESIGN.md). A row that does
+// not apply on this Mac right now is hidden.
 
 private let tabWidth: CGFloat = 520
 
@@ -10,63 +11,14 @@ private let tabWidth: CGFloat = 520
 
 struct AdvancedGeneralTab: View {
     @ObservedObject private var settings = SettingsService.shared
-    @EnvironmentObject var displayManager: DisplayManager
     @State private var cliInstalled = CrispctlInstaller.isInstalled
-
-    private var physicalDisplays: [DisplayInfo] {
-        displayManager.displays.filter { !VirtualDisplayService.shared.isVirtualDisplay($0.displayID) }
-    }
-
-    /// The ratio tunes the combined slider, so it shows only while that slider can.
-    private var showsRatio: Bool {
-        physicalDisplays.count > 1 && settings.showCombinedBrightness
-            && physicalDisplays.contains(where: { $0.isBuiltin })
-    }
-
-    /// Effective linear-brightness slope: external peak nits divided by the
-    /// built-in SDR peak, then multiplied by the user's fine tuning.
-    private var combinedBuiltinLuminanceRatio: Double? {
-        guard let builtinMax = physicalDisplays.first(where: { $0.isBuiltin })?.nominalMaxNits else {
-            return nil
-        }
-        let externalMaxima = physicalDisplays.filter { !$0.isBuiltin }.compactMap(\.nominalMaxNits)
-        guard !externalMaxima.isEmpty else { return nil }
-        let externalMax = externalMaxima.reduce(0, +) / Double(externalMaxima.count)
-        return externalMax / builtinMax * settings.combinedBuiltinBrightnessFactor
-    }
-
-    private var ratioPercent: Int {
-        Int(((combinedBuiltinLuminanceRatio ?? settings.combinedBuiltinBrightnessFactor) * 100).rounded())
-    }
 
     var body: some View {
         let showsSwitches = PhysicalDisplayToggleService.shared.isSupported
         let showsCLI = CrispctlInstaller.isAvailable
         Group {
-            if showsRatio || showsSwitches || showsCLI {
+            if showsSwitches || showsCLI {
                 Form {
-                    if showsRatio {
-                        Section("Brightness") {
-                            VStack(alignment: .leading, spacing: 4) {
-                                HStack(alignment: .firstTextBaseline) {
-                                    Text("Absolute brightness ratio")
-                                    Spacer()
-                                    Text("\(ratioPercent)%").monospacedDigit().foregroundStyle(.secondary)
-                                }
-                                Slider(
-                                    value: $settings.combinedBuiltinBrightnessFactor,
-                                    in: CombinedBrightnessMath.builtinAdjustmentRange,
-                                    step: 0.02
-                                )
-                                .accessibilityLabel("Absolute brightness ratio")
-                                .accessibilityValue("\(ratioPercent)%")
-                                Text("From each panel's rated nits. HDR monitors report their HDR peak, "
-                                     + "so lower this if the built-in runs too bright")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
                     if showsSwitches {
                         Section("Menu Bar") {
                             Toggle(isOn: $settings.showConnectionSwitches) {
@@ -149,38 +101,86 @@ struct AdvancedKeyboardTab: View {
 
 // MARK: - Displays
 
-/// One page per connected external display. Built-in and virtual displays have no
-/// advanced setting yet, so they are not listed.
+/// The connected external displays as pictures in a row, as System Settings > Displays
+/// shows them, and the selected one's settings below. The row scrolls sideways when the
+/// displays do not fit, so every name and shape stays whole. Built-in and virtual
+/// displays have no advanced setting yet, so they are not listed, and the window shows
+/// this tab only while the row is not empty.
 struct AdvancedDisplaysTab: View {
     @EnvironmentObject var displayManager: DisplayManager
     @State private var selection: CGDirectDisplayID?
 
-    private var displays: [DisplayInfo] {
-        displayManager.displays.filter {
-            !$0.isBuiltin && !VirtualDisplayService.shared.isVirtualDisplay($0.displayID)
+    var body: some View {
+        let displays = advancedSettingsDisplays(displayManager.displays)
+        let selected = displays.first(where: { $0.displayID == selection }) ?? displays.first
+        VStack(spacing: 0) {
+            ScrollView(.horizontal) {
+                HStack(alignment: .bottom, spacing: 20) {
+                    ForEach(displays) { display in
+                        DisplayPicture(display: display, isSelected: display.displayID == selected?.displayID)
+                            .onTapGesture { selection = display.displayID }
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 16)
+                .frame(minWidth: tabWidth)  // centred while the row fits
+            }
+            Divider()
+            if let selected {
+                AdvancedDisplayPage(display: selected)
+            }
         }
+        .frame(width: tabWidth)
+    }
+}
+
+/// One display in the row: its wallpaper in the display's shape, sized by its physical
+/// diagonal so a 49-inch display reads larger than a 24-inch one, and its full name.
+private struct DisplayPicture: View {
+    @ObservedObject var display: DisplayInfo
+    let isSelected: Bool
+    @State private var wallpaper: NSImage?
+
+    private var size: CGSize {
+        let aspect = display.bounds.height > 0 ? display.bounds.width / display.bounds.height : 16.0 / 9
+        let millimetres = CGDisplayScreenSize(display.displayID)
+        let diagonal = hypot(millimetres.width, millimetres.height)
+        // ponytail: 0.17 pt per mm puts a 27-inch 16:9 at about 56 pt tall; no EDID size reads as 27 inch.
+        let points = min(max(diagonal > 0 ? diagonal : 686, 400), 1300) * 0.17
+        let height = points / (1 + aspect * aspect).squareRoot()
+        return CGSize(width: height * aspect, height: height)
     }
 
     var body: some View {
-        Group {
-            if let first = displays.first {
-                let selected = displays.first(where: { $0.displayID == selection }) ?? first
-                HStack(spacing: 0) {
-                    List(displays, selection: $selection) { display in
-                        Label(display.name, systemImage: "display").tag(display.displayID)
-                    }
-                    .listStyle(.sidebar)
-                    .frame(width: 190)
-                    Divider()
-                    AdvancedDisplayPage(display: selected)
+        VStack(spacing: 6) {
+            Group {
+                if let wallpaper {
+                    Image(nsImage: wallpaper).resizable().scaledToFill()
+                } else {
+                    Color(nsColor: .controlBackgroundColor)
                 }
-                .onAppear { if selection == nil { selection = first.displayID } }
-            } else {
-                emptyState("Connect an external display to see its settings.")
             }
+            .frame(width: size.width, height: size.height)
+            .clipShape(RoundedRectangle(cornerRadius: 3))
+            .overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(.black.opacity(0.6), lineWidth: 2))
+            .padding(3)
+            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.accentColor, lineWidth: 3).opacity(isSelected ? 1 : 0))
+            Text(display.name)
+                .font(.callout.weight(isSelected ? .semibold : .regular))
+                .fixedSize()
         }
-        .frame(width: tabWidth + 100, height: 260)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(display.name)
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+        .task(id: display.displayID) { wallpaper = await DesktopWallpaper.image(for: display.displayID) }
     }
+}
+
+/// The displays the Displays tab lists; also decides whether the tab is shown.
+@MainActor
+func advancedSettingsDisplays(_ displays: [DisplayInfo]) -> [DisplayInfo] {
+    displays.filter { !$0.isBuiltin && !VirtualDisplayService.shared.isVirtualDisplay($0.displayID) }
 }
 
 private struct AdvancedDisplayPage: View {
