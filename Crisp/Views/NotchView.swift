@@ -9,7 +9,6 @@ import SwiftUI
 struct NotchView: View {
     @ObservedObject var display: DisplayInfo
     @State private var isSwitching = false
-    @State private var isHovered = false
 
     private var nativeAspect: Double {
         let (w, h) = display.nativeResolution
@@ -42,8 +41,6 @@ struct NotchView: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 3)
-            .menuRowHover(isHovered)
-            .onHover { isHovered = $0 }
         }
     }
 

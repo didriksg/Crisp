@@ -40,7 +40,6 @@ enum SystemAutoBrightness {
 struct SystemAutoBrightnessView: View {
     @ObservedObject var display: DisplayInfo
     @State private var isOn = false
-    @State private var isHovered = false
 
     // Read the live OS value. Called on appear and on every panel open: the panel
     // content mounts once (onAppear can't re-fire) and the user can flip this in
@@ -68,8 +67,6 @@ struct SystemAutoBrightnessView: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 3)
-            .menuRowHover(isHovered)
-            .onHover { isHovered = $0 }
             .onAppear { sync() }
             .onReceive(NotificationCenter.default.publisher(for: .crispPanelDidOpen)) { _ in sync() }
         }

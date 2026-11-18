@@ -8,7 +8,6 @@ import AppKit
 struct HDRToggleView: View {
     @ObservedObject var display: DisplayInfo
     @State private var isOn: Bool = false
-    @State private var isHovered = false
     /// Guards the onChange handler while we set isOn programmatically
     /// (initial sync, revert on failure), so those writes do not re-trigger
     /// the service.
@@ -47,8 +46,6 @@ struct HDRToggleView: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 3)
-            .menuRowHover(isHovered)
-            .onHover { isHovered = $0 }
             .onAppear { resyncFromLiveState() }
             // HDR can change outside Crisp (System Settings, auto-boost
             // teardown) while the panel is open; every flip fires a
