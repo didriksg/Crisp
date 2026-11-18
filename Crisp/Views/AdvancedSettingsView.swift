@@ -323,10 +323,11 @@ func advancedSettingsDisplays(_ displays: [DisplayInfo]) -> [DisplayInfo] {
     displays.filter { !VirtualDisplayService.shared.isVirtualDisplay($0.displayID) }
 }
 
-/// Every setting of one display, grouped by topic as System Settings > Displays groups
+/// The settings of one display, grouped by topic as System Settings > Displays groups
 /// them. The card in the panel repeats the ones changed often; a row only in this window
-/// sits in its topic's section like any other (Volume Control). Actions stay in the
-/// panel only: the sliders, Disconnect, input switching and applying a preset.
+/// sits in its topic's section like any other (Volume Control). Panel only: actions (the
+/// sliders, Disconnect, input switching, applying a preset) and settings that belong with
+/// a panel control (Smooth Scaling with the resolution slider, Image Adjustment).
 private struct AdvancedDisplayPage: View {
     @ObservedObject var display: DisplayInfo
     @EnvironmentObject var displayManager: DisplayManager
@@ -334,7 +335,6 @@ private struct AdvancedDisplayPage: View {
     @StateObject private var color: DisplayProfileController
     @State private var profiles: [ICCProfile] = []
     @State private var profilePath: URL?
-    @State private var showsImageAdjustment = false
     @State private var errorText: String?
 
     init(display: DisplayInfo, displayManager: DisplayManager) {
@@ -355,22 +355,8 @@ private struct AdvancedDisplayPage: View {
                         ForEach(group.modes) { Text(verbatim: modes.refreshLabel($0)).tag($0.id) }
                     }
                 }
-                if !display.isBuiltin {
-                    Toggle(isOn: Binding(get: { modes.smoothOn }, set: { modes.userToggleSmooth($0, fromPanel: false) })) {
-                        Text("Smooth scaling")
-                        if let hint = modes.smoothSubtitle { Text(hint) }
-                    }
-                    .disabled(!HiDPIService.smoothScalingSupported || modes.smoothBusy)
-                    .onAppear {
-                        modes.smoothOn = modes.smoothModesPresent
-                        modes.refreshSmoothWouldPrompt()
-                    }
-                    .onChange(of: modes.smoothModesPresent) { _, present in
-                        if !modes.smoothBusy { modes.smoothOn = present }
-                    }
-                }
                 NotchView(display: display, inForm: true)
-                if let message = modes.errorMessage ?? modes.reconnectHint ?? errorText {
+                if let message = modes.errorMessage ?? errorText {
                     Text(message).font(.caption).foregroundStyle(.secondary)
                 }
             }
@@ -403,9 +389,6 @@ private struct AdvancedDisplayPage: View {
                     .task { await loadProfiles() }
                 }
                 HDRToggleView(display: display, inForm: true)
-                LabeledContent("Image Adjustment") {
-                    Button("Adjust…") { showsImageAdjustment = true }
-                }
             }
             if BrightnessBoostService.shared.isEligible(display) || SystemAutoBrightness.supported(display.displayID) {
                 Section("Brightness") {
@@ -434,19 +417,6 @@ private struct AdvancedDisplayPage: View {
         }
         .formStyle(.grouped)
         .onAppear { color.reload() }
-        .sheet(isPresented: $showsImageAdjustment) {
-            VStack(spacing: 0) {
-                ImageAdjustmentView(display: display, isExpanded: true)
-                    .padding(.vertical, 12)
-                HStack {
-                    Spacer()
-                    Button("Done") { showsImageAdjustment = false }
-                        .keyboardShortcut(.defaultAction)
-                }
-                .padding([.horizontal, .bottom], 16)
-            }
-            .frame(width: 380)
-        }
     }
 
     /// The panel's split: the native size first, then HiDPI and Non-HiDPI sizes.

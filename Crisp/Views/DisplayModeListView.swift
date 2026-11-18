@@ -419,8 +419,7 @@ final class DisplayModeController: ObservableObject {
     /// soft-reconnects so macOS re-enumerates in software. Optimistic: the knob moves now,
     /// a settle re-read adopts whatever actually enumerated. If the soft-reconnect can't
     /// complete, the write still landed; reconnectHint says how to make it take effect (#58).
-    /// `fromPanel` false (Advanced Settings): skip the panel's key and re-expand handling.
-    func userToggleSmooth(_ on: Bool, fromPanel: Bool = true) {
+    func userToggleSmooth(_ on: Bool) {
         guard !smoothBusy, PanelOpenGuard.allowsActivation else { return }
         smoothOn = on   // optimistic; the re-enumeration below confirms it
         smoothBusy = true
@@ -470,18 +469,16 @@ final class DisplayModeController: ObservableObject {
                             localized: "Saved. Unplug and replug the monitor cable, or restart your Mac, to apply.")
                     }
                 }
-                if fromPanel {
-                    // The blank/auth prompt can steal key focus, greying the switch; re-key the panel.
-                    if let panel = NSApp.windows.first(where: { $0 is MenuPanel }), panel.isVisible {
-                        panel.makeKey()
-                    }
-                    // The reconnect rebuilt this display's row; ask the menu to re-expand it and
-                    // reopen Resolution so the user lands back where they were.
-                    displayManager.pendingResolutionExpandUUID = targetUUID
-                    // Key theft can continue briefly after the suppression window above releases;
-                    // ignore bare resigns for a grace period. Real outside clicks still dismiss.
-                    PanelOpenGuard.resignKeyGraceUntil = Date().addingTimeInterval(5)
+                // The blank/auth prompt can steal key focus, greying the switch; re-key the panel.
+                if let panel = NSApp.windows.first(where: { $0 is MenuPanel }), panel.isVisible {
+                    panel.makeKey()
                 }
+                // The reconnect rebuilt this display's row; ask the menu to re-expand it and
+                // reopen Resolution so the user lands back where they were.
+                displayManager.pendingResolutionExpandUUID = targetUUID
+                // Key theft can continue briefly after the suppression window above releases;
+                // ignore bare resigns for a grace period. Real outside clicks still dismiss.
+                PanelOpenGuard.resignKeyGraceUntil = Date().addingTimeInterval(5)
             }
             smoothBusy = false
         }
