@@ -165,6 +165,7 @@ struct AdvancedVirtualDisplaysTab: View {
                 .buttonStyle(.borderless)
             }
             .padding([.horizontal, .top], 20)
+            .padding(.bottom, selected == nil ? 20 : 0)  // the editor's form has its own margin
             if let selected {
                 VirtualDisplayEditor(config: selected, onError: showError).id(selected.id)
             }
