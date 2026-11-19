@@ -52,15 +52,13 @@ struct AdvancedGeneralTab: View {
             }
             Section("Brightness") {
                 if hasBuiltin {
-                    Toggle(isOn: $autoBrightness.isEnabled) {
-                        Text("Auto Brightness")
-                        Text("External displays follow the built-in display's brightness")
-                    }
+                    CenteredToggle(title: "Auto Brightness",
+                                   detail: Text("External displays follow the built-in display's brightness"),
+                                   isOn: $autoBrightness.isEnabled)
                     if autoBrightness.isEnabled {
-                        Toggle(isOn: $autoBrightness.relativeMode) {
-                            Text("Keep display offsets")
-                            Text("External displays follow the built-in but keep the difference you set")
-                        }
+                        CenteredToggle(title: "Keep display offsets",
+                                       detail: Text("External displays follow the built-in but keep the difference you set"),
+                                       isOn: $autoBrightness.relativeMode)
                     }
                 }
                 Toggle("Show Combined Brightness", isOn: $settings.showCombinedBrightness)
@@ -86,10 +84,9 @@ struct AdvancedGeneralTab: View {
             }
             if showsAutoDisconnect {
                 Section("Displays") {
-                    Toggle(isOn: $settings.disconnectBuiltinWhenDocked) {
-                        Text("Auto-Disconnect Built-in")
-                        Text("Turns the built-in display off while an external display is connected")
-                    }
+                    CenteredToggle(title: "Auto-Disconnect Built-in",
+                                   detail: Text("Turns the built-in display off while an external display is connected"),
+                                   isOn: $settings.disconnectBuiltinWhenDocked)
                     .onChange(of: settings.disconnectBuiltinWhenDocked) { _, isOn in
                         if isOn {
                             PhysicalDisplayToggleService.shared.reapplyParkedIfDocked()
@@ -103,24 +100,20 @@ struct AdvancedGeneralTab: View {
                 // Hiding the sliders does not disable the volume keys.
                 Toggle("Show Volume Sliders", isOn: $settings.showVolumeSliders)
                 if showsSwitches {
-                    Toggle(isOn: $settings.showConnectionSwitches) {
-                        Text("Show Connection Switches")
-                        Text("A switch on each display row that disconnects it")
-                    }
+                    CenteredToggle(title: "Show Connection Switches",
+                                   detail: Text("A switch on each display row that disconnects it"),
+                                   isOn: $settings.showConnectionSwitches)
                 }
             }
             if CrispctlInstaller.isAvailable {
                 Section("Automation") {
-                    Toggle(isOn: Binding(
+                    CenteredToggle(title: "Command Line Tool", detail: Text("Links crispctl into /usr/local/bin"), isOn: Binding(
                         get: { cliInstalled },
                         set: { newValue in
                             if newValue { CrispctlInstaller.install() } else { CrispctlInstaller.uninstall() }
                             cliInstalled = CrispctlInstaller.isInstalled
                         }
-                    )) {
-                        Text("Command Line Tool")
-                        Text("Links crispctl into /usr/local/bin")
-                    }
+                    ))
                 }
             }
         }
@@ -169,14 +162,12 @@ struct AdvancedKeyboardTab: View {
                     }
                 } else {
                     // Also in the panel, which is where most people meet it.
-                    Toggle(isOn: Binding(
-                        get: { false },
-                        set: { if $0 { BrightnessKeyService.requestAccess() } }
-                    )) {
-                        Text("Use brightness keys on external displays")
+                    CenteredToggle(
+                        title: "Use brightness keys on external displays",
                         // swiftlint:disable:next line_length - localized literal, splitting would change its catalog key
-                        Text("Brightness keys need Accessibility access to redirect them to external displays. Grant it once and they start working, no restart.")
-                    }
+                        detail: Text("Brightness keys need Accessibility access to redirect them to external displays. Grant it once and they start working, no restart."),
+                        isOn: Binding(get: { false }, set: { if $0 { BrightnessKeyService.requestAccess() } })
+                    )
                 }
             }
             Section("Keyboard Shortcuts") {
@@ -410,14 +401,12 @@ private struct AdvancedDisplayPage: View {
                     // volume (#57); off stops volume commands to a monitor whose DDC stops after
                     // repeated volume writes (#245). Shown whatever Show Volume Sliders says:
                     // the volume keys use DDC volume also with the sliders hidden.
-                    CenteredRow(title: "Volume Control", detail: Text(
-                        "Speaker volume over DDC. Turn it off if the monitor stops answering, or on if it doesn't report volume.")) {
-                        Toggle("Volume Control", isOn: Binding(
-                            get: { display.volumeSupported },
-                            set: { VolumeService.shared.setEnabled($0, for: display) }
-                        ))
-                        .labelsHidden()
-                    }
+                    CenteredToggle(title: "Volume Control", detail: Text(
+                        "Speaker volume over DDC. Turn it off if the monitor stops answering, or on if it doesn't report volume."),
+                                   isOn: Binding(
+                        get: { display.volumeSupported },
+                        set: { VolumeService.shared.setEnabled($0, for: display) }
+                    ))
                 }
                 // Last, as on the card: it removes the display from this tab.
                 if PhysicalDisplayToggleService.shared.isSupported,
@@ -552,9 +541,10 @@ private struct AdvancedInputPicker: View {
     }
 }
 
-/// A form row with its control centred on the title and the description (Didrik,
-/// 2026-11-19; a stock form row puts the control level with the title). The fonts are
-/// the stock row's, compared in an off-screen render.
+/// A form row with its control centred on the title and the description, used for every
+/// row with a description in this window (Didrik, 2026-11-19; a stock form row puts the
+/// control level with the title). The fonts are the stock row's, compared in an
+/// off-screen render.
 private struct CenteredRow<Control: View>: View {
     let title: LocalizedStringKey
     let detail: Text
@@ -568,6 +558,18 @@ private struct CenteredRow<Control: View>: View {
             }
             Spacer(minLength: 0)
             control
+        }
+    }
+}
+
+private struct CenteredToggle: View {
+    let title: LocalizedStringKey
+    let detail: Text
+    @Binding var isOn: Bool
+
+    var body: some View {
+        CenteredRow(title: title, detail: detail) {
+            Toggle(title, isOn: $isOn).labelsHidden()
         }
     }
 }
