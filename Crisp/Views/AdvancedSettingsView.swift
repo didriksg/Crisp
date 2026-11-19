@@ -391,7 +391,7 @@ private struct AdvancedDisplayPage: View {
             if BrightnessBoostService.shared.isEligible(display) || SystemAutoBrightness.supported(display.displayID) {
                 Section("Brightness") {
                     ExtraBrightnessView(display: display, inForm: true)
-                    SystemAutoBrightnessView(display: display, inForm: true)
+                    SystemAutoBrightnessView(display: display)
                 }
             }
             Section("Connection") {

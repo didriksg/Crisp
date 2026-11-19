@@ -35,32 +35,28 @@ enum SystemAutoBrightness {
 }
 
 /// Toggle for macOS "Automatically adjust brightness" (ambient light) on this display.
-/// Placed by subject: the setting adjusts *this* panel, so it lives under the built-in
-/// display, mirroring System Settings. Absent on sensor-less externals (see supported()).
+/// In Advanced Settings only (set once), under the display it adjusts, as System
+/// Settings places it. Absent on sensor-less externals (see supported()).
 struct SystemAutoBrightnessView: View {
     @ObservedObject var display: DisplayInfo
-    /// Plain form switch for Advanced Settings instead of the panel row.
-    var inForm = false
     @State private var isOn = false
 
-    // Read the live OS value. Called on appear and on every panel open: the panel
-    // content mounts once (onAppear can't re-fire) and the user can flip this in
-    // System Settings while Crisp is closed, so a one-time read would go stale.
+    // Read the live OS value on appear and whenever Crisp comes to the front: the user
+    // can flip this in System Settings while the window stays open.
     private func sync() { isOn = SystemAutoBrightness.isEnabled(display.displayID) }
 
     var body: some View {
         if SystemAutoBrightness.supported(display.displayID) {
             // Custom binding so a programmatic sync() only moves the switch; the
             // setter writes to the OS solely on real user interaction.
-            SettingSwitchRow(inForm: inForm, icon: "sun.max", color: .yellow,
-                             label: "Automatically adjust brightness", isOn: Binding(
+            Toggle("Automatically adjust brightness", isOn: Binding(
                 get: { isOn },
                 set: { newValue in
                     isOn = newValue
                     SystemAutoBrightness.setEnabled(display.displayID, newValue)
                 }))
             .onAppear { sync() }
-            .onReceive(NotificationCenter.default.publisher(for: .crispPanelDidOpen)) { _ in sync() }
+            .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in sync() }
         }
     }
 }
