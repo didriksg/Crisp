@@ -120,6 +120,7 @@ struct AdvancedGeneralTab: View {
             }
         }
         .formStyle(.grouped)
+        .scrollDisabled(true)  // the window's scroll view scrolls; this one took the wheel
         .onAppear {
             cliInstalled = CrispctlInstaller.isInstalled
             settings.launchAtLogin = LaunchService.shared.isEnabled  // may change in System Settings
@@ -185,6 +186,7 @@ struct AdvancedKeyboardTab: View {
             }
         }
         .formStyle(.grouped)
+        .scrollDisabled(true)  // the window's scroll view scrolls; this one took the wheel
         .onAppear { isTrusted = AXIsProcessTrusted() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             isTrusted = AXIsProcessTrusted()
@@ -421,6 +423,7 @@ private struct AdvancedDisplayPage: View {
             }
         }
         .formStyle(.grouped)
+        .scrollDisabled(true)  // the window's scroll view scrolls; this one took the wheel
         .onAppear {
             color.reload()
             rotation.reload()

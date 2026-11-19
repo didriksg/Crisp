@@ -314,7 +314,7 @@ private struct VirtualDisplayEditor: View {
             }
         }
         .formStyle(.grouped)
-        .scrollDisabled(isNew)
+        .scrollDisabled(true)  // the window's scroll view scrolls; the sheet's form is sized to fit
     }
 
     private var sizeIndex: Int {
