@@ -685,6 +685,38 @@
         }
       }
     },
+    "Match brightness by luminance" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "按尼特值匹配亮度"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "依尼特值匹配亮度"
+          }
+        }
+      }
+    },
+    "Matched by each display's rated nits" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "按各显示器的额定尼特值匹配"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "依各顯示器的額定尼特值匹配"
+          }
+        }
+      }
+    },
     "Menu Bar" : {
       "localizations" : {
         "zh-Hans" : {
