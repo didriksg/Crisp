@@ -5,8 +5,6 @@ import SwiftUI
 // tunes a default, or serves scripts and power users (docs/DESIGN.md). A row that does
 // not apply on this Mac right now is hidden.
 
-private let tabWidth = AdvancedSettingsWindowController.contentWidth
-
 // MARK: - General
 
 struct AdvancedGeneralTab: View {
@@ -125,7 +123,7 @@ struct AdvancedGeneralTab: View {
             cliInstalled = CrispctlInstaller.isInstalled
             settings.launchAtLogin = LaunchService.shared.isEnabled  // may change in System Settings
         }
-        .frame(width: tabWidth)
+        .frame(maxWidth: .infinity)  // the window sets the width, scroll bar included
     }
 }
 
@@ -191,7 +189,7 @@ struct AdvancedKeyboardTab: View {
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             isTrusted = AXIsProcessTrusted()
         }
-        .frame(width: tabWidth)
+        .frame(maxWidth: .infinity)  // the window sets the width, scroll bar included
     }
 
     private func targetName(_ target: BrightnessKeyTarget) -> String {
@@ -237,16 +235,18 @@ struct AdvancedDisplaysTab: View {
         let displays = advancedSettingsDisplays(displayManager.displays)
         let selected = displays.first(where: { $0.displayID == selection }) ?? displays.first
         VStack(spacing: 0) {
-            ScrollView(.horizontal) {
-                HStack(alignment: .bottom, spacing: 20) {
-                    ForEach(displays) { display in
-                        DisplayPicture(display: display, isSelected: display.displayID == selected?.displayID)
-                            .onTapGesture { selection = display.displayID }
-                    }
+            let pictures = HStack(alignment: .bottom, spacing: 20) {
+                ForEach(displays) { display in
+                    DisplayPicture(display: display, isSelected: display.displayID == selected?.displayID)
+                        .onTapGesture { selection = display.displayID }
                 }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 16)
-                .frame(minWidth: tabWidth)  // centred while the row fits
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 16)
+            // Centred while the row fits, scrolled when it does not.
+            ViewThatFits(in: .horizontal) {
+                pictures.frame(maxWidth: .infinity)
+                ScrollView(.horizontal) { pictures }
             }
             Divider()
             if let selected {
@@ -254,7 +254,7 @@ struct AdvancedDisplaysTab: View {
                     .id(selected.displayID)  // fresh controllers per display
             }
         }
-        .frame(width: tabWidth)
+        .frame(maxWidth: .infinity)  // the window sets the width, scroll bar included
     }
 }
 

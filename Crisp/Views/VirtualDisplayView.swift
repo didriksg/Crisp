@@ -170,7 +170,7 @@ struct AdvancedVirtualDisplaysTab: View {
                 VirtualDisplayEditor(config: selected, onError: showError).id(selected.id)
             }
         }
-        .frame(width: 520)
+        .frame(maxWidth: .infinity)  // the window sets the width, scroll bar included
         .sheet(item: $newConfig) { config in
             VirtualDisplayEditor(config: config, onError: showError, onCreate: create)
                 .frame(width: 440)
