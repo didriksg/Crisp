@@ -110,7 +110,8 @@ extern CGError SLSSetDisplayRotation(CGDirectDisplayID display, int rotation);
 
 // MARK: - IOAVService Private API (Apple Silicon DDC)
 
-typedef void * IOAVServiceRef;
+// A CF object: Create returns it +1, so Swift takes it with takeRetainedValue() and ARC releases it.
+typedef CFTypeRef IOAVServiceRef;
 extern IOAVServiceRef IOAVServiceCreate(CFAllocatorRef allocator);
 extern IOAVServiceRef IOAVServiceCreateWithService(CFAllocatorRef allocator, io_service_t service);
 extern IOReturn IOAVServiceReadI2C(IOAVServiceRef service,
