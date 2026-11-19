@@ -25,8 +25,10 @@ struct AdvancedGeneralTab: View {
     }
 
     /// Auto Brightness follows the built-in's own brightness, so a Mac without one has none.
-    private var hasBuiltin: Bool {
-        !(autoBrightness.hasPolled && autoBrightness.builtinBrightness <= 0)
+    /// Still shown while on, so it can be turned off. From the display list: the service's
+    /// own read exists only once tracking runs.
+    private var showsAutoBrightness: Bool {
+        physicalDisplays.contains(where: { $0.isBuiltin }) || autoBrightness.isEnabled
     }
 
     /// The slider's own value: 100% is Crisp's match from the rated nits. The effective
@@ -51,7 +53,7 @@ struct AdvancedGeneralTab: View {
                 ))
             }
             Section("Brightness") {
-                if hasBuiltin {
+                if showsAutoBrightness {
                     CenteredToggle(title: "Auto Brightness",
                                    detail: Text("External displays follow the built-in display's brightness"),
                                    isOn: $autoBrightness.isEnabled)

@@ -3,10 +3,13 @@ import SwiftUI
 /// "Auto Brightness" section, follows builtin screen brightness and adjusts external display brightness automatically.
 struct AutoBrightnessView: View {
     @StateObject private var service = AutoBrightnessService.shared
+    @EnvironmentObject var displayManager: DisplayManager
 
-    /// True only after the service has polled at least once and found no builtin display.
+    /// From the display list, not the service's own read: that read exists only once
+    /// tracking runs, so a Mac with no built-in display showed the switch until it was
+    /// turned on, then locked it on.
     private var builtinUnavailable: Bool {
-        service.hasPolled && service.builtinBrightness <= 0
+        !displayManager.displays.contains(where: \.isBuiltin)
     }
 
     var body: some View {
@@ -29,7 +32,7 @@ struct AutoBrightnessView: View {
                     .toggleStyle(.switch)
                     .labelsHidden()
                     .controlSize(.small)
-                    .disabled(builtinUnavailable)
+                    .disabled(builtinUnavailable && !service.isEnabled)  // can always be turned off
                     .accessibilityLabel("Auto Brightness")
                     // VoiceOver-only state confirmation; the visible subtitle
                     // intentionally stays static (native toggles don't switch text).
