@@ -73,7 +73,17 @@ final class AdvancedSettingsWindowController: NSWindowController, NSWindowDelega
     }
 
     private func tab(_ view: some View, label: String, symbol: String) -> NSTabViewItem {
-        let host = NSHostingController(rootView: view.environmentObject(displayManager))
+        // A row shown or hidden inside a tab changes its height, but the tab controller
+        // resizes the window only on a tab switch, and the hosting controller's size
+        // catches up only at a later layout (focus loss). So the tab reports its own
+        // height, measured at its ideal size, and the window follows at once.
+        let root = view
+            .environmentObject(displayManager)
+            .fixedSize(horizontal: false, vertical: true)
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { [weak self] height in
+                MainActor.assumeIsolated { self?.fit(symbol, height: height) }
+            }
+        let host = NSHostingController(rootView: root)
         host.sizingOptions = .preferredContentSize
         host.title = label  // the tab controller passes it on as the window title
         let item = NSTabViewItem(viewController: host)
@@ -81,6 +91,21 @@ final class AdvancedSettingsWindowController: NSWindowController, NSWindowDelega
         item.identifier = symbol  // stable across languages, for the saved last tab
         item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
         return item
+    }
+
+    /// Sizes the window to the selected tab's height, top edge fixed.
+    private func fit(_ tab: String, height: CGFloat) {
+        guard let window, let tabs = window.contentViewController as? NSTabViewController,
+              tabs.tabViewItems.indices.contains(tabs.selectedTabViewItemIndex),
+              tabs.tabViewItems[tabs.selectedTabViewItemIndex].identifier as? String == tab,
+              height > 0 else { return }
+        let old = window.frame
+        let width = window.contentRect(forFrameRect: old).width
+        let size = NSSize(width: width, height: height)
+        var frame = window.frameRect(forContentRect: NSRect(origin: .zero, size: size))
+        frame.origin = NSPoint(x: old.minX, y: old.maxY - frame.height)
+        guard frame.size != old.size else { return }
+        window.setFrame(frame, display: true, animate: true)
     }
 
     func windowWillClose(_ notification: Notification) {
@@ -94,23 +119,6 @@ final class AdvancedSettingsWindowController: NSWindowController, NSWindowDelega
 private final class AdvancedSettingsTabs: NSTabViewController {
     static let lastTabKey = "crisp.advancedSettingsLastTab"
 
-    /// A row shown or hidden inside a tab changes that tab's size, but the tab controller
-    /// resizes the window only on a tab switch. Follow the change, top edge fixed, as
-    /// Apple's settings windows grow and shrink.
-    override func preferredContentSizeDidChange(for viewController: NSViewController) {
-        super.preferredContentSizeDidChange(for: viewController)
-        guard let window = view.window,
-              tabViewItems.indices.contains(selectedTabViewItemIndex),
-              tabViewItems[selectedTabViewItemIndex].viewController === viewController else { return }
-        let size = viewController.preferredContentSize
-        guard size.height > 0 else { return }
-        let old = window.frame
-        var frame = window.frameRect(forContentRect: NSRect(origin: .zero, size: size))
-        frame.origin = NSPoint(x: old.minX, y: old.maxY - frame.height)
-        guard frame.size != old.size else { return }
-        window.setFrame(frame, display: true, animate: true)
-    }
-
     override func tabView(_ tabView: NSTabView, didSelect tabViewItem: NSTabViewItem?) {
         super.tabView(tabView, didSelect: tabViewItem)
         if let id = tabViewItem?.identifier as? String {
@@ -122,6 +130,15 @@ private final class AdvancedSettingsTabs: NSTabViewController {
 /// Closes on Cmd-W itself (an accessory app's stock menu is not known to carry a Close
 /// item) and on Esc. A shortcut recording takes Esc first, to cancel the recording.
 private final class AdvancedSettingsWindow: NSWindow {
+    /// Every height change keeps the top edge, as Apple's settings windows grow down. The
+    /// window also resizes itself to the tab's new size a moment after `fit`, from the
+    /// bottom edge, and whichever ran last won.
+    override func setFrame(_ frameRect: NSRect, display flag: Bool) {
+        var rect = frameRect
+        if isVisible, rect.height != frame.height { rect.origin.y = frame.maxY - rect.height }
+        super.setFrame(rect, display: flag)
+    }
+
     override func cancelOperation(_ sender: Any?) {
         performClose(nil)
     }
