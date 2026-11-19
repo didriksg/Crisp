@@ -90,7 +90,7 @@ private struct VirtualDisplaySwitchRow: View {
             if isBusy {
                 ProgressView().controlSize(.small)
             } else {
-                Toggle("", isOn: Binding(get: { isOn }, set: setOn))
+                Toggle("", isOn: Binding(get: { isOn }, set: { setOn($0) }))
                     .toggleStyle(.switch)
                     .labelsHidden()
                     .controlSize(.small)
