@@ -554,27 +554,6 @@ struct SettingsView: View {
                 .padding(.vertical, 3)
             }
 
-            // Shown while an external is connected. Hiding the sliders does not disable
-            // the volume keys.
-            if displayManager.displays.contains(where: { !$0.isBuiltin }) {
-                Toggle(isOn: Binding(
-                    get: { settings.showVolumeSliders },
-                    set: { newValue in withAnimation(.panelResize) { settings.showVolumeSliders = newValue } }
-                )) {
-                    HStack(spacing: 8) {
-                        MenuItemIcon(systemName: "speaker.wave.2.fill", color: .blue, active: settings.showVolumeSliders)
-                            .accessibilityHidden(true)
-                        Text("Show Volume Sliders")
-                            .font(.body)
-                        Spacer()
-                    }
-                }
-                .toggleStyle(.switch)
-                .controlSize(.small)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 3)
-            }
-
             // Asks for Accessibility while it is missing: without it the brightness keys only
             // reach the built-in, so the ask stays where everyone sees it. Which displays the
             // keys adjust, once granted, is set in Advanced Settings > Keyboard.

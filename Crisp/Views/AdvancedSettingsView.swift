@@ -82,6 +82,10 @@ struct AdvancedGeneralTab: View {
                     }
                 }
             }
+            Section("Volume") {
+                // Hiding the sliders does not disable the volume keys.
+                Toggle("Show Volume Sliders", isOn: $settings.showVolumeSliders)
+            }
             if showsAutoDisconnect {
                 Section("Displays") {
                     CenteredToggle(title: "Auto-Disconnect Built-in",
@@ -97,8 +101,6 @@ struct AdvancedGeneralTab: View {
                 }
             }
             Section("Menu Bar") {
-                // Hiding the sliders does not disable the volume keys.
-                Toggle("Show Volume Sliders", isOn: $settings.showVolumeSliders)
                 if showsSwitches {
                     CenteredToggle(title: "Show Connection Switches",
                                    detail: Text("A switch on each display row that disconnects it"),
