@@ -5,7 +5,7 @@ import SwiftUI
 // tunes a default, or serves scripts and power users (docs/DESIGN.md). A row that does
 // not apply on this Mac right now is hidden.
 
-private let tabWidth: CGFloat = 520
+private let tabWidth = AdvancedSettingsWindowController.contentWidth
 
 // MARK: - General
 
