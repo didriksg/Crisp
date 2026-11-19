@@ -275,7 +275,9 @@ struct CombinedBrightnessView: View {
         return externals.isEmpty ? displays : externals
     }
 
+    /// nil makes every display take the same percentage (CombinedBrightnessMath's fallback).
     private var referenceMaxNits: Double? {
+        guard settings.matchBrightnessByLuminance else { return nil }
         let values = referenceDisplays.compactMap(\.nominalMaxNits)
         guard !values.isEmpty else { return nil }
         return values.reduce(0, +) / Double(values.count)
@@ -410,6 +412,10 @@ struct CombinedBrightnessView: View {
                     if !isDragging { combinedBrightness = averageBrightness }
                 }
             }
+        }
+        .onChange(of: settings.matchBrightnessByLuminance) { _, _ in
+            // The handle moves to the new scale; the displays change on the next slider move.
+            if !isDragging { combinedBrightness = averageBrightness }
         }
         .onChange(of: settings.combinedBuiltinBrightnessFactor) { _, _ in
             // Visible immediately: keep the external reference fixed, re-aim the built-in.

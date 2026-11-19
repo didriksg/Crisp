@@ -262,7 +262,7 @@ final class AutoBrightnessService: ObservableObject, @unchecked Sendable {
                 // Clamp to the display's own ceiling, not a literal 100: with
                 // Extra Brightness on, 100 would drag a boosted display down.
                 target = min(display.maxBrightness, max(0.0, builtinPct + offset))
-            } else if let builtinLinear,
+            } else if SettingsService.shared.matchBrightnessByLuminance, let builtinLinear,
                       let builtinMaxNits = builtinDisplay?.nominalMaxNits,
                       let externalMaxNits = display.nominalMaxNits {
                 // Absolute means absolute luminance, not equal slider percentages
@@ -274,7 +274,7 @@ final class AutoBrightnessService: ObservableObject, @unchecked Sendable {
                     builtinAdjustment: SettingsService.shared.combinedBuiltinBrightnessFactor)
                 target = min(display.maxBrightness, max(0.0, matched * sensitivity))
             } else {
-                // Missing luminance metadata: preserve the old percentage mirror.
+                // Luminance matching off, or no luminance metadata: same percentage.
                 target = min(display.maxBrightness, max(0.0, builtin * sensitivity * 100.0))
             }
 

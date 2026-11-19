@@ -62,7 +62,13 @@ struct AdvancedGeneralTab: View {
                     }
                 }
                 Toggle("Show Combined Brightness", isOn: $settings.showCombinedBrightness)
-                if settings.showCombinedBrightness && hasBuiltinAndExternal {
+                if (settings.showCombinedBrightness || autoBrightness.isEnabled) && physicalDisplays.count > 1 {
+                    CenteredToggle(title: "Match brightness by luminance",
+                                   detail: Text("Matched by each display's rated nits"),
+                                   isOn: $settings.matchBrightnessByLuminance)
+                }
+                if settings.matchBrightnessByLuminance
+                    && (settings.showCombinedBrightness || autoBrightness.isEnabled) && hasBuiltinAndExternal {
                     VStack(alignment: .leading, spacing: 4) {
                         HStack(alignment: .firstTextBaseline) {
                             Text("Absolute brightness ratio")

@@ -62,6 +62,7 @@ final class SettingsService: ObservableObject, @unchecked Sendable {
         static let menuWidth              = "crisp.menuWidth"
         static let showCombinedBrightness = "crisp.showCombinedBrightness"
         static let combinedBuiltinFactor  = "crisp.combinedBuiltinBrightnessAdjustment"
+        static let matchByLuminance       = "crisp.combinedMatchByLuminance"
         static let showVolumeSliders      = "crisp.showVolumeSliders"
         static let showConnectionSwitches = "crisp.showConnectionSwitches"
         static let crossDisplayGaps       = "crisp.crossDisplayGaps"
@@ -98,6 +99,12 @@ final class SettingsService: ObservableObject, @unchecked Sendable {
 
     @Published var showCombinedBrightness: Bool = true {
         didSet { defaults.set(showCombinedBrightness, forKey: Keys.showCombinedBrightness) }
+    }
+
+    /// Combined brightness and absolute Auto Brightness match displays by rated nits; off,
+    /// every display gets the same percentage.
+    @Published var matchBrightnessByLuminance: Bool = true {
+        didSet { defaults.set(matchBrightnessByLuminance, forKey: Keys.matchByLuminance) }
     }
 
     /// Fine tuning on top of the absolute-luminance match. 1.0 means equal
@@ -298,6 +305,8 @@ final class SettingsService: ObservableObject, @unchecked Sendable {
             ? defaults.double(forKey: Keys.menuWidth) : 320
         showCombinedBrightness = defaults.object(forKey: Keys.showCombinedBrightness) != nil
             ? defaults.bool(forKey: Keys.showCombinedBrightness) : true
+        matchBrightnessByLuminance = defaults.object(forKey: Keys.matchByLuminance) != nil
+            ? defaults.bool(forKey: Keys.matchByLuminance) : true
         if defaults.object(forKey: Keys.combinedBuiltinFactor) != nil {
             let storedFactor = defaults.double(forKey: Keys.combinedBuiltinFactor)
             combinedBuiltinBrightnessFactor = storedFactor.isFinite
