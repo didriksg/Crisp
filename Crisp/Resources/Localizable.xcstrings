@@ -253,6 +253,38 @@
         }
       }
     },
+    "About" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关于"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "關於"
+          }
+        }
+      }
+    },
+    "Acknowledgments" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "致谢"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "致謝"
+          }
+        }
+      }
+    },
     "Advanced Settings…" : {
       "localizations" : {
         "zh-Hans" : {
@@ -333,6 +365,22 @@
         }
       }
     },
+    "Check for Updates…" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "检查更新…"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "檢查更新項目…"
+          }
+        }
+      }
+    },
     "Choose Again" : {
       "localizations" : {
         "zh-Hans" : {
@@ -345,6 +393,70 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "重新選擇"
+          }
+        }
+      }
+    },
+    "Copied" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已拷贝"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已拷貝"
+          }
+        }
+      }
+    },
+    "Copies versions, displays and the last 30 minutes of Crisp's log to the clipboard, for a bug report." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "将版本、显示器信息和 Crisp 最近 30 分钟的日志拷贝到剪贴板，用于提交问题报告。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "將版本、顯示器資訊和 Crisp 最近 30 分鐘的記錄拷貝到剪貼簿，用於回報問題。"
+          }
+        }
+      }
+    },
+    "Copy Debug Info" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "拷贝调试信息"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "拷貝除錯資訊"
+          }
+        }
+      }
+    },
+    "Copying…" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在拷贝…"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在拷貝…"
           }
         }
       }
@@ -381,6 +493,22 @@
         }
       }
     },
+    "Crisp is free. Donations keep it signed and notarized:" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Crisp 完全免费。赞助用于让它保持签名和公证："
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Crisp 完全免費。贊助讓它保持簽署和公證："
+          }
+        }
+      }
+    },
     "Cross Unaligned Edges" : {
       "localizations" : {
         "zh-Hans" : {
@@ -409,6 +537,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "顯示器"
+          }
+        }
+      }
+    },
+    "Every display control macOS hides, in one menu bar panel." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "macOS 藏起来的显示器控制，都装进这一个菜单栏面板。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "macOS 藏起來的顯示器控制，都裝進這一個選單列面板。"
+          }
+        }
+      }
+    },
+    "Free and open source." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "免费开源。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "免費開源。"
           }
         }
       }
@@ -473,6 +633,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "鍵盤"
+          }
+        }
+      }
+    },
+    "MIT License" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "MIT 许可证"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "MIT 授權條款"
           }
         }
       }
@@ -697,6 +873,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "連接外接顯示器時關閉內建顯示器"
+          }
+        }
+      }
+    },
+    "Version %@" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "版本 %@"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "版本 %@"
           }
         }
       }

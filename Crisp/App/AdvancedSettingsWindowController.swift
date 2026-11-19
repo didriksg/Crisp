@@ -51,6 +51,7 @@ final class AdvancedSettingsWindowController: NSWindowController, NSWindowDelega
         tabs.addTabViewItem(tab(AdvancedKeyboardTab(), label: String(localized: "Keyboard"), symbol: "keyboard"))
         tabs.addTabViewItem(tab(AdvancedVirtualDisplaysTab(), label: String(localized: "Virtual Displays"),
                                 symbol: Self.virtualDisplaysTab))
+        tabs.addTabViewItem(tab(AdvancedAboutTab(), label: String(localized: "About"), symbol: "info.circle"))
         let displaysTab = tab(AdvancedDisplaysTab(), label: String(localized: "Displays"), symbol: "display")
         // The Displays tab is there only while it has a display to list.
         // DisplayManager publishes on the main thread.

@@ -349,21 +349,22 @@ struct SupportRow: View {
     // like every other submenu.
     @Binding var expanded: Bool
 
-    private let kofi = "https://ko-fi.com/didriksg"
-    private let afdian = "https://ifdian.net/a/didriksg"
-    private let github = "https://github.com/sponsors/didriksg"
+    // Shared with Advanced Settings > About.
+    static let kofi = "https://ko-fi.com/didriksg"
+    static let afdian = "https://ifdian.net/a/didriksg"
+    static let github = "https://github.com/sponsors/didriksg"
 
     /// Payment region can't be detected reliably in a sideloaded app, so the submenu
     /// lists every link and this only orders them: mainland China needs Afdian's
     /// WeChat/Alipay over the Stripe-based Ko-fi/GitHub checkouts.
-    private var prefersChinese: Bool {
+    static var prefersChinese: Bool {
         Locale.current.region?.identifier == "CN"
             || Bundle.main.preferredLocalizations.first?.hasPrefix("zh-Hans") == true
     }
 
     /// Drop the "(Afdian)" romanization when the UI itself is Chinese (keyed on UI
     /// language, not region).
-    private var afdianTitle: String {
+    static var afdianTitle: String {
         Bundle.main.preferredLocalizations.first?.hasPrefix("zh") == true
             ? "爱发电" : "爱发电 (Afdian)"
     }
@@ -380,14 +381,14 @@ struct SupportRow: View {
             // Always laid out so the curtain glides the links open with the panel spring
             // instead of popping to full height.
             VStack(spacing: 0) {
-                if prefersChinese {
-                    SupportLinkRow(title: afdianTitle, url: afdian)
-                    SupportLinkRow(title: "Ko-fi", url: kofi)
-                    SupportLinkRow(title: "GitHub Sponsors", url: github)
+                if Self.prefersChinese {
+                    SupportLinkRow(title: Self.afdianTitle, url: Self.afdian)
+                    SupportLinkRow(title: "Ko-fi", url: Self.kofi)
+                    SupportLinkRow(title: "GitHub Sponsors", url: Self.github)
                 } else {
-                    SupportLinkRow(title: "Ko-fi", url: kofi)
-                    SupportLinkRow(title: "GitHub Sponsors", url: github)
-                    SupportLinkRow(title: afdianTitle, url: afdian)
+                    SupportLinkRow(title: "Ko-fi", url: Self.kofi)
+                    SupportLinkRow(title: "GitHub Sponsors", url: Self.github)
+                    SupportLinkRow(title: Self.afdianTitle, url: Self.afdian)
                 }
             }
             .padding(.leading, 8)
