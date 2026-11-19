@@ -315,9 +315,9 @@ func advancedSettingsDisplays(_ displays: [DisplayInfo]) -> [DisplayInfo] {
 
 /// The settings of one display, grouped by topic as System Settings > Displays groups
 /// them. The card in the panel repeats the ones changed often; a row only in this window
-/// sits in its topic's section like any other (Volume Control). Panel only: actions (the
-/// sliders, Disconnect, input switching, applying a preset) and settings that belong with
-/// a panel control (Smooth Scaling with the resolution slider, Image Adjustment).
+/// sits in its topic's section like any other (Volume Control). Panel only: applying a
+/// preset, the volume slider, and settings that belong with a panel control (Smooth
+/// Scaling with the resolution slider, Image Adjustment).
 private struct AdvancedDisplayPage: View {
     @ObservedObject var display: DisplayInfo
     @EnvironmentObject var displayManager: DisplayManager
