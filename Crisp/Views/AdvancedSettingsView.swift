@@ -241,15 +241,19 @@ struct AdvancedKeyboardTab: View {
 
 // MARK: - Displays
 
-/// The connected displays as pictures in a row, as System Settings > Displays shows them,
-/// and the selected one's settings below. The row scrolls sideways when the displays do
-/// not fit, so every name and shape stays whole. Virtual displays have their own tab.
+/// The connected displays as pictures in a row, left to right as they are arranged (as
+/// System Settings > Displays shows them), and the selected one's settings below. The row
+/// scrolls sideways when the displays do not fit, so every name and shape stays whole.
+/// Virtual displays have their own tab.
 struct AdvancedDisplaysTab: View {
     @EnvironmentObject var displayManager: DisplayManager
     @State private var selection: CGDirectDisplayID?
+    @State private var arranging = false
 
     var body: some View {
-        let displays = advancedSettingsDisplays(displayManager.displays)
+        let displays = advancedSettingsDisplays(displayManager.displays).sorted {
+            ($0.bounds.minX, $0.bounds.minY) < ($1.bounds.minX, $1.bounds.minY)
+        }
         let selected = displays.first(where: { $0.displayID == selection }) ?? displays.first
         VStack(spacing: 0) {
             let pictures = HStack(alignment: .bottom, spacing: 20) {
@@ -260,10 +264,18 @@ struct AdvancedDisplaysTab: View {
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 16)
-            // Centred while the row fits, scrolled when it does not.
-            ViewThatFits(in: .horizontal) {
-                pictures.frame(maxWidth: .infinity)
-                ScrollView(.horizontal) { pictures }
+            HStack(alignment: .bottom, spacing: 0) {
+                // Outside the scrolling row, so it stays in reach with many displays.
+                if displayManager.displays.count > 1 {
+                    Button("Arrange…") { arranging = true }
+                        .padding(.leading, 20)
+                        .padding(.bottom, 18)
+                }
+                // Centred while the row fits, scrolled when it does not.
+                ViewThatFits(in: .horizontal) {
+                    pictures.frame(maxWidth: .infinity)
+                    ScrollView(.horizontal) { pictures }
+                }
             }
             Divider()
             if let selected {
@@ -272,6 +284,17 @@ struct AdvancedDisplaysTab: View {
             }
         }
         .frame(maxWidth: .infinity)  // the window sets the width, scroll bar included
+        // The panel's arranger (Tools > Arrange Displays) in a sheet, as System Settings has.
+        .sheet(isPresented: $arranging) {
+            VStack(alignment: .trailing, spacing: 12) {
+                ArrangementView()
+                    .environmentObject(displayManager)
+                    .frame(width: 460)
+                Button("Done") { arranging = false }
+                    .keyboardShortcut(.defaultAction)
+            }
+            .padding(16)
+        }
     }
 }
 
@@ -404,10 +427,16 @@ private struct AdvancedDisplayPage: View {
             // No header: the slider row says Brightness, as in System Settings.
             Section {
                 // The panel's slider (DDC, gamma or the system's own).
-                LabeledContent("Brightness") {
+                // An HStack, not LabeledContent: the form puts a LabeledContent label at the
+                // top of a slider row. labelsHidden, or the form gives the slider's empty
+                // label a column and the bar starts late.
+                HStack {
+                    Text("Brightness")
+                    Spacer()
                     BrightnessSliderView(display: display, compact: true, inForm: true)
+                        .labelsHidden()
                         .padding(.horizontal, -12)  // the panel's row inset
-                        .frame(maxWidth: 300)
+                        .frame(width: 300)
                 }
                 ExtraBrightnessView(display: display, inForm: true)
                 SystemAutoBrightnessView(display: display)
