@@ -554,6 +554,28 @@ struct SettingsView: View {
                 .padding(.vertical, 3)
             }
 
+            // Only where the combined volume slider can appear: with the volume sliders
+            // shown and two or more externals with DDC speaker volume.
+            if settings.showVolumeSliders,
+               physicalDisplays.filter({ !$0.isBuiltin && $0.volumeSupported }).count > 1 {
+                Toggle(isOn: Binding(
+                    get: { settings.showCombinedVolume },
+                    set: { newValue in withAnimation(.panelResize) { settings.showCombinedVolume = newValue } }
+                )) {
+                    HStack(spacing: 8) {
+                        MenuItemIcon(systemName: "hifispeaker.2.fill", color: .blue, active: settings.showCombinedVolume)
+                            .accessibilityHidden(true)
+                        Text("Show Combined Volume")
+                            .font(.body)
+                        Spacer()
+                    }
+                }
+                .toggleStyle(.switch)
+                .controlSize(.small)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 3)
+            }
+
             // Asks for Accessibility while it is missing: without it the brightness keys only
             // reach the built-in, so the ask stays where everyone sees it. Which displays the
             // keys adjust, once granted, is set in Advanced Settings > Keyboard.

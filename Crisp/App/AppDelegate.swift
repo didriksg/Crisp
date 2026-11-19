@@ -658,13 +658,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         blocks.append(block("reconnect") { ReconnectDisplaysSection() })
         let visCount = vis.count
-        blocks.append(block("combined",
-                            isOpen: { settings.showCombinedBrightness && visCount > 1 }) {
-            VStack(spacing: 0) {
-                SectionDivider()
-                CombinedBrightnessView(displays: vis)
-            }
-        })
+        let combinedShown = { settings.showCombinedBrightness && visCount > 1 }
+        blocks.append(block("combinedHeader", isOpen: { combinedShown() || CombinedVolumeBlock.isShown(vis) }) { CombinedHeaderBlock() })
+        blocks.append(block("combined", isOpen: combinedShown) { CombinedBrightnessView(displays: vis) })
+        blocks.append(block("combinedVolume", isOpen: { CombinedVolumeBlock.isShown(vis) }) { CombinedVolumeBlock(displays: vis) })
         if CoreBrightnessService.shared.darkModeAvailable
             || CoreBrightnessService.shared.nightShiftAvailable
             || CoreBrightnessService.shared.trueToneAvailable {
@@ -759,10 +756,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         ) { [weak self] _ in
             Task { @MainActor in self?.canvas.refreshAppearance() }
         }
-        SettingsService.shared.$showCombinedBrightness
-            .dropFirst()
-            .sink { [weak self] _ in self?.canvas.requestApply() }
-            .store(in: &canvasCancellables)
+        let settings = SettingsService.shared
+        for setting in [settings.$showCombinedBrightness, settings.$showCombinedVolume, settings.$showVolumeSliders] {
+            setting
+                .dropFirst()
+                .sink { [weak self] _ in self?.canvas.requestApply() }
+                .store(in: &canvasCancellables)
+        }
         displayManager.$displays
             .dropFirst()
             .receive(on: DispatchQueue.main)

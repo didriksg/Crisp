@@ -259,6 +259,23 @@ struct BrightnessSliderView: View {
     }
 }
 
+/// The "Combined" title over the combined brightness and volume sliders, shown when either is.
+struct CombinedHeaderBlock: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SectionDivider()
+            // Matches DisplayRowView's bold title so this reads as another row.
+            // 14pt inset matches the display titles; the sliders below use 12pt.
+            Text("Combined")
+                .fontWeight(.semibold)
+                .lineLimit(1)
+                .padding(.horizontal, 14)
+                .padding(.top, 6)
+                .padding(.bottom, 2)
+        }
+    }
+}
+
 struct CombinedBrightnessView: View {
     let displays: [DisplayInfo]
     @ObservedObject private var settings = SettingsService.shared
@@ -338,13 +355,6 @@ struct CombinedBrightnessView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            // Matches DisplayRowView's bold title so this reads as another row.
-            // 14pt inset matches the display titles; the slider below uses 12pt.
-            Text("Combined")
-                .fontWeight(.semibold)
-                .lineLimit(1)
-                .padding(.horizontal, 14)
-
             HStack(spacing: 8) {
                 BrightnessStepButton(systemName: "sun.min.fill") { stepAll(-10.0) }
 
@@ -398,7 +408,7 @@ struct CombinedBrightnessView: View {
             }
             .padding(.horizontal, 12)
         }
-        .padding(.vertical, 6)
+        .padding(.bottom, 4)
         .background {
             // Mirrors the displays' real brightness so the combined handle glides in
             // sync; skipped while dragging (the drag itself drives the displays).

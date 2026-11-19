@@ -17,6 +17,12 @@ struct AdvancedGeneralTab: View {
         displayManager.displays.filter { !VirtualDisplayService.shared.isVirtualDisplay($0.displayID) }
     }
 
+    /// The combined volume slider needs the volume sliders and two speakers.
+    private var showsCombinedVolume: Bool {
+        settings.showVolumeSliders
+            && physicalDisplays.filter { !$0.isBuiltin && $0.volumeSupported }.count > 1
+    }
+
     /// The ratio relates the built-in to the externals, so it needs both to be on.
     private var hasBuiltinAndExternal: Bool {
         physicalDisplays.contains(where: { $0.isBuiltin }) && physicalDisplays.contains(where: { !$0.isBuiltin })
@@ -91,6 +97,9 @@ struct AdvancedGeneralTab: View {
             Section("Volume") {
                 // Hiding the sliders does not disable the volume keys.
                 Toggle("Show Volume Sliders", isOn: $settings.showVolumeSliders)
+                if showsCombinedVolume {
+                    Toggle("Show Combined Volume", isOn: $settings.showCombinedVolume)
+                }
             }
             if showsAutoDisconnect {
                 Section("Displays") {

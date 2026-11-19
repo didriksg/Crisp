@@ -781,6 +781,22 @@
         }
       }
     },
+    "Show Combined Volume" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示合并音量"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "顯示合併音量"
+          }
+        }
+      }
+    },
     "Stays disconnected until you reconnect it from the menu bar." : {
       "localizations" : {
         "zh-Hans" : {
@@ -2827,6 +2843,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "登入時打開"
+          }
+        }
+      }
+    },
+    "Combined speaker volume" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "合并扬声器音量"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "合併揚聲器音量"
           }
         }
       }
