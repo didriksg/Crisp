@@ -259,6 +259,23 @@ struct BrightnessSliderView: View {
     }
 }
 
+/// The "Combined" title over the combined brightness and volume sliders, shown when either is.
+struct CombinedHeaderBlock: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SectionDivider()
+            // Matches DisplayRowView's bold title so this reads as another row.
+            // 14pt inset matches the display titles; the sliders below use 12pt.
+            Text("Combined")
+                .fontWeight(.semibold)
+                .lineLimit(1)
+                .padding(.horizontal, 14)
+                .padding(.top, 6)
+                .padding(.bottom, 2)
+        }
+    }
+}
+
 struct CombinedBrightnessView: View {
     let displays: [DisplayInfo]
     @ObservedObject private var settings = SettingsService.shared
@@ -267,11 +284,6 @@ struct CombinedBrightnessView: View {
     @State private var dragConfirmed: Bool = false
     @State private var deferredFirstChange: Bool = false
     @State private var clickGliding: Bool = false
-
-    /// Externals with DDC speaker volume, driven together by the combined volume slider.
-    private var volumeDisplays: [DisplayInfo] {
-        displays.filter { !$0.isBuiltin && $0.volumeSupported }
-    }
 
     /// Externals define the shared scale; unlike the built-in panel, their
     /// current DDC percentage is already the combined control's reference.
@@ -341,13 +353,6 @@ struct CombinedBrightnessView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            // Matches DisplayRowView's bold title so this reads as another row.
-            // 14pt inset matches the display titles; the slider below uses 12pt.
-            Text("Combined")
-                .fontWeight(.semibold)
-                .lineLimit(1)
-                .padding(.horizontal, 14)
-
             HStack(spacing: 8) {
                 BrightnessStepButton(systemName: "sun.min.fill") { stepAll(-10.0) }
 
@@ -400,12 +405,8 @@ struct CombinedBrightnessView: View {
                 BrightnessStepButton(systemName: "sun.max.fill") { stepAll(10.0) }
             }
             .padding(.horizontal, 12)
-
-            if settings.showVolumeSliders, volumeDisplays.count > 1 {
-                CombinedVolumeSliderView(displays: volumeDisplays)
-            }
         }
-        .padding(.vertical, 6)
+        .padding(.bottom, 4)
         .background {
             // Mirrors the displays' real brightness so the combined handle glides in
             // sync; skipped while dragging (the drag itself drives the displays).

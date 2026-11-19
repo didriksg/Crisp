@@ -50,16 +50,41 @@ struct VolumeSliderView: View {
     }
 }
 
-/// One speaker volume slider for every external with DDC volume, under the combined
-/// brightness slider. It sets them all to the same level.
+/// The panel block that holds the combined volume slider, under combined brightness
+/// and the Combined title.
+struct CombinedVolumeBlock: View {
+    let displays: [DisplayInfo]
+
+    /// With Show Combined Volume and Show Volume Sliders on, and two or more speaker monitors.
+    @MainActor
+    static func isShown(_ displays: [DisplayInfo]) -> Bool {
+        let settings = SettingsService.shared
+        return settings.showCombinedVolume && settings.showVolumeSliders
+            && displays.filter { !$0.isBuiltin && $0.volumeSupported }.count > 1
+    }
+
+    var body: some View {
+        // No divider: it sits under the Combined title with combined brightness.
+        CombinedVolumeSliderView(displays: displays.filter { !$0.isBuiltin })
+            .padding(.bottom, 4)
+    }
+}
+
+/// One speaker volume slider for every external with DDC volume, in its own panel block
+/// under the combined brightness one. It sets them all to the same level.
 struct CombinedVolumeSliderView: View {
+    /// The externals; `speakers` filters on each use, since a volume probe can answer
+    /// after the panel opens.
     let displays: [DisplayInfo]
     @State private var localVolume: Double = 0
     @State private var isDragging: Bool = false
 
+    private var speakers: [DisplayInfo] { displays.filter(\.volumeSupported) }
+
     private var averageVolume: Double {
-        guard !displays.isEmpty else { return 0 }
-        return displays.map(\.volume).reduce(0, +) / Double(displays.count)
+        let speakers = speakers
+        guard !speakers.isEmpty else { return 0 }
+        return speakers.map(\.volume).reduce(0, +) / Double(speakers.count)
     }
 
     var body: some View {
@@ -102,7 +127,7 @@ struct CombinedVolumeSliderView: View {
     }
 
     private func setAll(_ volume: Double) {
-        for display in displays {
+        for display in speakers {
             VolumeService.shared.setVolume(volume, for: display)
         }
     }

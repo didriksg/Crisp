@@ -63,6 +63,7 @@ final class SettingsService: ObservableObject, @unchecked Sendable {
         static let showCombinedBrightness = "crisp.showCombinedBrightness"
         static let combinedBuiltinFactor  = "crisp.combinedBuiltinBrightnessAdjustment"
         static let showVolumeSliders      = "crisp.showVolumeSliders"
+        static let showCombinedVolume     = "crisp.showCombinedVolume"
         static let showConnectionSwitches = "crisp.showConnectionSwitches"
         static let crossDisplayGaps       = "crisp.crossDisplayGaps"
         static let disconnectBuiltinWhenDocked = "crisp.disconnectBuiltinWhenDocked"
@@ -110,6 +111,11 @@ final class SettingsService: ObservableObject, @unchecked Sendable {
     /// panel; the volume keys keep routing to the monitor.
     @Published var showVolumeSliders: Bool = true {
         didSet { defaults.set(showVolumeSliders, forKey: Keys.showVolumeSliders) }
+    }
+
+    /// One speaker volume slider for every DDC-volume external, in the Combined block. Off by default.
+    @Published var showCombinedVolume: Bool = false {
+        didSet { defaults.set(showCombinedVolume, forKey: Keys.showCombinedVolume) }
     }
 
     /// A switch on each display row that disconnects and reconnects it (#103). Off by
@@ -309,6 +315,7 @@ final class SettingsService: ObservableObject, @unchecked Sendable {
         }
         showVolumeSliders = defaults.object(forKey: Keys.showVolumeSliders) != nil
             ? defaults.bool(forKey: Keys.showVolumeSliders) : true
+        showCombinedVolume = defaults.bool(forKey: Keys.showCombinedVolume)
         showConnectionSwitches = defaults.bool(forKey: Keys.showConnectionSwitches)
         crossDisplayGaps = defaults.bool(forKey: Keys.crossDisplayGaps)
         disconnectBuiltinWhenDocked = defaults.bool(forKey: Keys.disconnectBuiltinWhenDocked)

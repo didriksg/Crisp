@@ -749,6 +749,22 @@
         }
       }
     },
+    "Show Combined Volume" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示合并音量"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "顯示合併音量"
+          }
+        }
+      }
+    },
     "Stays disconnected until you reconnect it from the menu bar." : {
       "localizations" : {
         "zh-Hans" : {
