@@ -410,22 +410,21 @@ private struct AdvancedDisplayPage: View {
                     // volume (#57); off stops volume commands to a monitor whose DDC stops after
                     // repeated volume writes (#245). Shown whatever Show Volume Sliders says:
                     // the volume keys use DDC volume also with the sliders hidden.
-                    Toggle(isOn: Binding(
-                        get: { display.volumeSupported },
-                        set: { VolumeService.shared.setEnabled($0, for: display) }
-                    )) {
-                        Text("Volume Control")
-                        Text("Speaker volume over DDC. Turn it off if the monitor stops answering, or on if it doesn't report volume.")
+                    CenteredRow(title: "Volume Control", detail: Text(
+                        "Speaker volume over DDC. Turn it off if the monitor stops answering, or on if it doesn't report volume.")) {
+                        Toggle("Volume Control", isOn: Binding(
+                            get: { display.volumeSupported },
+                            set: { VolumeService.shared.setEnabled($0, for: display) }
+                        ))
+                        .labelsHidden()
                     }
                 }
                 // Last, as on the card: it removes the display from this tab.
                 if PhysicalDisplayToggleService.shared.isSupported,
                    !PhysicalDisplayToggleService.shared.wouldLeaveNoActiveDisplay(display.displayID) {
-                    LabeledContent {
+                    CenteredRow(title: "Disconnect Display",
+                                detail: Text("Stays disconnected until you reconnect it from the menu bar.")) {
                         Button("Disconnect") { disconnect() }.disabled(busy)
-                    } label: {
-                        Text("Disconnect Display")
-                        Text("Stays disconnected until you reconnect it from the menu bar.")
                     }
                 }
             }
@@ -503,22 +502,15 @@ private struct AdvancedInputPicker: View {
 
     var body: some View {
         if service.isAvailable(for: display) {
-            Picker(selection: Binding(get: { service.macInput[uuid] }, set: { if let value = $0 { choose(value) } })) {
-                if service.macInput[uuid] == nil { Text("").tag(UInt16?.none) }
-                ForEach(service.options(for: display), id: \.self) { Text(verbatim: inputLabel($0)).tag(Optional($0)) }
-            } label: {
-                Text("Input")
-                if let message {
-                    Text(message).foregroundStyle(.red)
-                } else if service.macInput[uuid] == nil {
-                    Text("Crisp could not read which input this Mac is on. Choose it once.")
-                } else if PhysicalDisplayToggleService.shared.wouldLeaveNoActiveDisplay(display.displayID) {
-                    Text("This is the only display, so it stays connected while it shows the other input.")
-                } else {
-                    Text("Another input disconnects this display. Reconnect it from the menu bar to switch back.")
+            CenteredRow(title: "Input", detail: detail) {
+                Picker("Input", selection: Binding(get: { service.macInput[uuid] }, set: { if let value = $0 { choose(value) } })) {
+                    if service.macInput[uuid] == nil { Text("").tag(UInt16?.none) }
+                    ForEach(service.options(for: display), id: \.self) { Text(verbatim: inputLabel($0)).tag(Optional($0)) }
                 }
+                .labelsHidden()
+                .fixedSize()
+                .disabled(pending || service.reading.contains(uuid))
             }
-            .disabled(pending || service.reading.contains(uuid))
             .task {
                 await service.refreshInput(display)
                 await service.readListIfNeeded(display)
@@ -529,6 +521,15 @@ private struct AdvancedInputPicker: View {
                 }
             }
         }
+    }
+
+    private var detail: Text {
+        if let message { return Text(message).foregroundColor(.red) }
+        if service.macInput[uuid] == nil { return Text("Crisp could not read which input this Mac is on. Choose it once.") }
+        if PhysicalDisplayToggleService.shared.wouldLeaveNoActiveDisplay(display.displayID) {
+            return Text("This is the only display, so it stays connected while it shows the other input.")
+        }
+        return Text("Another input disconnects this display. Reconnect it from the menu bar to switch back.")
     }
 
     private func choose(_ value: UInt16) {
@@ -547,6 +548,26 @@ private struct AdvancedInputPicker: View {
                 try? await Task.sleep(nanoseconds: 3_000_000_000)
                 message = nil
             }
+        }
+    }
+}
+
+/// A form row with its control centred on the title and the description (Didrik,
+/// 2026-11-19; a stock form row puts the control level with the title). The fonts are
+/// the stock row's, compared in an off-screen render.
+private struct CenteredRow<Control: View>: View {
+    let title: LocalizedStringKey
+    let detail: Text
+    @ViewBuilder let control: Control
+
+    var body: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                detail.font(.subheadline).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 0)
+            control
         }
     }
 }

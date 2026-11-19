@@ -109,7 +109,9 @@ final class AdvancedSettingsWindowController: NSWindowController, NSWindowDelega
         var frame = window.frameRect(forContentRect: NSRect(origin: .zero, size: size))
         frame.origin = NSPoint(x: old.minX, y: old.maxY - frame.height)
         guard frame.size != old.size else { return }
-        window.setFrame(frame, display: true, animate: true)
+        // Not setFrame(_:display:animate:): it blocks the main thread for the whole
+        // animation, and a tab switch calls this several times (measured with sample).
+        window.animator().setFrame(frame, display: true)
     }
 
     func windowWillClose(_ notification: Notification) {
