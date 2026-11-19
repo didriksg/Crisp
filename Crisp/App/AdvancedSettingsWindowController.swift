@@ -32,12 +32,17 @@ final class AdvancedSettingsWindowController: NSWindowController, NSWindowDelega
         NSApp.setActivationPolicy(.regular)
         NSApp.activate()
         window?.makeKeyAndOrderFront(nil)
+        // With keyboard navigation on, AppKit would ring the first switch at once.
+        window?.makeFirstResponder(nil)
     }
 
     private func makeWindow() -> NSWindow {
         let savedTab = UserDefaults.standard.string(forKey: AdvancedSettingsTabs.lastTabKey)
         let tabs = AdvancedSettingsTabs()
         tabs.tabStyle = .toolbar
+        // No resize animation (Didrik, 2026-11-19): the tab controller animated only a
+        // tab's first showing, so switching felt different each time.
+        tabs.transitionOptions = []
         tabs.addTabViewItem(tab(AdvancedGeneralTab(), label: String(localized: "General"), symbol: "gearshape"))
         tabs.addTabViewItem(tab(AdvancedKeyboardTab(), label: String(localized: "Keyboard"), symbol: "keyboard"))
         tabs.addTabViewItem(tab(AdvancedVirtualDisplaysTab(), label: String(localized: "Virtual Displays"),
@@ -109,9 +114,9 @@ final class AdvancedSettingsWindowController: NSWindowController, NSWindowDelega
         var frame = window.frameRect(forContentRect: NSRect(origin: .zero, size: size))
         frame.origin = NSPoint(x: old.minX, y: old.maxY - frame.height)
         guard frame.size != old.size else { return }
-        // Not setFrame(_:display:animate:): it blocks the main thread for the whole
-        // animation, and a tab switch calls this several times (measured with sample).
-        window.animator().setFrame(frame, display: true)
+        // At once, like the tab switch; setFrame(_:display:animate:) also blocked the
+        // main thread for the whole animation (measured with sample).
+        window.setFrame(frame, display: true)
     }
 
     func windowWillClose(_ notification: Notification) {
@@ -130,6 +135,7 @@ private final class AdvancedSettingsTabs: NSTabViewController {
         if let id = tabViewItem?.identifier as? String {
             UserDefaults.standard.set(id, forKey: Self.lastTabKey)
         }
+        view.window?.makeFirstResponder(nil)  // no focus ring on the new tab's first control
     }
 }
 
