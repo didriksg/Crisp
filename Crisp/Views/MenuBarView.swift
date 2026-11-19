@@ -307,37 +307,36 @@ struct UpdateRow: View {
     }
 }
 
-// MARK: - CommandLineToolRow
+// MARK: - SettingSwitchRow
 
-/// Settings switch that links the bundled crispctl into /usr/local/bin. Shown only
-/// when the bundle carries the tool (release builds); reads on while the link
-/// points at this bundle, so a moved app reads off again until it is relinked.
-struct CommandLineToolRow: View {
-    @State private var installed = CrispctlInstaller.isInstalled
+/// A switch row: the panel's icon row, or a plain form toggle in Advanced Settings, which
+/// has no icon chips (docs/DESIGN.md). Lets a view keep one copy of its logic for both.
+struct SettingSwitchRow: View {
+    let inForm: Bool
+    let icon: String
+    let color: Color
+    let label: LocalizedStringKey
+    @Binding var isOn: Bool
+    var disabled = false
 
     var body: some View {
-        Toggle(isOn: Binding(
-            get: { installed },
-            set: { newValue in
-                guard PanelOpenGuard.allowsActivation else { return }
-                if newValue { CrispctlInstaller.install() } else { CrispctlInstaller.uninstall() }
-                installed = CrispctlInstaller.isInstalled
-            }
-        )) {
-            HStack(spacing: 8) {
-                MenuItemIcon(systemName: "terminal.fill", color: .indigo, active: installed)
-                    .accessibilityHidden(true)
-                Text("Command Line Tool")
+        if inForm {
+            Toggle(label, isOn: $isOn).disabled(disabled)
+        } else {
+            HStack {
+                MenuItemIcon(systemName: icon, color: color, active: isOn)
+                Text(label)
                     .font(.body)
                 Spacer()
+                Toggle("", isOn: $isOn)
+                    .toggleStyle(.switch)
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .disabled(disabled)
             }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 3)
         }
-        .toggleStyle(.switch)
-        .controlSize(.small)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 3)
-        .onAppear { installed = CrispctlInstaller.isInstalled }
-        .accessibilityHint("Links crispctl into /usr/local/bin")
     }
 }
 
@@ -397,6 +396,34 @@ struct SupportRow: View {
     }
 }
 
+/// The last Settings row: opens the Advanced Settings window, which holds what Crisp
+/// works without (docs/DESIGN.md). An action, not a disclosure, so no chevron.
+private struct AdvancedSettingsRow: View {
+    let action: () -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        HStack(spacing: 8) {
+            MenuItemIcon(systemName: "slider.horizontal.3", active: false)
+                .accessibilityHidden(true)
+            Text("Advanced Settings…")
+                .font(.body)
+            Spacer()
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 3)
+        .menuRowHover(isHovered)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            guard PanelOpenGuard.allowsActivation else { return }
+            action()
+        }
+        .onHover { isHovered = $0 }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+    }
+}
+
 /// One external-link row inside the Support submenu: a label with the ↗ affordance
 /// that opens the platform's page in the browser. Brand names are verbatim so they
 /// are never localized or number-grouped.
@@ -439,21 +466,12 @@ struct SettingsView: View {
     // SettingsView stays mounted across panel opens, so expansion state must be reset
     // explicitly on close like every other section.
     @State private var showSupport = false
-    @State private var showBrightnessKeys = false
-    @State private var showHiDPIShortcut = false
     // AXIsProcessTrusted() isn't observable, so re-read it on every open (below) or the
     // section shows stale state after the user grants/revokes in System Settings. (vx44)
     @State private var isTrusted = AXIsProcessTrusted()
     @EnvironmentObject var displayManager: DisplayManager
-
-    /// Localized display name for a brightness-key target (row subtitle + choices).
-    private func brightnessTargetName(_ target: BrightnessKeyTarget) -> String {
-        switch target {
-        case .underCursor: return String(localized: "Follow the pointer")
-        case .allDisplays: return String(localized: "All connected displays")
-        case .selected:    return String(localized: "Selected displays only")
-        }
-    }
+    /// Closes the panel and opens the Advanced Settings window (AppDelegate).
+    let openAdvancedSettings: () -> Void
 
     private var physicalDisplays: [DisplayInfo] {
         displayManager.displays.filter {
@@ -461,25 +479,9 @@ struct SettingsView: View {
         }
     }
 
-    /// Effective linear-brightness slope: external peak nits divided by the
-    /// built-in SDR peak, then multiplied by the user's fine tuning.
-    private var combinedBuiltinLuminanceRatio: Double? {
-        guard let builtinMax = physicalDisplays.first(where: { $0.isBuiltin })?.nominalMaxNits else {
-            return nil
-        }
-        let externalMaxima = physicalDisplays.filter { !$0.isBuiltin }.compactMap(\.nominalMaxNits)
-        guard !externalMaxima.isEmpty else { return nil }
-        let externalMax = externalMaxima.reduce(0, +) / Double(externalMaxima.count)
-        return externalMax / builtinMax * settings.combinedBuiltinBrightnessFactor
-    }
-
-    private var combinedBuiltinLuminanceRatioPercent: Int {
-        Int(((combinedBuiltinLuminanceRatio ?? settings.combinedBuiltinBrightnessFactor) * 100).rounded())
-    }
-
     /// Opt-in control for brightness-key redirection, shown only while Accessibility is
     /// missing: the in-context trigger for the native trust prompt (nothing is requested
-    /// at launch). On grant the parent swaps this for the target menu. (b00d.1, jv1b)
+    /// at launch). On grant the parent hides it. (b00d.1, jv1b)
     private struct BrightnessKeysPermissionNotice: View {
         // ponytail: local intent so the switch animates on tap; harmless if denied.
         @State private var requesting = false
@@ -491,8 +493,7 @@ struct SettingsView: View {
                     set: { on in
                         requesting = on
                         if on {
-                            requestAccess()
-                            BrightnessKeyService.shared.start()
+                            BrightnessKeyService.requestAccess()
                         } else {
                             BrightnessKeyService.shared.stop()
                         }
@@ -520,17 +521,6 @@ struct SettingsView: View {
             .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
                 // Returning from System Settings without granting: un-stick the toggle.
                 if !AXIsProcessTrusted() { requesting = false }
-            }
-        }
-
-        private func requestAccess() {
-            // kAXTrustedCheckOptionPrompt is a global var in the Command Line Tools SDK;
-            // name the key outright rather than string-literal it.
-            let opts = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
-            _ = AXIsProcessTrustedWithOptions(opts)
-            // Also open the exact pane, since the one-shot system prompt may already be gone.
-            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
-                NSWorkspace.shared.open(url)
             }
         }
     }
@@ -561,42 +551,10 @@ struct SettingsView: View {
                 .controlSize(.small)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 3)
-
-                if settings.showCombinedBrightness && physicalDisplays.contains(where: { $0.isBuiltin }) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Absolute brightness ratio")
-                                    .font(.callout)
-                                Text("From each panel's rated nits. HDR monitors report their HDR peak, "
-                                     + "so lower this if the built-in runs too bright")
-                                    .font(.caption2)
-                                    .foregroundColor(.secondary)
-                            }
-                            Spacer()
-                            Text("\(combinedBuiltinLuminanceRatioPercent)%")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                                .monospacedDigit()
-                        }
-                        Slider(
-                            value: $settings.combinedBuiltinBrightnessFactor,
-                            in: CombinedBrightnessMath.builtinAdjustmentRange,
-                            step: 0.02
-                        )
-                        .controlSize(.small)
-                        .accessibilityLabel("Absolute brightness ratio")
-                        .accessibilityValue("\(combinedBuiltinLuminanceRatioPercent)%")
-                    }
-                    .padding(.leading, 46)
-                    .padding(.trailing, 12)
-                    .padding(.vertical, 3)
-                    .curtainReveal(settings.showCombinedBrightness)
-                }
             }
 
-            // Shown while an external is connected: it also shows or hides each card's
-            // Volume Control switch. Hiding the sliders does not disable the volume keys.
+            // Shown while an external is connected. Hiding the sliders does not disable
+            // the volume keys.
             if displayManager.displays.contains(where: { !$0.isBuiltin }) {
                 Toggle(isOn: Binding(
                     get: { settings.showVolumeSliders },
@@ -616,104 +574,14 @@ struct SettingsView: View {
                 .padding(.vertical, 3)
             }
 
-            if PhysicalDisplayToggleService.shared.isSupported {
-                Toggle(isOn: Binding(
-                    get: { settings.showConnectionSwitches },
-                    set: { newValue in withAnimation(.panelResize) { settings.showConnectionSwitches = newValue } }
-                )) {
-                    HStack(spacing: 8) {
-                        MenuItemIcon(systemName: "switch.2", color: .orange, active: settings.showConnectionSwitches)
-                            .accessibilityHidden(true)
-                        Text("Show Connection Switches")
-                            .font(.body)
-                        Spacer()
-                    }
-                }
-                .toggleStyle(.switch)
-                .controlSize(.small)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 3)
-            }
-
-            // Which displays the hardware brightness keys adjust (checkmark-list idiom, only
-            // once Accessibility is granted, or the target subtitle would read as live before
-            // it is). (jv1b)
-            if isTrusted {
-                ExpandableRow(
-                    icon: "keyboard",
-                    iconColor: .accentColor,
-                    iconActive: true,
-                    label: "Brightness Keys",
-                    subtitle: brightnessTargetName(settings.brightnessKeyTarget),
-                    isExpanded: $showBrightnessKeys
-                )
-                if showBrightnessKeys {
-                    ForEach(BrightnessKeyTarget.allCases, id: \.self) { target in
-                        CheckmarkRow(
-                            label: brightnessTargetName(target),
-                            isSelected: settings.brightnessKeyTarget == target
-                        ) {
-                            settings.brightnessKeyTarget = target
-                        }
-                    }
-                    // Real toggles, not CheckmarkRow (which can't deselect), since this is
-                    // multi-select. Keyed by displayUUID so membership survives reconnects.
-                    if settings.brightnessKeyTarget == .selected {
-                        ForEach(displayManager.displays) { display in
-                            Toggle(isOn: Binding(
-                                get: { settings.brightnessKeySelectedDisplayUUIDs.contains(display.displayUUID) },
-                                set: { isOn in
-                                    if isOn {
-                                        settings.brightnessKeySelectedDisplayUUIDs.insert(display.displayUUID)
-                                    } else {
-                                        settings.brightnessKeySelectedDisplayUUIDs.remove(display.displayUUID)
-                                    }
-                                }
-                            )) {
-                                Text(display.name).font(.callout)
-                            }
-                            .toggleStyle(.checkbox)
-                            .controlSize(.small)
-                            .padding(.leading, 46)
-                            .padding(.trailing, 12)
-                            .padding(.vertical, 1)
-                        }
-                    }
-                }
-            } else {
+            // Asks for Accessibility while it is missing: without it the brightness keys only
+            // reach the built-in, so the ask stays where everyone sees it. Which displays the
+            // keys adjust, once granted, is set in Advanced Settings > Keyboard.
+            if !isTrusted {
                 BrightnessKeysPermissionNotice()
             }
 
-            // Global shortcuts: the curated action list (issue #61).
-            ShortcutsSection(expanded: $showHiDPIShortcut)
-
-            Toggle(isOn: Binding(
-                get: { settings.launchAtLogin },
-                set: { newValue in
-                    if newValue {
-                        LaunchService.shared.enable()
-                    } else {
-                        LaunchService.shared.disable()
-                    }
-                    settings.launchAtLogin = newValue
-                }
-            )) {
-                HStack(spacing: 8) {
-                    MenuItemIcon(systemName: "power", color: .green, active: settings.launchAtLogin)
-                        .accessibilityHidden(true)
-                    Text("Launch at Login")
-                        .font(.body)
-                    Spacer()
-                }
-            }
-            .toggleStyle(.switch)
-            .controlSize(.small)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 3)
-
-            if CrispctlInstaller.isAvailable {
-                CommandLineToolRow()
-            }
+            AdvancedSettingsRow(action: openAdvancedSettings)
 
             SectionDivider()
 
@@ -734,15 +602,13 @@ struct SettingsView: View {
             if isTrusted { BrightnessKeyService.shared.start() }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            // Also refresh on reactivate, so the toggle flips to the target menu without
+            // Also refresh on reactivate, so the notice goes away after a grant without
             // closing and reopening the panel.
             isTrusted = AXIsProcessTrusted()
             if isTrusted { BrightnessKeyService.shared.start() }
         }
         .onReceive(NotificationCenter.default.publisher(for: .crispPanelDidClose)) { _ in
             showSupport = false
-            showBrightnessKeys = false
-            showHiDPIShortcut = false
         }
     }
 }

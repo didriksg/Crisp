@@ -1,0 +1,164 @@
+# Settings window in an accessory menu bar app
+
+Date: 2026-11-16, revised the same day after an EGM review. Applies to Crisp (Swift 6, deployment target macOS 14, built on the macOS 26 SDK in CI and the macOS 27 SDK on Didrik's Mac, runs on 14, 15, 26 and 27). Serves the Advanced Settings window spec (`docs/superpowers/specs/2026-11-16-advanced-settings-window-design.md`). Check it again after 2027-05-16.
+
+## Recommendation
+
+Build the Advanced Settings window in AppKit: an `NSWindowController` that owns a titled `NSWindow`, whose content is an `NSTabViewController` with `tabStyle = .toolbar` and one `NSHostingController` for each tab (General, Keyboard, Displays). Put it in its own file, because `AppDelegate` is at its length limit. The panel row calls a closure from `AppDelegate` that first closes the panel and then shows the window.
+
+Do not use the SwiftUI `Settings` scene or a `Window` scene. Both open only from a SwiftUI view inside a scene, and the panel's views are hosted outside one. The community record shows that this path broke on macOS 14 and again on 26. The AppKit path does not depend on SwiftUI scenes at all.
+
+The open risk is the same for every option: the window must come in front and become key. Since macOS 14, `NSApp.activate()` is only a request, and macOS can refuse it for an app with no Dock icon. The live test below decides which activation call Crisp uses.
+
+## Why not the SwiftUI scenes
+
+The `Settings` scene opens through `openSettings` or `SettingsLink`, which exist from macOS 14 (Apple documentation). Apple does not say whether they work from a view that is hosted outside a scene. Developers report three problems. The old `showSettingsWindow:` selector stopped working on macOS 14. `openSettings` worked on 15 but did nothing on 26 when no SwiftUI view tree was live. The workaround is a hidden window and short delays (Peter Steinberger, 2025; the SettingsAccess package says it cannot be used from outside a SwiftUI view). A single short test on this Mac (macOS 27.0.1, see Evidence) opened the `Settings` window from a hosted panel. So that path may work on 27, but it is not tested on 14, 15 or 26.
+
+A `Window` scene opens through `openWindow`. It needs the same scene environment and adds nothing that the AppKit window does not give.
+
+What the AppKit window loses, and how it gets it back: toolbar tabs and a title that follows the tab come from `NSTabViewController.TabStyle.toolbar`, which is the documented AppKit style for preference windows. Cmd-W and Cmd-, need code (see Keys and menus).
+
+## Activation
+
+Documentation says three things. `NSApplication.activate()` (macOS 14 and later) "doesn't guarantee app activation". Activation is cooperative: the active app can pass it on with `yieldActivation(to:)`, but only the active app can call that, so it does not help Crisp. The documentation page for `activate(ignoringOtherApps:)` says "This method will be deprecated in a future release. Use NSApp.activate instead." On the macOS 27 SDK it still compiles under Swift 6 with no warning (typechecked on 2026-11-16), so `make test`, which treats warnings as errors, accepts it.
+
+Apple forum thread "activate() in a menu bar app" (836619, 2026) has two sides. The developer who asked reports that `activate()` does not bring an accessory app's window in front of another app's window, and that switching to `.regular` also failed in a SwiftUI sample. That developer filed FB23508310. The Apple engineer said that the stricter model is intentional and still recommended `activate()` or `openWindow`.
+
+Evidence from Crisp itself: `UpdateService.installUpdate()` calls `NSApp.activate()` from a panel row, and Sparkle's window comes in front. This is a real click, but not proof for macOS 27.
+
+Today the panel takes key while Crisp is not active (`.nonactivatingPanel`, `makeKey`). That is why the shortcut recorders work in the panel. A titled window is different: if activation fails, the window shows but gets no keys, so the recorders do not work. `orderFrontRegardless()` would make the window visible without making it key and would hide that failure, so do not use it.
+
+Activation calls to try, in this order, and stop at the first that passes the live test:
+
+1. `NSApp.activate()`, called in the same click, before `makeKeyAndOrderFront(nil)`.
+2. `NSApp.activate(ignoringOtherApps: true)`. It keeps the policy and gives no warning today.
+3. A titled `NSPanel` with `.nonactivatingPanel`, which takes key without app activation, as the menu panel does. This is a judgment, not tested.
+4. A temporary `.regular` activation policy while the window is open, which shows a Dock icon. This goes against the spec, so only on Didrik's word. Chosen on 2026-11-18: in the live test the row brought the window to the front, but once another app was clicked the window went behind it and there was no Dock icon or Cmd-Tab entry to get it back. Crisp now switches to `.regular` when the window opens and back to `.accessory` when it closes.
+
+## Window setup
+
+```swift
+@MainActor
+final class AdvancedSettingsWindowController: NSWindowController, NSWindowDelegate {
+    private let displayManager: DisplayManager
+
+    init(displayManager: DisplayManager) {
+        self.displayManager = displayManager
+        super.init(window: nil)
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    func show() {
+        if window == nil { window = makeWindow() }
+        NSApp.activate()                      // the live test picks the call (see Activation)
+        window?.makeKeyAndOrderFront(nil)
+    }
+
+    private func makeWindow() -> NSWindow {
+        let tabs = NSTabViewController()
+        tabs.tabStyle = .toolbar
+        tabs.addTabViewItem(tab(GeneralTab(), label: "General", symbol: "gearshape"))
+        // Keyboard and Displays the same way.
+        let w = AdvancedSettingsWindow(contentViewController: tabs)
+        w.styleMask = [.titled, .closable]   // fixed size, no resize
+        w.isReleasedWhenClosed = false
+        w.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
+        w.delegate = self
+        if !w.setFrameUsingName("CrispAdvancedSettings") { w.center() }
+        w.setFrameAutosaveName("CrispAdvancedSettings")
+        return w
+    }
+
+    private func tab(_ view: some View, label: String, symbol: String) -> NSTabViewItem {
+        let item = NSTabViewItem(viewController: NSHostingController(rootView: view.environmentObject(displayManager)))
+        item.label = String(localized: String.LocalizationValue(label))
+        item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+        return item
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        // A recording in this window must not leave every hotkey suspended.
+        NotificationCenter.default.post(name: .crispStopShortcutRecording, object: nil)
+    }
+}
+```
+
+Every view that reads `@EnvironmentObject var displayManager` needs the injection above; the moved settings rows do, and without it they crash. `.fullScreenAuxiliary` is there because the menu panel needed it to show over a full-screen app; `.moveToActiveSpace` alone has only a one-line description in the documentation. The first open centers the window on the main screen; later opens use the saved frame. The existing `windowDidResignKey` handler checks for `MenuPanel` first, so it ignores this window. Any new `NotificationCenter` observer with `queue: .main` wraps its body in `MainActor.assumeIsolated`, as the existing ones in `AppDelegate` do, because Swift 6 does not treat those closures as main actor.
+
+Panel row: the panel does not close by itself on this click, because its resign-key handler returns early while the pointer is inside the panel, and the panel sits at `.popUpMenu` level above normal windows. So `AppDelegate` passes a closure into `SettingsView` (built in `rebuildBlocksIfNeeded`) that calls `closePanel()` and then `advancedSettings.show()`, in that order.
+
+## Keys and menus
+
+Cmd-W: no source says the stock menu has a Close item for an accessory app, so the window closes itself on Cmd-W:
+
+```swift
+final class AdvancedSettingsWindow: NSWindow {
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
+           event.charactersIgnoringModifiers == "w" { performClose(nil); return true }
+        return super.performKeyEquivalent(with: event)
+    }
+}
+```
+
+Cmd-,: a SwiftUI `App` installs a main menu with "Settings…" on Cmd-, even in an accessory app (seen on macOS 27 in the test below). While the new window makes Crisp active, Cmd-, would open the empty `Settings { EmptyView() }` window. The scene must stay, because the `App` body needs one, so replace its menu item: `Settings { EmptyView() }.commands { CommandGroup(replacing: .appSettings) {} }` (typechecked). The empty group removes the item. A group with a button that calls `show()` would make Cmd-, a second way in, which the spec does not allow today.
+
+Shortcut recorders: the recorder stops on `.crispPanelDidClose`, on `.crispStopShortcutRecording` and on disappear. In the window, a panel close must not stop a recording, so the rows in the window ignore `.crispPanelDidClose`. Do not stop on resign key: the OSD banner takes key on hover.
+
+## Live test (decides activation)
+
+Pass means all three are true after a real click on "Advanced Settings…" with another app in front: `NSApp.isActive`, `window.isKeyWindow`, and a shortcut records in the Keyboard tab. Run it several times from a desktop Space and from a full-screen Space, on macOS 27 on Didrik's Mac and on 14 and 15 in the tart VMs. Also check Cmd-W, that Cmd-, does nothing, and that closing the window during a recording leaves the existing hotkeys working. Not measured yet: all of this.
+
+## Evidence on this Mac
+
+One short test program on 2026-11-16, macOS 27.0.1, one run each, started from a shell with no real click: `openSettings` from a hosted borderless panel opened the `Settings` window; with another app in front, `activate()`, `activate(ignoringOtherApps: true)` and a switch to `.regular` all left the app inactive and the window not key; the SwiftUI `App` main menu had "Settings…" on Cmd-,. Because there was no user click, this does not show what a real click does. The program was not kept.
+
+## Where Crisp deviates and why
+
+None yet. If the live test needs step 4 of Activation, that deviates from the spec and goes to Didrik first.
+
+## Layout
+
+Added 2026-11-18. Each claim is marked as Apple guidance (HIG or Apple documentation), observation of an Apple app (read from Apple Support pages and developer reports, because nobody looked at the apps themselves), or community opinion. Nothing here was tested on a Mac.
+
+Per-item settings for a variable list (one page per external monitor). Apple guidance: the HIG has no rule for this case. The Settings page only says a settings window has a toolbar of panes. The Sidebars page says a sidebar needs a large amount of vertical and horizontal space and that a more compact control may be better when space is limited (https://developer.apple.com/design/human-interface-guidelines/sidebars). The Pop-up buttons page says to use one for a flat list of mutually exclusive options that affect the surrounding view, and when space is limited, and to give a label that predicts the options (https://developer.apple.com/design/human-interface-guidelines/pop-up-buttons). The Segmented controls page says about five to seven segments at most, and to use one for closely related choices that affect a view (https://developer.apple.com/design/human-interface-guidelines/segmented-controls). The Tab views page says not to use a pop-up button for switching tabs, but a pop-up is fine when there are too many panes (https://developer.apple.com/design/human-interface-guidelines/tab-views). That last rule is about panes, not about items in a list. Apple apps: Safari Profiles and Mail Accounts use a list on the left with the chosen item edited on the right (https://support.apple.com/guide/safari/ibrwdb3d0e93/mac, https://support.apple.com/guide/mail/add-and-manage-email-accounts-mail35803/mac). System Settings Displays has no sidebar for displays: you click a display's name, and its options show below, with Arrange and Rotation appearing only when an external display is connected (https://support.apple.com/guide/mac-help/displays-settings-on-mac-mh40768/mac). How Xcode settings or Safari Websites do it was not confirmed. Recommendation for Crisp: with one monitor show its form with no picker; with two or more put one pop-up at the top of the form (a segmented control only if the names stay short and the count stays under five). A sidebar fits long lists and costs width for a list that is usually one row. Evidence strength: Apple apps show both patterns and the HIG is silent, so this is a judgement from the HIG control descriptions. Deviation, decided by Didrik on 2026-11-18 after mockups of the pop-up, a sidebar and display pictures: Crisp uses the System Settings Displays picker (a picture per display with its name, the selected one marked, its settings below), because the goal is that the window feels like macOS itself and this is how macOS picks a display. Unlike System Settings, the row scrolls sideways when the displays do not fit, so five or six displays keep their full names and shapes instead of shrinking. Only connected external displays are listed; Crisp keeps no list of displays it has seen before.
+
+Window size when tabs differ in height. Apple guidance: the HIG says a settings window "accommodates the size of the current pane", so people do not need to expand it, and says to dim the minimize and maximize buttons, keep a noncustomizable toolbar that marks the active pane, set the title to the pane name, and restore the last pane (https://developer.apple.com/design/human-interface-guidelines/settings). So resizing to fit each pane is the stated behaviour. The HIG does not say which edge stays fixed or whether to animate. The NSTabViewController page does not mention resizing (https://developer.apple.com/documentation/appkit/nstabviewcontroller). The windowResizability page says the default strategy gives Settings windows the contentSize strategy, as read from the page text, where the scene name was lost in extraction (https://developer.apple.com/documentation/swiftui/windowresizability). Community: a toolbar-style NSTabViewController resizes its window with no code when the tab views have Auto Layout constraints, and one override gives a Finder-style animated resize (Stack Overflow answer on macOS 11.1, found through a mirror: https://kiwix.lema.org/stackoverflow.com_en_all_2023-11/questions/27578085/resizing-nswindow-to-match-view-controller-size-in-storyboard). A 1Password community reply says Safari and Apple Notes settings windows resize to each pane and are not user-resizable (https://www.1password.community/discussions/1password/settings-window-not-resizeable/153130/replies/153200). A Reddit post says window resizing can be animated on Tahoe (https://reddit.birdcat.cafe/r/SwiftUI/comments/1l950h1/window_resizing_can_finally_be_animated_on_tahoe); it could not be read, so the claim is unconfirmed. Recommendation for Crisp: resize to fit each pane, as the HIG says, keep one width for all tabs so only the height changes, and keep the top edge fixed so the toolbar does not move (judgement). Check the edge and the animation on 14, 15 and 27 in the live test, because no source settles them. The `.titled, .closable` mask in the window setup already matches the HIG (no minimize or maximize). Evidence strength: resize to fit is Apple guidance; edge and animation are untested and have only community support.
+
+A setting that does not apply now. Apple guidance: the Menus page says "Show people when a menu item is unavailable", usually dimmed, and says a menu with only unavailable items must stay openable so people learn what it holds (https://developer.apple.com/design/human-interface-guidelines/menus). The Toggles page says to show dependencies between checkboxes with alignment and indentation, so a child setting sits under its parent (https://developer.apple.com/design/human-interface-guidelines/toggles). The HIG has no page on disabled states and nothing on explaining why a control is off. Apple apps: System Settings Displays hides options that cannot apply on this Mac or display (Rotation, Arrange, HDR and Brightness automation appear only when the hardware or connection exists) and says "Not all options described here appear for all displays or Mac models" (the Displays support page above). No Apple settings page was found that shows a dimmed control with an explanation. Community: Smashing Magazine says disable a control the user can use later, hide one they never can, and always say why and how to unlock it (https://www.smashingmagazine.com/2024/05/hidden-vs-disabled-ux/). Design systems agree on a short reason, usually a tooltip or helper text (Cloudscape: https://cloudscape.design/patterns/general/disabled-and-read-only-states/). A UX Planet article argues against tooltips on disabled controls (https://uxplanet.org/disabled-buttons-ux-usability-issues-and-how-to-avoid-them-8f2246186e80). Recommendation for Crisp: hide a setting that can never apply on this Mac (Intel, no battery, as today); show it dimmed, below its parent and with one line of secondary text, when it applies to this Mac but waits on another setting or on a display that is not connected now. Prefer a visible line over a tooltip, because the line needs no hover (judgement). Evidence strength: dimming unavailable items is Apple guidance only for menus; hiding what cannot apply is observed in System Settings; the explanation line is community opinion.
+
+## Sources (accessed 2026-11-16)
+
+- Apple, OpenSettingsAction: https://developer.apple.com/documentation/swiftui/opensettingsaction
+- Apple, SettingsLink: https://developer.apple.com/documentation/swiftui/settingslink
+- Apple, NSApplication.activate(): https://developer.apple.com/documentation/appkit/nsapplication/activate()
+- Apple, activate(ignoringOtherApps:): https://developer.apple.com/documentation/appkit/nsapplication/activate(ignoringotherapps:)
+- Apple, Passing control from one app to another with cooperative activation: https://developer.apple.com/documentation/appkit/passing-control-from-one-app-to-another-with-cooperative-activation
+- Apple, NSTabViewController.TabStyle.toolbar: https://developer.apple.com/documentation/appkit/nstabviewcontroller/tabstyle-swift.enum/toolbar
+- Apple, moveToActiveSpace: https://developer.apple.com/documentation/appkit/nswindow/collectionbehavior-swift.struct/movetoactivespace
+- Apple, setFrameAutosaveName(_:): https://developer.apple.com/documentation/appkit/nswindow/setframeautosavename(_:)
+- Apple Developer Forums, "activate() in a menu bar app" (thread 836619): https://developer.apple.com/forums/thread/836619
+- Apple Developer Forums, "Opening SwiftUI Settings from AppKit" (thread 739831, no Apple answer): https://developer.apple.com/forums/thread/739831
+- Peter Steinberger, "Showing Settings from macOS menu bar items" (2025): https://steipete.me/posts/2025/showing-settings-from-macos-menu-bar-items
+- SettingsAccess (orchetect): https://github.com/orchetect/SettingsAccess
+
+Added 2026-11-18 (accessed 2026-11-18). Apple HIG pages were read through Apple's page data (developer.apple.com/tutorials/data/design/human-interface-guidelines/<page>.json), because the HTML pages need JavaScript:
+
+- Apple HIG, Settings: https://developer.apple.com/design/human-interface-guidelines/settings
+- Apple HIG, Toggles: https://developer.apple.com/design/human-interface-guidelines/toggles
+- Apple HIG, Menus: https://developer.apple.com/design/human-interface-guidelines/menus
+- Apple HIG, Pop-up buttons: https://developer.apple.com/design/human-interface-guidelines/pop-up-buttons
+- Apple HIG, Segmented controls: https://developer.apple.com/design/human-interface-guidelines/segmented-controls
+- Apple HIG, Sidebars: https://developer.apple.com/design/human-interface-guidelines/sidebars
+- Apple HIG, Tab views: https://developer.apple.com/design/human-interface-guidelines/tab-views
+- Apple, NSTabViewController: https://developer.apple.com/documentation/appkit/nstabviewcontroller
+- Apple, WindowResizability: https://developer.apple.com/documentation/swiftui/windowresizability
+- Apple Support, Displays settings on Mac: https://support.apple.com/guide/mac-help/displays-settings-on-mac-mh40768/mac
+- Apple Support, Change Profiles settings in Safari: https://support.apple.com/guide/safari/ibrwdb3d0e93/mac
+- Apple Support, Add and manage email accounts in Mail: https://support.apple.com/guide/mail/add-and-manage-email-accounts-mail35803/mac
+- Stack Overflow, resizing NSWindow to match view controller size (mirror): https://kiwix.lema.org/stackoverflow.com_en_all_2023-11/questions/27578085/resizing-nswindow-to-match-view-controller-size-in-storyboard
+- 1Password community, settings window not resizeable: https://www.1password.community/discussions/1password/settings-window-not-resizeable/153130/replies/153200
+- Reddit r/SwiftUI, window resizing animated on Tahoe (not read, unconfirmed): https://reddit.birdcat.cafe/r/SwiftUI/comments/1l950h1/window_resizing_can_finally_be_animated_on_tahoe
+- Smashing Magazine, Hidden vs. Disabled in UX: https://www.smashingmagazine.com/2024/05/hidden-vs-disabled-ux/
+- Cloudscape, disabled and read-only states: https://cloudscape.design/patterns/general/disabled-and-read-only-states/
+- UX Planet, disabled buttons: https://uxplanet.org/disabled-buttons-ux-usability-issues-and-how-to-avoid-them-8f2246186e80

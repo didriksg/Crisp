@@ -7,8 +7,9 @@ import AppKit
 /// shows this row, matching System Settings.
 struct HDRToggleView: View {
     @ObservedObject var display: DisplayInfo
+    /// Plain form switch for Advanced Settings instead of the panel row.
+    var inForm = false
     @State private var isOn: Bool = false
-    @State private var isHovered = false
     /// Guards the onChange handler while we set isOn programmatically
     /// (initial sync, revert on failure), so those writes do not re-trigger
     /// the service.
@@ -20,35 +21,22 @@ struct HDRToggleView: View {
 
     var body: some View {
         if BrightnessBoostService.shared.isEligibleForHDRToggle(display) {
-            HStack {
-                MenuItemIcon(systemName: "tv.fill", color: .purple, active: isOn)
-                Text("HDR")
-                    .font(.body)
-                Spacer()
-                Toggle("", isOn: $isOn)
-                    .toggleStyle(.switch)
-                    .labelsHidden()
-                    .controlSize(.small)
-                    .onChange(of: isOn) { _, newValue in
-                        guard !isProgrammaticChange,
-                              newValue != BrightnessBoostService.shared.isHDREnabled(for: display) else { return }
-                        requestInFlight = true
-                        Task { @MainActor in
-                            _ = await BrightnessBoostService.shared.setHDRPreference(newValue, for: display)
-                            // Read back the live state rather than trust newValue:
-                            // this both confirms success and is the quiet revert
-                            // on failure, per the spec: no dialogs.
-                            isProgrammaticChange = true
-                            isOn = BrightnessBoostService.shared.isHDREnabled(for: display)
-                            isProgrammaticChange = false
-                            requestInFlight = false
-                        }
-                    }
+            SettingSwitchRow(inForm: inForm, icon: "tv.fill", color: .purple, label: "HDR", isOn: $isOn)
+            .onChange(of: isOn) { _, newValue in
+                guard !isProgrammaticChange,
+                      newValue != BrightnessBoostService.shared.isHDREnabled(for: display) else { return }
+                requestInFlight = true
+                Task { @MainActor in
+                    _ = await BrightnessBoostService.shared.setHDRPreference(newValue, for: display)
+                    // Read back the live state rather than trust newValue:
+                    // this both confirms success and is the quiet revert
+                    // on failure, per the spec: no dialogs.
+                    isProgrammaticChange = true
+                    isOn = BrightnessBoostService.shared.isHDREnabled(for: display)
+                    isProgrammaticChange = false
+                    requestInFlight = false
+                }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 3)
-            .menuRowHover(isHovered)
-            .onHover { isHovered = $0 }
             .onAppear { resyncFromLiveState() }
             // HDR can change outside Crisp (System Settings, auto-boost
             // teardown) while the panel is open; every flip fires a

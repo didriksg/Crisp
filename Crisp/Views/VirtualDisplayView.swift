@@ -1,324 +1,121 @@
 import SwiftUI
 import CoreGraphics
 
-/// "Virtual Displays" management section: lists saved configurations and
-/// allows creating / deleting them.
+/// Tools > Virtual Displays: an on/off switch per saved virtual display, which is the part
+/// changed often. Creating, editing and deleting are rare, so they live in Advanced Settings,
+/// opened by the last row.
 struct VirtualDisplayView: View {
     @StateObject private var service = VirtualDisplayService.shared
-    @State private var showCreateForm = false
-    @State private var createHovered = false
-    @State private var configToDelete: UUID?
-    @State private var isCreating: Bool = false
+    let openManager: () -> Void
     @State private var activatingID: UUID?
-    @State private var editingID: UUID?
-    @State private var isSavingEdit: Bool = false
-    @State private var createError: String?
-    @FocusState private var nameFocused: Bool
+    @State private var activateError: String?
+    @State private var manageHovered = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if service.configs.isEmpty && !showCreateForm {
-                // Centered empty-state idiom, not an orphaned indented row (docs/DESIGN.md).
-                Text("No virtual displays yet")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(.vertical, 10)
-            } else {
-                ForEach(service.configs) { config in
-                    if editingID == config.id {
-                        CreateVirtualDisplayForm(
-                            editing: config,
-                            isCreating: $isSavingEdit,
-                            nameFocused: $nameFocused,
-                            onCancel: { withAnimation(.panelResize) { editingID = nil } },
-                            onConfirm: handleEdit
-                        )
-                        .padding(.horizontal, 12)
-                        .padding(.top, 2)
-                        .padding(.bottom, 8)
-                        .transition(.opacity)
-                    } else {
-                        VirtualDisplayRow(
-                            config: config,
-                            isActive: service.isActive(config.id),
-                            isActivating: activatingID == config.id,
-                            onActivate: { handleActivate(config) },
-                            onDeactivate: { service.destroy(configID: config.id) },
-                            onEdit: {
-                                withAnimation(.panelResize) {
-                                    editingID = config.id
-                                } completion: {
-                                    nameFocused = true
-                                }
-                            },
-                            onDelete: { configToDelete = config.id }
-                        )
-                        .transition(.opacity)
+            ForEach(service.configs) { config in
+                VirtualDisplaySwitchRow(
+                    config: config,
+                    isOn: service.isActive(config.id),
+                    isBusy: activatingID == config.id,
+                    setOn: { on in
+                        if on { activate(config) } else { service.destroy(configID: config.id) }
                     }
-                }
+                )
             }
-
-            if let err = createError {
-                Text(err)
+            if let activateError {
+                Text(activateError)
                     .font(.caption)
                     .foregroundColor(.red)
                     .padding(.horizontal, 12)
                     .padding(.bottom, 4)
             }
-
-            // Trigger row fades into a bounded card (mirrors the New Preset flow).
-            if showCreateForm {
-                CreateVirtualDisplayForm(
-                    isCreating: $isCreating,
-                    nameFocused: $nameFocused,
-                    onCancel: { withAnimation(.panelResize) { showCreateForm = false } },
-                    onConfirm: handleCreate
-                )
-                .padding(.horizontal, 12)
-                .padding(.top, 2)
-                .padding(.bottom, 8)
-                .transition(.opacity)
-            } else {
-                Button(action: {
-                    // Focus the name field the instant the reveal finishes.
-                    withAnimation(.panelResize) {
-                        showCreateForm = true
-                    } completion: {
-                        nameFocused = true
-                    }
-                }) {
-                    HStack {
-                        MenuItemIcon(systemName: "plus", color: .indigo)
-                        Text("Create Virtual Display")
-                            .font(.body)
-                        Spacer()
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 3)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .menuRowHover(createHovered)
-                .onHover { createHovered = $0 }
-                .transition(.opacity)
+            HStack(spacing: 8) {
+                MenuItemIcon(systemName: "gearshape", active: false)
+                    .accessibilityHidden(true)
+                Text("Manage Virtual Displays…")
+                    .font(.body)
+                Spacer()
             }
-        }
-        .alert("Confirm Deletion", isPresented: Binding(
-            get: { configToDelete != nil },
-            set: { if !$0 { configToDelete = nil } }
-        )) {
-            Button("Delete", role: .destructive) {
-                if let id = configToDelete {
-                    service.removeConfig(id: id)
-                }
-                configToDelete = nil
+            .padding(.horizontal, 12)
+            .padding(.vertical, 3)
+            .menuRowHover(manageHovered)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                guard PanelOpenGuard.allowsActivation else { return }
+                openManager()
             }
-            Button("Cancel", role: .cancel) {
-                configToDelete = nil
-            }
-        } message: {
-            if let id = configToDelete, service.isActive(id) {
-                Text("This virtual display is currently active. Deleting it will disable it immediately.")
-            } else {
-                Text("Are you sure you want to delete this virtual display configuration?")
-            }
-        }
-        // Keep the panel alive while the confirmation is up, so an outside-click
-        // doesn't tear it down mid-decision; onDisappear guards a stuck flag.
-        .onChange(of: configToDelete) { _, newValue in
-            PanelOpenGuard.isConfirmationActive = (newValue != nil)
-        }
-        .onDisappear { PanelOpenGuard.isConfirmationActive = false }
-        // Collapse inline create/edit forms when the panel closes, so it reopens fresh.
-        .onReceive(NotificationCenter.default.publisher(for: .crispPanelDidClose)) { _ in
-            showCreateForm = false
-            editingID = nil
-            createError = nil
+            .onHover { manageHovered = $0 }
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.isButton)
         }
     }
 
     /// Re-creates the live CGVirtualDisplay for a config that is off.
-    private func handleActivate(_ config: VirtualDisplayService.VirtualDisplayConfig) {
+    private func activate(_ config: VirtualDisplayService.VirtualDisplayConfig) {
         guard activatingID == nil else { return }
         activatingID = config.id
-        createError = nil
+        activateError = nil
         Task { @MainActor in
             let ok = await service.create(config: config)
             activatingID = nil
             if !ok {
-                createError = String(localized: "Failed to activate virtual display. Please try again.")
-                Task { @MainActor in
-                    try? await Task.sleep(nanoseconds: 3_000_000_000)
-                    createError = nil
-                }
-            }
-        }
-    }
-
-    private func handleEdit(_ config: VirtualDisplayService.VirtualDisplayConfig) {
-        guard !isSavingEdit else { return }
-        isSavingEdit = true
-        createError = nil
-        Task { @MainActor in
-            let ok = await service.updateConfig(config)
-            isSavingEdit = false
-            if ok {
-                withAnimation(.panelResize) { editingID = nil }
-            } else {
-                createError = String(localized: "Failed to update virtual display. Please try again.")
-                Task { @MainActor in
-                    try? await Task.sleep(nanoseconds: 3_000_000_000)
-                    createError = nil
-                }
-            }
-        }
-    }
-
-    private func handleCreate(_ config: VirtualDisplayService.VirtualDisplayConfig) {
-        isCreating = true
-        createError = nil
-        Task { @MainActor in
-            let success = await service.addAndCreate(config)
-            isCreating = false
-            if success {
-                withAnimation(.panelResize) { showCreateForm = false }
-            } else {
-                createError = String(localized: "Failed to create virtual display. Please try again.")
-                Task { @MainActor in
-                    try? await Task.sleep(nanoseconds: 3_000_000_000)
-                    createError = nil
-                }
+                activateError = String(localized: "Failed to activate virtual display. Please try again.")
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                activateError = nil
             }
         }
     }
 }
 
-// MARK: - Virtual Display Row
-
-struct VirtualDisplayRow: View {
+private struct VirtualDisplaySwitchRow: View {
     let config: VirtualDisplayService.VirtualDisplayConfig
-    let isActive: Bool
-    let isActivating: Bool
-    let onActivate: () -> Void
-    let onDeactivate: () -> Void
-    let onEdit: () -> Void
-    let onDelete: () -> Void
-
-    @State private var isHovered = false
+    let isOn: Bool
+    let isBusy: Bool
+    let setOn: (Bool) -> Void
 
     var body: some View {
         HStack(spacing: 8) {
-            MenuItemIcon(systemName: "display.2", color: .blue, active: isActive)
-
+            MenuItemIcon(systemName: "display.2", color: .blue, active: isOn)
+                .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 1) {
                 Text(config.name)
                     .font(.body)
                     .lineLimit(1)
-                Text(verbatim: "\(config.width)×\(config.height)")
+                Text(verbatim: VirtualDisplayService.summary(config))
                     .font(.caption2)
                     .foregroundColor(.secondary)
             }
-
             Spacer()
-
-            if isActivating {
-                ProgressView()
-                    .scaleEffect(0.6)
-                    .frame(width: 16, height: 16)
+            if isBusy {
+                ProgressView().controlSize(.small)
             } else {
-                statusPill
+                Toggle("", isOn: Binding(get: { isOn }, set: { setOn($0) }))
+                    .toggleStyle(.switch)
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityLabel(config.name)
             }
-
-            Menu {
-                rowActions
-            } label: {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(.secondary)
-                    .frame(width: 22, height: 22)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .menuIndicator(.hidden)
-            .fixedSize()
-            .opacity(isHovered ? 1 : 0)
-            .accessibilityLabel("Virtual display options")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 3)
-        .menuRowHover(isHovered)
-        .contentShape(Rectangle())
-        .onHover { isHovered = $0 }
-        .onTapGesture {
-            // An off display turns back on with a tap (also in the ⋯ menu).
-            if !isActive && !isActivating { onActivate() }
-        }
-        .contextMenu { rowActions }
-    }
-
-    @ViewBuilder
-    private var statusPill: some View {
-        if isActive {
-            pill("Active", color: .blue)
-        } else {
-            pill("Off", color: .secondary)
-        }
-    }
-
-    // LocalizedStringKey, not String: Text(String) is the non-localizing overload.
-    private func pill(_ text: LocalizedStringKey, color: Color) -> some View {
-        Text(text)
-            .font(.caption2)
-            .fontWeight(.medium)
-            .foregroundColor(color)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(Capsule().fill(color.opacity(0.15)))
-    }
-
-    @ViewBuilder
-    private var rowActions: some View {
-        if isActive {
-            Button(action: onDeactivate) {
-                Label("Deactivate", systemImage: "stop.circle")
-            }
-        } else {
-            Button(action: onActivate) {
-                Label("Activate", systemImage: "play.circle")
-            }
-        }
-        Button(action: onEdit) {
-            Label("Edit…", systemImage: "pencil")
-        }
-        Section {
-            Button(role: .destructive, action: onDelete) {
-                Label("Delete", systemImage: "trash")
-            }
-        }
     }
 }
 
-// MARK: - Create Form
+// MARK: - Advanced Settings tab
 
-/// Bounded card for creating a new virtual display configuration, mirroring
-/// the preset card's layout.
-struct CreateVirtualDisplayForm: View {
-    /// Non-nil when editing an existing config; nil when creating a new one.
-    let editing: VirtualDisplayService.VirtualDisplayConfig?
-    @Binding var isCreating: Bool
-    @FocusState.Binding var nameFocused: Bool
-    let onCancel: () -> Void
-    let onConfirm: (VirtualDisplayService.VirtualDisplayConfig) -> Void
+/// Advanced Settings > Virtual Displays: the saved virtual displays in a list with + and −,
+/// as System Settings lists login items, and the selected one's settings below. A change
+/// applies at once, as in any settings window; a size or refresh change on a display that
+/// is on recreates it (VirtualDisplayService.updateConfig).
+struct AdvancedVirtualDisplaysTab: View {
+    @ObservedObject private var service = VirtualDisplayService.shared
+    @State private var selection: UUID?
+    @State private var confirmDelete = false
+    @State private var errorText: String?
+    @State private var newConfig: VirtualDisplayService.VirtualDisplayConfig?
 
-    @State private var name: String
-    @State private var selectedPreset: Int
-    @State private var customWidth: String
-    @State private var customHeight: String
-    @State private var autoCreate: Bool
-    @State private var refreshRate: Double
-
-    static let presetOptions: [(label: String, width: Int, height: Int)] = [
+    static let sizes: [(label: String, width: Int, height: Int)] = [
         ("1920×1080 (FHD)", 1920, 1080),
         ("2560×1440 (QHD)", 2560, 1440),
         ("3840×2160 (4K)", 3840, 2160),
@@ -327,183 +124,250 @@ struct CreateVirtualDisplayForm: View {
         ("2360×1640 (iPad Air)", 2360, 1640),
         ("2048×1536 (iPad 4:3)", 2048, 1536)
     ]
-    private var presets: [(label: String, width: Int, height: Int)] { Self.presetOptions }
-    /// The tag used by the "Custom…" picker entry (one past the last preset).
-    private var customTag: Int { Self.presetOptions.count }
-
-    init(editing: VirtualDisplayService.VirtualDisplayConfig? = nil,
-         isCreating: Binding<Bool>,
-         nameFocused: FocusState<Bool>.Binding,
-         onCancel: @escaping () -> Void,
-         onConfirm: @escaping (VirtualDisplayService.VirtualDisplayConfig) -> Void) {
-        self.editing = editing
-        self._isCreating = isCreating
-        self._nameFocused = nameFocused
-        self.onCancel = onCancel
-        self.onConfirm = onConfirm
-        _name = State(initialValue: editing?.name ?? String(localized: "Virtual Display"))
-        _autoCreate = State(initialValue: editing?.autoCreate ?? true)
-        _refreshRate = State(initialValue: editing?.refreshRate ?? 60)
-        // A non-preset size selects "Custom" and prefills width/height.
-        let presetIdx = editing.flatMap { e in
-            Self.presetOptions.firstIndex(where: { $0.width == e.width && $0.height == e.height })
-        }
-        _selectedPreset = State(initialValue: presetIdx ?? (editing == nil ? 0 : Self.presetOptions.count))
-        _customWidth = State(initialValue: presetIdx == nil ? (editing.map { String($0.width) } ?? "") : "")
-        _customHeight = State(initialValue: presetIdx == nil ? (editing.map { String($0.height) } ?? "") : "")
-    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        let selected = service.configs.first(where: { $0.id == selection }) ?? service.configs.first
+        VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Name")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                TextField("", text: $name)
-                    .textFieldStyle(.plain)
-                    .font(.body)
-                    .focused($nameFocused)
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 7)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(Color.primary.opacity(nameFocused ? 0.10 : 0.07))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .strokeBorder(Color.accentColor.opacity(nameFocused ? 0.85 : 0), lineWidth: 2)
-                    )
-                    .animation(.easeOut(duration: 0.12), value: nameFocused)
-            }
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Resolution")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                Picker("", selection: $selectedPreset) {
-                    ForEach(presets.indices, id: \.self) { i in
-                        Text(presets[i].label).tag(i)
-                    }
-                    Text("Custom…").tag(customTag)
-                }
-                .pickerStyle(.menu)
-                .labelsHidden()
-
-                if selectedPreset == customTag {
-                    HStack(spacing: 6) {
-                        customField(text: $customWidth, placeholder: String(localized: "Width"))
-                        Text("×").foregroundColor(.secondary)
-                        customField(text: $customHeight, placeholder: String(localized: "Height"))
-                        Spacer()
+                List(selection: Binding(get: { selected?.id }, set: { selection = $0 })) {
+                    ForEach(service.configs) { config in
+                        HStack {
+                            Text(config.name)
+                            Spacer()
+                            Text(verbatim: VirtualDisplayService.summary(config)).foregroundStyle(.secondary)
+                        }
+                        .tag(config.id)
                     }
                 }
-            }
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Refresh Rate")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                Picker("Refresh Rate", selection: $refreshRate) {
-                    ForEach(refreshRateOptions, id: \.self) { rate in
-                        Text(verbatim: RefreshRateFormat.label(rate)).tag(rate)
+                .listStyle(.bordered(alternatesRowBackgrounds: false))
+                .frame(height: 110)
+                .overlay {
+                    // The + below is easy to miss on an empty list, so say what to do here.
+                    if service.configs.isEmpty {
+                        VStack(spacing: 8) {
+                            Text("No virtual displays yet").foregroundStyle(.secondary)
+                            Button("Create Virtual Display") { add() }
+                        }
                     }
                 }
-                .pickerStyle(.menu)
-                .labelsHidden()
-            }
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Options")
-                    .font(.caption2)
-                    .fontWeight(.semibold)
-                    .foregroundColor(.secondary)
-                CaptureToggleRow(icon: "bolt.fill", color: .green,
-                                 label: "Create at launch", isOn: $autoCreate)
-            }
-
-            HStack(spacing: 10) {
-                Spacer()
-                Button("Cancel", action: onCancel)
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                if isCreating {
-                    ProgressView()
-                        .scaleEffect(0.6)
-                        .frame(width: 12, height: 12)
+                HStack(spacing: 0) {
+                    Button { add() } label: { Image(systemName: "plus").frame(width: 22, height: 18) }
+                        .accessibilityLabel("Create Virtual Display")
+                    Divider().frame(height: 14)
+                    Button { confirmDelete = true } label: { Image(systemName: "minus").frame(width: 22, height: 18) }
+                        .disabled(selected == nil)
+                        .accessibilityLabel("Delete")
+                    Spacer()
+                    if let errorText {
+                        Text(errorText).font(.caption).foregroundStyle(.red)
+                    }
                 }
-                Button(confirmTitle, action: confirm)
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(isCreating || resolution == nil)
+                .buttonStyle(.borderless)
+            }
+            .padding([.horizontal, .top], 20)
+            .padding(.bottom, selected == nil ? 20 : 0)  // the editor's form has its own margin
+            if let selected {
+                VirtualDisplayEditor(config: selected, onError: showError).id(selected.id)
             }
         }
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.primary.opacity(0.05))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .strokeBorder(Color.primary.opacity(0.10), lineWidth: 1)
-                )
-        )
+        .frame(maxWidth: .infinity)  // the window sets the width, scroll bar included
+        .sheet(item: $newConfig) { config in
+            VirtualDisplayEditor(config: config, onError: showError, onCreate: create)
+                .frame(width: 440)
+        }
+        .alert("Confirm Deletion", isPresented: $confirmDelete) {
+            Button("Delete", role: .destructive) {
+                if let id = selected?.id { service.removeConfig(id: id) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            if let id = selected?.id, service.isActive(id) {
+                Text("This virtual display is currently active. Deleting it will disable it immediately.")
+            } else {
+                Text("Are you sure you want to delete this virtual display configuration?")
+            }
+        }
     }
 
-    private var refreshRateOptions: [Double] {
+    /// + makes and turns on a new display at the first size not saved yet, then selects it.
+    /// + opens the create sheet, starting at the first size not saved yet.
+    private func add() {
+        let size = Self.sizes.first { size in
+            !service.configs.contains { $0.width == size.width && $0.height == size.height }
+        } ?? Self.sizes[0]
+        newConfig = VirtualDisplayService.VirtualDisplayConfig(
+            name: String(localized: "Virtual Display"), width: size.width, height: size.height)
+    }
+
+    private func create(_ config: VirtualDisplayService.VirtualDisplayConfig) async -> Bool {
+        if await service.addAndCreate(config) {
+            selection = config.id
+            return true
+        }
+        showError(String(localized: "Failed to create virtual display. Please try again."))
+        return false
+    }
+
+    private func showError(_ text: String) {
+        errorText = text
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            errorText = nil
+        }
+    }
+}
+
+/// The settings of one virtual display. For a saved display (`onCreate` nil) every change
+/// applies at once; for a new one (`onCreate` set, shown in a sheet) nothing happens until
+/// Create, and Cancel drops it.
+private struct VirtualDisplayEditor: View {
+    let onError: (String) -> Void
+    let onCreate: ((VirtualDisplayService.VirtualDisplayConfig) async -> Bool)?
+    @Environment(\.dismiss) private var dismiss
+    @State private var draft: VirtualDisplayService.VirtualDisplayConfig
+    @State private var name: String
+    @State private var custom: Bool
+    @State private var customWidth: String
+    @State private var customHeight: String
+    @State private var isCreating = false
+
+    init(config: VirtualDisplayService.VirtualDisplayConfig, onError: @escaping (String) -> Void,
+         onCreate: ((VirtualDisplayService.VirtualDisplayConfig) async -> Bool)? = nil) {
+        self.onError = onError
+        self.onCreate = onCreate
+        _draft = State(initialValue: config)
+        _name = State(initialValue: config.name)
+        let isPreset = AdvancedVirtualDisplaysTab.sizes.contains { $0.width == config.width && $0.height == config.height }
+        _custom = State(initialValue: !isPreset)
+        _customWidth = State(initialValue: String(config.width))
+        _customHeight = State(initialValue: String(config.height))
+    }
+
+    private var isNew: Bool { onCreate != nil }
+
+    var body: some View {
+        if isNew {
+            // A sheet sizes to the form's minimum, which is near zero for a grouped form,
+            // so the sheet gets a height and its buttons sit under the form, not over it.
+            VStack(spacing: 0) {
+                form.frame(height: custom ? 236 : 200)
+                HStack {
+                    Spacer()
+                    if isCreating { ProgressView().controlSize(.small) }
+                    Button("Cancel") { dismiss() }
+                        .keyboardShortcut(.cancelAction)
+                    Button("Create") { create() }
+                        .keyboardShortcut(.defaultAction)
+                        .disabled(isCreating || (custom && customSize == nil))
+                }
+                .padding([.horizontal, .bottom], 20)
+            }
+        } else {
+            form.onDisappear { commitName() }
+        }
+    }
+
+    private var form: some View {
+        Form {
+            Section {
+                TextField("Name", text: $name)
+                    .onSubmit { commitName() }
+                Picker("Resolution", selection: Binding(
+                    get: { custom ? -1 : sizeIndex },
+                    set: { index in
+                        if index < 0 {
+                            custom = true
+                        } else {
+                            custom = false
+                            let size = AdvancedVirtualDisplaysTab.sizes[index]
+                            save { $0.width = size.width; $0.height = size.height }
+                        }
+                    }
+                )) {
+                    ForEach(AdvancedVirtualDisplaysTab.sizes.indices, id: \.self) { i in
+                        Text(verbatim: AdvancedVirtualDisplaysTab.sizes[i].label).tag(i)
+                    }
+                    Text("Custom…").tag(-1)
+                }
+                if custom {
+                    LabeledContent("Custom…") {
+                        HStack(spacing: 6) {
+                            TextField("Width", text: $customWidth).frame(width: 64)
+                            Text(verbatim: "×").foregroundStyle(.secondary)
+                            TextField("Height", text: $customHeight).frame(width: 64)
+                        }
+                        .labelsHidden()
+                        .multilineTextAlignment(.trailing)
+                        .onSubmit { commitCustomSize() }
+                    }
+                }
+                Picker("Refresh Rate", selection: Binding(
+                    get: { draft.refreshRate },
+                    set: { rate in save { $0.refreshRate = rate } }
+                )) {
+                    ForEach(rateOptions, id: \.self) { Text(verbatim: RefreshRateFormat.label($0)).tag($0) }
+                }
+                Toggle("Create at launch", isOn: Binding(
+                    get: { draft.autoCreate },
+                    set: { on in save { $0.autoCreate = on } }
+                ))
+            }
+        }
+        .formStyle(.grouped)
+        .scrollDisabled(true)  // the window's scroll view scrolls; the sheet's form is sized to fit
+    }
+
+    private var sizeIndex: Int {
+        AdvancedVirtualDisplaysTab.sizes.firstIndex { $0.width == draft.width && $0.height == draft.height } ?? -1
+    }
+
+    /// Keeps a rate saved before the list changed selectable.
+    private var rateOptions: [Double] {
         let options = VirtualDisplayService.refreshRateOptions
-        // Preserve a previously stored custom rate when editing an existing display.
-        return options.contains(refreshRate) ? options : (options + [refreshRate]).sorted()
+        return options.contains(draft.refreshRate) ? options : (options + [draft.refreshRate]).sorted()
     }
 
-    private var confirmTitle: String {
-        if isCreating {
-            return editing == nil ? String(localized: "Creating…") : String(localized: "Saving…")
-        }
-        return editing == nil ? String(localized: "Create") : String(localized: "Save")
+    /// Same bounds as before the move: 640...8192 by 480...8192.
+    private var customSize: (width: Int, height: Int)? {
+        guard let width = Int(customWidth), let height = Int(customHeight),
+              (640...8192).contains(width), (480...8192).contains(height) else { return nil }
+        return (width, height)
     }
 
-    /// The chosen resolution: a preset, or the validated custom width×height.
-    /// Nil disables the confirm button.
-    private var resolution: (width: Int, height: Int)? {
-        if selectedPreset < presets.count {
-            let p = presets[selectedPreset]
-            return (p.width, p.height)
-        }
-        guard let w = Int(customWidth), let h = Int(customHeight),
-              (640...8192).contains(w), (480...8192).contains(h) else { return nil }
-        return (w, h)
+    private func commitName() {
+        let trimmed = name.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return }
+        save { $0.name = trimmed }
     }
 
-    private func customField(text: Binding<String>, placeholder: String) -> some View {
-        TextField(placeholder, text: text)
-            .textFieldStyle(.plain)
-            .font(.body)
-            .multilineTextAlignment(.center)
-            .frame(width: 72)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(Color.primary.opacity(0.07))
-            )
-            .onChange(of: text.wrappedValue) { _, v in
-                let digits = v.filter(\.isNumber)
-                if digits != v { text.wrappedValue = digits }
+    /// On Return only: typing 1920 passes through 192, which must not resize a live display.
+    private func commitCustomSize() {
+        guard let size = customSize else { return }
+        save { $0.width = size.width; $0.height = size.height }
+    }
+
+    private func save(_ change: (inout VirtualDisplayService.VirtualDisplayConfig) -> Void) {
+        var updated = draft
+        change(&updated)
+        guard updated != draft else { return }
+        draft = updated
+        guard !isNew else { return }
+        Task { @MainActor in
+            if !(await VirtualDisplayService.shared.updateConfig(updated)) {
+                onError(String(localized: "Failed to update virtual display. Please try again."))
             }
+        }
     }
 
-    private func confirm() {
-        guard !isCreating, let res = resolution else { return }
-        let config = VirtualDisplayService.VirtualDisplayConfig(
-            id: editing?.id ?? UUID(),
-            name: name.isEmpty ? String(localized: "Virtual Display") : name,
-            width: res.width,
-            height: res.height,
-            refreshRate: refreshRate,
-            hiDPI: true,
-            autoCreate: autoCreate
-        )
-        onConfirm(config)
+    private func create() {
+        guard let onCreate, !isCreating else { return }
+        commitName()
+        if custom { commitCustomSize() }
+        isCreating = true
+        Task { @MainActor in
+            let ok = await onCreate(draft)
+            isCreating = false
+            if ok { dismiss() }
+        }
     }
 }

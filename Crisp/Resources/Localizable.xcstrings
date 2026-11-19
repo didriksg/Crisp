@@ -237,6 +237,54 @@
     "%lld%%" : {
       "shouldTranslate" : false
     },
+    "A switch on each display row that disconnects it" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "每个显示器行上用于断开该显示器的开关"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "每個顯示器列上用來中斷該顯示器連線的開關"
+          }
+        }
+      }
+    },
+    "Advanced Settings…" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "高级设置…"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "進階設定…"
+          }
+        }
+      }
+    },
+    "Another input disconnects this display. Reconnect it from the menu bar to switch back." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "切换到其他输入源会断开此显示器。从菜单栏重新连接即可切换回来。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "切換到其他輸入來源會中斷此顯示器的連線。從選單列重新連接即可切換回來。"
+          }
+        }
+      }
+    },
     "Another input disconnects this display. Reconnect it here to switch back." : {
       "localizations" : {
         "zh-Hans" : {
@@ -265,6 +313,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "自動中斷內建顯示器連線"
+          }
+        }
+      }
+    },
+    "Automation" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自动化"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自動化"
           }
         }
       }
@@ -333,6 +397,38 @@
         }
       }
     },
+    "Displays" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示器"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "顯示器"
+          }
+        }
+      }
+    },
+    "General" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "通用"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "一般"
+          }
+        }
+      }
+    },
     "Input" : {
       "localizations" : {
         "zh-Hans" : {
@@ -365,6 +461,86 @@
         }
       }
     },
+    "Keyboard" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "键盘"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "鍵盤"
+          }
+        }
+      }
+    },
+    "Main Display" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "主显示器"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "主顯示器"
+          }
+        }
+      }
+    },
+    "Manage Virtual Displays…" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "管理虚拟显示器…"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "管理虛擬顯示器…"
+          }
+        }
+      }
+    },
+    "Menu Bar" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "菜单栏"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "選單列"
+          }
+        }
+      }
+    },
+    "Monitor Control" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示器控制"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "顯示器控制"
+          }
+        }
+      }
+    },
     "Reading the inputs from the monitor…" : {
       "localizations" : {
         "zh-Hans" : {
@@ -393,6 +569,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "設定顯示器輸入來源"
+          }
+        }
+      }
+    },
+    "Stays disconnected until you reconnect it from the menu bar." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "将保持断开，直到你从菜单栏重新连接。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "將保持中斷連線狀態，直到你從選單列重新連接。"
           }
         }
       }
@@ -514,38 +706,6 @@
     },
     "∞" : {
       "shouldTranslate" : false
-    },
-    "Activate" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "启用"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "啟用"
-          }
-        }
-      }
-    },
-    "Active" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "活动"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "使用中"
-          }
-        }
-      }
     },
     "Adds finer in-between steps for how large everything looks" : {
       "localizations" : {
@@ -1276,22 +1436,6 @@
         }
       }
     },
-    "Create" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "创建"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "建立"
-          }
-        }
-      }
-    },
     "Create at launch" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -1326,6 +1470,22 @@
         }
       }
     },
+    "Create" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "创建"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "建立"
+          }
+        }
+      }
+    },
     "Create Preset" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -1355,22 +1515,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "建立虛擬顯示器"
-          }
-        }
-      }
-    },
-    "Creating…" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "正在创建…"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "正在建立…"
           }
         }
       }
@@ -1543,22 +1687,6 @@
     "DDC" : {
       "shouldTranslate" : false
     },
-    "Deactivate" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "停用"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "停用"
-          }
-        }
-      }
-    },
     "Delete" : {
       "localizations" : {
         "zh-Hans" : {
@@ -1571,6 +1699,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "刪除"
+          }
+        }
+      }
+    },
+    "Disconnect" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "断开"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "中斷連線"
           }
         }
       }
@@ -2836,22 +2980,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "打開可以請我喝咖啡的頁面"
-          }
-        }
-      }
-    },
-    "Options" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "选项"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "選項"
           }
         }
       }
@@ -4344,22 +4472,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "虛擬顯示器"
-          }
-        }
-      }
-    },
-    "Virtual display options" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "虚拟显示器选项"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "虛擬顯示器選項"
           }
         }
       }

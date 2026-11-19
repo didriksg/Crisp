@@ -57,7 +57,7 @@ final class DisplayModeController: ObservableObject {
 
     /// Group modes by (resolution + HiDPI), sorted by resolution descending.
     /// Cached; several block views read this per render. The relay above invalidates it.
-    fileprivate var resolutionGroups: [ResolutionGroup] {
+    var resolutionGroups: [ResolutionGroup] {
         if let cachedGroups { return cachedGroups }
         let computed = computeResolutionGroups()
         cachedGroups = computed
@@ -163,7 +163,7 @@ final class DisplayModeController: ObservableObject {
         }
     }
 
-    fileprivate var currentGroup: ResolutionGroup? {
+    var currentGroup: ResolutionGroup? {
         resolutionGroups.first { $0.modes.contains { $0.id == currentMode?.id } }
     }
 
@@ -187,7 +187,7 @@ final class DisplayModeController: ObservableObject {
 
     // MARK: - Actions
 
-    fileprivate func selectResolution(_ group: ResolutionGroup) {
+    func selectResolution(_ group: ResolutionGroup) {
         guard group.id != currentGroup?.id, pendingResolutionID == nil else { return }
         // Keep the current refresh rate when the new resolution offers it. Tolerant match:
         // CG reports fractional rates (59.94) where the CGS-surfaced modes carry whole Hz.
@@ -519,13 +519,72 @@ struct ResolutionSliderBlock: View {
         if modes.count >= 2 {
             VStack(alignment: .leading, spacing: 0) {
                 modeSlider(modes)
+                smoothScaling
                 DisclosureSubRow(
                     label: "Show all resolutions",
                     isExpanded: state.openBinding(\.allResolutionsOpenIDs, display.displayID)
                 )
             }
         } else {
-            ResolutionListView(controller: controller)
+            VStack(alignment: .leading, spacing: 0) {
+                ResolutionListView(controller: controller)
+                smoothScaling
+            }
+        }
+    }
+
+    /// Right under the slider it changes: on, it adds the in-between sizes the slider steps
+    /// through. External displays only: built-ins already scale via System Settings.
+    @ViewBuilder
+    private var smoothScaling: some View {
+        if !display.isBuiltin {
+            smoothScalingSection
+        }
+    }
+
+    /// Smooth scaling as an on/off switch, tracking ground truth (are the dense modes
+    /// enumerated) rather than a stored flag.
+    private var smoothScalingSection: some View {
+        Toggle(isOn: Binding(get: { controller.smoothOn }, set: { controller.userToggleSmooth($0) })) {
+            HStack(spacing: 8) {
+                // Icon tracks ground truth so it doesn't recolor while the admin prompt
+                // blocks; the switch itself flips instantly.
+                MenuItemIcon(systemName: "slider.horizontal.below.rectangle", color: .blue, active: controller.smoothModesPresent)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Smooth scaling")
+                        .font(.body)
+                    if let hint = controller.smoothSubtitle {
+                        Text(hint)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                Spacer()
+                // The slot is always there: a spinner that took width would rewrap the
+                // description just as the admin prompt blocks the main thread, and the
+                // panel could not grow the block until the prompt closed.
+                ZStack {
+                    if controller.smoothBusy {
+                        ProgressView()
+                            .scaleEffect(0.6)
+                    }
+                }
+                .frame(width: 16, height: 16)
+            }
+        }
+        .toggleStyle(.switch)
+        .controlSize(.small)
+        .disabled(!HiDPIService.smoothScalingSupported)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 3)
+        .onAppear {
+            controller.smoothOn = controller.smoothModesPresent
+            controller.refreshSmoothWouldPrompt()
+        }
+        .onChange(of: controller.smoothModesPresent) { _, present in
+            // Adopt external truth (reconnect, another app) unless our own toggle is settling.
+            if !controller.smoothBusy { controller.smoothOn = present }
         }
     }
 
@@ -723,20 +782,15 @@ struct RefreshListBlock: View {
     }
 }
 
-/// Trailing rows of the mode section: the smooth-scaling switch (externals
-/// only), the transient switch-failure message, the apply-it-yourself reconnect
-/// hint, and the section divider.
+/// Trailing rows of the mode section: Hide Notch (built-in), the transient
+/// switch-failure message, the apply-it-yourself reconnect hint, and the section
+/// divider. Smooth scaling sits under the resolution slider (ResolutionSliderBlock).
 struct ModeTailBlock: View {
     @ObservedObject var controller: DisplayModeController
     private var display: DisplayInfo { controller.display }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // External displays only: built-ins already scale via System Settings.
-            if !display.isBuiltin {
-                smoothScalingSection
-            }
-
             NotchView(display: display)
 
             if let msg = controller.errorMessage {
@@ -775,46 +829,6 @@ struct ModeTailBlock: View {
         }
     }
 
-    /// Smooth scaling as an on/off switch, tracking ground truth (are the dense modes
-    /// enumerated) rather than a stored flag.
-    private var smoothScalingSection: some View {
-        Toggle(isOn: Binding(get: { controller.smoothOn }, set: { controller.userToggleSmooth($0) })) {
-            HStack(spacing: 8) {
-                // Icon tracks ground truth so it doesn't recolor while the admin prompt
-                // blocks; the switch itself flips instantly.
-                MenuItemIcon(systemName: "slider.horizontal.below.rectangle", color: .blue, active: controller.smoothModesPresent)
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Smooth scaling")
-                        .font(.body)
-                    if let hint = controller.smoothSubtitle {
-                        Text(hint)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                }
-                Spacer()
-                if controller.smoothBusy {
-                    ProgressView()
-                        .scaleEffect(0.6)
-                        .frame(width: 16, height: 16)
-                }
-            }
-        }
-        .toggleStyle(.switch)
-        .controlSize(.small)
-        .disabled(!HiDPIService.smoothScalingSupported)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 3)
-        .onAppear {
-            controller.smoothOn = controller.smoothModesPresent
-            controller.refreshSmoothWouldPrompt()
-        }
-        .onChange(of: controller.smoothModesPresent) { _, present in
-            // Adopt external truth (reconnect, another app) unless our own toggle is settling.
-            if !controller.smoothBusy { controller.smoothOn = present }
-        }
-    }
 }
 
 // MARK: - Checkmark row
@@ -904,7 +918,7 @@ private struct DisclosureSubRow: View {
 
 // MARK: - Data model
 
-private struct ResolutionGroup: Identifiable {
+struct ResolutionGroup: Identifiable {
     let width: Int
     let height: Int
     let isHiDPI: Bool

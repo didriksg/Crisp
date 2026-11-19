@@ -42,6 +42,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     let displayManager = DisplayManager()
     private lazy var controlServer = CrispControlServer(displayManager: displayManager)
+    private lazy var advancedSettings = AdvancedSettingsWindowController(displayManager: displayManager)
     private var statusItem: NSStatusItem?
     /// Whether the OSD banner is asking for the menu bar item to be lit. The
     /// open panel asks for the same light, so both are read together.
@@ -691,7 +692,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                     KeepAwakeRow()
                 }
                 EdgeCrossingRow()
-                DisconnectBuiltinRow()
                 ExpandableRowStateful(icon: "display.2", iconActive: false,
                                       label: "Virtual Displays", state: state, key: \.showVirtualDisplays)
             }
@@ -700,7 +700,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         toolsA.liveInFlight = true   // Virtual Displays chevron
         blocks.append(toolsA)
         blocks.append(block("vdrows", isOpen: { state.showTools && state.showVirtualDisplays }) {
-            VirtualDisplayView()
+            VirtualDisplayView(openManager: { [weak self] in
+                self?.closePanel()
+                self?.advancedSettings.show(tab: AdvancedSettingsWindowController.virtualDisplaysTab)
+            })
                 .padding(.leading, 16)
         })
         let toolsB = block("toolsB", isOpen: { [weak dm] in
@@ -725,8 +728,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         settingshead.liveInFlight = true
         blocks.append(settingshead)
         blocks.append(block("settingsrows", isOpen: { state.showSettings }) {
-            SettingsView()
-                .padding(.leading, 8)
+            // The panel stays open on a click inside it and sits above normal windows,
+            // so close it first.
+            SettingsView(openAdvancedSettings: { [weak self] in
+                self?.closePanel()
+                self?.advancedSettings.show()
+            })
+            .padding(.leading, 8)
         })
         blocks.append(block("update") { UpdateBlockView() })
 

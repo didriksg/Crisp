@@ -63,6 +63,8 @@ private struct HoldRepeatButtonStyle: ButtonStyle {
 struct BrightnessSliderView: View {
     @ObservedObject var display: DisplayInfo
     var compact: Bool = false  // Compact mode: hides the mode label row (used for top-level inline sliders)
+    /// Advanced Settings: never the mode row, not even with the debug switch.
+    var inForm = false
     @State private var localBrightness: Double = 50
     @State private var isDragging: Bool = false
     @State private var ddcStatus: Bool? = nil  // nil=unknown, true=DDC, false=Software
@@ -84,7 +86,7 @@ struct BrightnessSliderView: View {
     var body: some View {
         VStack(spacing: 2) {
             // Shown outside compact mode, or always when the debug switch is set.
-            if !compact || Self.showControlMode {
+            if !inForm, !compact || Self.showControlMode {
             HStack(spacing: 4) {
                 Spacer()
                 if display.hasNativeBrightness {

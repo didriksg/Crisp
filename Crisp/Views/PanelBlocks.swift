@@ -206,49 +206,6 @@ struct EdgeCrossingRow: View {
     }
 }
 
-/// Saved and off by default. Hidden on a Mac with no built-in panel (battery as the laptop
-/// test, since a disconnected built-in is gone from the display list) and on Intel. See
-/// PhysicalDisplayToggleService (parked record and the Tools switch).
-struct DisconnectBuiltinRow: View {
-    @ObservedObject private var settings = SettingsService.shared
-
-    var body: some View {
-        if PhysicalDisplayToggleService.shared.isSupported && PhysicalDisplayToggleService.hasBattery {
-            toggle
-        }
-    }
-
-    private var toggle: some View {
-        Toggle(isOn: $settings.disconnectBuiltinWhenDocked) {
-            HStack(spacing: 8) {
-                MenuItemIcon(systemName: "laptopcomputer.slash", color: .indigo,
-                             active: settings.disconnectBuiltinWhenDocked)
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Auto-Disconnect Built-in")
-                        .font(.body)
-                    Text("Turns the built-in display off while an external display is connected")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer()
-            }
-        }
-        .toggleStyle(.switch)
-        .controlSize(.small)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 3)
-        .onChange(of: settings.disconnectBuiltinWhenDocked) { _, isOn in
-            if isOn {
-                PhysicalDisplayToggleService.shared.reapplyParkedIfDocked()
-            } else {
-                PhysicalDisplayToggleService.shared.clearParked()
-            }
-        }
-    }
-}
-
 /// Update notice; renders nothing until an update is known, so it glides in.
 struct UpdateBlockView: View {
     @ObservedObject private var updateService = UpdateService.shared
