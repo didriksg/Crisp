@@ -135,6 +135,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             BrightnessBoostService.shared.reapplyAll()
         }
 
+        DisplayColorModeService.shared.restoreAtLaunchIfNeeded(using: displayManager)
+
         // Record every display's mode as the screens go down, so the wake passes
         // below can put back what macOS moved and nothing else. Both notifications:
         // a display idle timeout posts screensDidSleep with no system sleep at all.
@@ -294,7 +296,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 try? await Task.sleep(nanoseconds: 500_000_000)
                 // WindowServer keeps settling for seconds after wake: ICC restore and
                 // link retraining can clobber a freshly applied transfer table (#25).
-                // Three passes with increasing delays, each an idempotent no-op.
+                // Three passes with increasing delays; services reapply state as needed.
                 for delay: UInt64 in [0, 4_000_000_000, 8_000_000_000] {
                     try? await Task.sleep(nanoseconds: delay)
                     for display in dm.displays {
@@ -303,7 +305,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                         BrightnessService.shared.reapplySoftwareBrightnessIfNeeded(for: display)
                         GammaService.shared.reapplyIfNeeded(for: display)
                         // Re-apply any custom resolution that macOS may have reset on wake
-                        ResolutionService.shared.restoreModeAfterWakeIfNeeded(for: display.displayID)
+                        DisplayColorModeService.shared.restoreAfterWakeIfNeeded(for: display)
                     }
                     // Once an external is back after a full wake, toggle True Tone so macOS
                     // recomputes it with that display present (issue #131). Once per wake,

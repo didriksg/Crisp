@@ -422,6 +422,9 @@ private struct AdvancedDisplayPage: View {
                     }
                     .task { await loadProfiles() }
                 }
+                if !display.isBuiltin {
+                    AdvancedColorModePicker(display: display)
+                }
                 HDRToggleView(display: display, inForm: true)
             }
             // No header: the slider row says Brightness, as in System Settings.
