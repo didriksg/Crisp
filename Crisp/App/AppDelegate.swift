@@ -588,7 +588,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             // rendered once at natural height (the 120Hz fix; docs/panel-resize.md).
             // Each detail block paints its shaded band on the clip layer (banded).
             let modeC = DisplayModeController(display: display, displayManager: dm)
-            let colorModeC = DisplayColorModeController(display: display)
             let profC = DisplayProfileController(display: display)
             let detailOpen = { state.expandedDisplayIDs.contains(id) }
             func detail<V: View>(_ sub: String, isOpen: @escaping () -> Bool,
@@ -627,17 +626,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             })
             blocks.append(detail("dgroup-color", isOpen: detailOpen) {
                 GroupHeaderBlock(title: "Color")
-            })
-            blocks.append(detail("dcolor-head", isOpen: detailOpen, live: true) {
-                ColorModeHeadBlock(controller: colorModeC, state: state)
-            })
-            blocks.append(detail("dcolor-body", isOpen: {
-                detailOpen() && state.colorModeOpenIDs.contains(id)
-            }) {
-                ColorModeListBlock(controller: colorModeC)
-            })
-            blocks.append(detail("dcolor-tail", isOpen: detailOpen) {
-                ColorModeTailBlock(controller: colorModeC)
             })
             blocks.append(detail("dprof-head", isOpen: detailOpen, live: true) {
                 ProfileHeadBlock(controller: profC, state: state)
