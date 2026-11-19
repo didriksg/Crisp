@@ -427,10 +427,16 @@ private struct AdvancedDisplayPage: View {
             // No header: the slider row says Brightness, as in System Settings.
             Section {
                 // The panel's slider (DDC, gamma or the system's own).
-                LabeledContent("Brightness") {
+                // An HStack, not LabeledContent: the form puts a LabeledContent label at the
+                // top of a slider row. labelsHidden, or the form gives the slider's empty
+                // label a column and the bar starts late.
+                HStack {
+                    Text("Brightness")
+                    Spacer()
                     BrightnessSliderView(display: display, compact: true, inForm: true)
+                        .labelsHidden()
                         .padding(.horizontal, -12)  // the panel's row inset
-                        .frame(maxWidth: 300)
+                        .frame(width: 300)
                 }
                 ExtraBrightnessView(display: display, inForm: true)
                 SystemAutoBrightnessView(display: display)
