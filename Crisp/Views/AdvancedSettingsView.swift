@@ -323,6 +323,7 @@ private struct AdvancedDisplayPage: View {
     @EnvironmentObject var displayManager: DisplayManager
     @StateObject private var modes: DisplayModeController
     @StateObject private var color: DisplayProfileController
+    @StateObject private var rotation: RotationController
     @State private var profiles: [ICCProfile] = []
     @State private var profilePath: URL?
     @State private var errorText: String?
@@ -331,6 +332,7 @@ private struct AdvancedDisplayPage: View {
         self.display = display
         _modes = StateObject(wrappedValue: DisplayModeController(display: display, displayManager: displayManager))
         _color = StateObject(wrappedValue: DisplayProfileController(display: display))
+        _rotation = StateObject(wrappedValue: RotationController(display: display, displayManager: displayManager))
     }
 
     var body: some View {
@@ -345,8 +347,14 @@ private struct AdvancedDisplayPage: View {
                         ForEach(group.modes) { Text(verbatim: modes.refreshLabel($0)).tag($0.id) }
                     }
                 }
+                if rotation.isAvailable {
+                    Picker("Rotation", selection: Binding(get: { rotation.current }, set: { rotation.select($0) })) {
+                        ForEach(DisplayRotation.allCases) { Text(verbatim: $0.label).tag($0) }
+                    }
+                    .disabled(rotation.pending != nil)
+                }
                 NotchView(display: display, inForm: true)
-                if let message = modes.errorMessage ?? errorText {
+                if let message = modes.errorMessage ?? rotation.errorMessage ?? errorText {
                     Text(message).font(.caption).foregroundStyle(.secondary)
                 }
             }
@@ -406,7 +414,10 @@ private struct AdvancedDisplayPage: View {
             }
         }
         .formStyle(.grouped)
-        .onAppear { color.reload() }
+        .onAppear {
+            color.reload()
+            rotation.reload()
+        }
     }
 
     /// The panel's split: the native size first, then HiDPI and Non-HiDPI sizes.
