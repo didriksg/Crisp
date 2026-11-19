@@ -333,6 +333,22 @@
         }
       }
     },
+    "Arrange…" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "排列…"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "排列…"
+          }
+        }
+      }
+    },
     "Auto-Disconnect Built-in" : {
       "localizations" : {
         "zh-Hans" : {
@@ -537,6 +553,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "顯示器"
+          }
+        }
+      }
+    },
+    "Done" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "完成"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "完成"
           }
         }
       }
