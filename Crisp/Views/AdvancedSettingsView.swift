@@ -388,11 +388,16 @@ private struct AdvancedDisplayPage: View {
                 }
                 HDRToggleView(display: display, inForm: true)
             }
-            if BrightnessBoostService.shared.isEligible(display) || SystemAutoBrightness.supported(display.displayID) {
-                Section("Brightness") {
-                    ExtraBrightnessView(display: display, inForm: true)
-                    SystemAutoBrightnessView(display: display)
+            Section("Brightness") {
+                // The panel's slider (DDC, gamma or the system's own), as System Settings
+                // puts a brightness slider first under each display.
+                LabeledContent("Brightness") {
+                    BrightnessSliderView(display: display, compact: true)
+                        .padding(.horizontal, -12)  // the panel's row inset
+                        .frame(maxWidth: 300)
                 }
+                ExtraBrightnessView(display: display, inForm: true)
+                SystemAutoBrightnessView(display: display)
             }
             Section("Connection") {
                 // A display stops being main only when another one becomes main.
