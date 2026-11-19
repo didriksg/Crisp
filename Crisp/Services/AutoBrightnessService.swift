@@ -224,7 +224,9 @@ final class AutoBrightnessService: ObservableObject, @unchecked Sendable {
         builtinBrightness = builtin ?? 0
         hasPolled = true
 
-        guard let builtin, builtin > 0 else { return }
+        // A read of 0 is real (readBuiltinBrightness returns nil for a failed one), so the
+        // externals follow the built-in all the way down (#288).
+        guard let builtin else { return }
 
         // Only apply on a >2% built-in change, unless forced (a relative<->absolute
         // toggle, which must re-aim externals now).
