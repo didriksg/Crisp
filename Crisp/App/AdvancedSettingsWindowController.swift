@@ -76,13 +76,17 @@ final class AdvancedSettingsWindowController: NSWindowController, NSWindowDelega
         // A row shown or hidden inside a tab changes its height, but the tab controller
         // resizes the window only on a tab switch, and the hosting controller's size
         // catches up only at a later layout (focus loss). So the tab reports its own
-        // height, measured at its ideal size, and the window follows at once.
-        let root = view
-            .environmentObject(displayManager)
-            .fixedSize(horizontal: false, vertical: true)
-            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { [weak self] height in
-                MainActor.assumeIsolated { self?.fit(symbol, height: height) }
-            }
+        // height, measured at its ideal size, and the window follows at once. The scroll
+        // view takes over when the window stops at the bottom of the screen.
+        let root = ScrollView {
+            view
+                .environmentObject(displayManager)
+                .fixedSize(horizontal: false, vertical: true)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { [weak self] height in
+                    MainActor.assumeIsolated { self?.fit(symbol, height: height) }
+                }
+        }
+        .scrollBounceBehavior(.basedOnSize)
         let host = NSHostingController(rootView: root)
         host.sizingOptions = .preferredContentSize
         host.title = label  // the tab controller passes it on as the window title
@@ -130,12 +134,19 @@ private final class AdvancedSettingsTabs: NSTabViewController {
 /// Closes on Cmd-W itself (an accessory app's stock menu is not known to carry a Close
 /// item) and on Esc. A shortcut recording takes Esc first, to cancel the recording.
 private final class AdvancedSettingsWindow: NSWindow {
-    /// Every height change keeps the top edge, as Apple's settings windows grow down. The
-    /// window also resizes itself to the tab's new size a moment after `fit`, from the
-    /// bottom edge, and whichever ran last won.
+    /// Every height change keeps the top edge, as Apple's settings windows grow down, and
+    /// stops at the bottom of the screen (the tab scrolls then). The window also resizes
+    /// itself to the tab's new size a moment after `fit`, from the bottom edge, and
+    /// whichever ran last won.
     override func setFrame(_ frameRect: NSRect, display flag: Bool) {
         var rect = frameRect
-        if isVisible, rect.height != frame.height { rect.origin.y = frame.maxY - rect.height }
+        if isVisible, rect.height != frame.height {
+            rect.origin.y = frame.maxY - rect.height
+            if let bottom = screen?.visibleFrame.minY, rect.minY < bottom {
+                rect.size.height = rect.maxY - bottom
+                rect.origin.y = bottom
+            }
+        }
         super.setFrame(rect, display: flag)
     }
 
