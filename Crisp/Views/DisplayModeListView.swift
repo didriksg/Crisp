@@ -561,11 +561,16 @@ struct ResolutionSliderBlock: View {
                     }
                 }
                 Spacer()
-                if controller.smoothBusy {
-                    ProgressView()
-                        .scaleEffect(0.6)
-                        .frame(width: 16, height: 16)
+                // The slot is always there: a spinner that took width would rewrap the
+                // description just as the admin prompt blocks the main thread, and the
+                // panel could not grow the block until the prompt closed.
+                ZStack {
+                    if controller.smoothBusy {
+                        ProgressView()
+                            .scaleEffect(0.6)
+                    }
                 }
+                .frame(width: 16, height: 16)
             }
         }
         .toggleStyle(.switch)
