@@ -327,6 +327,7 @@ private struct AdvancedDisplayPage: View {
     @State private var profiles: [ICCProfile] = []
     @State private var profilePath: URL?
     @State private var errorText: String?
+    @State private var busy = false
 
     init(display: DisplayInfo, displayManager: DisplayManager) {
         self.display = display
@@ -388,11 +389,11 @@ private struct AdvancedDisplayPage: View {
                 }
                 HDRToggleView(display: display, inForm: true)
             }
-            Section("Brightness") {
-                // The panel's slider (DDC, gamma or the system's own), as System Settings
-                // puts a brightness slider first under each display.
+            // No header: the slider row says Brightness, as in System Settings.
+            Section {
+                // The panel's slider (DDC, gamma or the system's own).
                 LabeledContent("Brightness") {
-                    BrightnessSliderView(display: display, compact: true)
+                    BrightnessSliderView(display: display, compact: true, inForm: true)
                         .padding(.horizontal, -12)  // the panel's row inset
                         .frame(maxWidth: 300)
                 }
@@ -400,6 +401,7 @@ private struct AdvancedDisplayPage: View {
                 SystemAutoBrightnessView(display: display)
             }
             Section("Connection") {
+                AdvancedInputPicker(display: display)
                 // A display stops being main only when another one becomes main.
                 Toggle("Main Display", isOn: Binding(get: { display.isMain }, set: { if $0 { makeMain() } }))
                     .disabled(display.isMain)
@@ -414,6 +416,16 @@ private struct AdvancedDisplayPage: View {
                     )) {
                         Text("Volume Control")
                         Text("Speaker volume over DDC. Turn it off if the monitor stops answering, or on if it doesn't report volume.")
+                    }
+                }
+                // Last, as on the card: it removes the display from this tab.
+                if PhysicalDisplayToggleService.shared.isSupported,
+                   !PhysicalDisplayToggleService.shared.wouldLeaveNoActiveDisplay(display.displayID) {
+                    LabeledContent {
+                        Button("Disconnect") { disconnect() }.disabled(busy)
+                    } label: {
+                        Text("Disconnect Display")
+                        Text("Stays disconnected until you reconnect it from the menu bar.")
                     }
                 }
             }
@@ -458,11 +470,83 @@ private struct AdvancedDisplayPage: View {
         }
     }
 
+    private func disconnect() {
+        busy = true
+        Task { @MainActor in
+            let result = await PhysicalDisplayToggleService.shared.disconnect(display)
+            displayManager.refreshDisplays()
+            if case .failure(let err) = result { showError(err.description) }
+            busy = false
+        }
+    }
+
     private func showError(_ text: String) {
         errorText = text
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 3_000_000_000)
             errorText = nil
+        }
+    }
+}
+
+/// The card's Input row as a menu (#196). Choosing another input switches the monitor
+/// and disconnects it, so the display leaves this tab; the way back is the Reconnect
+/// row in the panel. Until Crisp knows this Mac's input, a choice only marks it.
+private struct AdvancedInputPicker: View {
+    @ObservedObject var display: DisplayInfo
+    @EnvironmentObject var displayManager: DisplayManager
+    @ObservedObject private var service = InputSwitchService.shared
+    @State private var pending = false
+    @State private var message: String?
+
+    private var uuid: String { display.displayUUID }
+
+    var body: some View {
+        if service.isAvailable(for: display) {
+            Picker(selection: Binding(get: { service.macInput[uuid] }, set: { if let value = $0 { choose(value) } })) {
+                if service.macInput[uuid] == nil { Text("").tag(UInt16?.none) }
+                ForEach(service.options(for: display), id: \.self) { Text(verbatim: inputLabel($0)).tag(Optional($0)) }
+            } label: {
+                Text("Input")
+                if let message {
+                    Text(message).foregroundStyle(.red)
+                } else if service.macInput[uuid] == nil {
+                    Text("Crisp could not read which input this Mac is on. Choose it once.")
+                } else if PhysicalDisplayToggleService.shared.wouldLeaveNoActiveDisplay(display.displayID) {
+                    Text("This is the only display, so it stays connected while it shows the other input.")
+                } else {
+                    Text("Another input disconnects this display. Reconnect it from the menu bar to switch back.")
+                }
+            }
+            .disabled(pending || service.reading.contains(uuid))
+            .task {
+                await service.refreshInput(display)
+                await service.readListIfNeeded(display)
+            }
+            if service.markedByUser.contains(uuid) {
+                LabeledContent("") {
+                    Button("Choose Again") { service.forgetMark(for: display) }.buttonStyle(.link)
+                }
+            }
+        }
+    }
+
+    private func choose(_ value: UInt16) {
+        guard !pending, value != service.macInput[uuid] else { return }
+        guard service.macInput[uuid] != nil else {
+            service.mark(value, for: display)
+            return
+        }
+        pending = true
+        Task { @MainActor in
+            let result = await service.switchInput(display, to: value)
+            pending = false
+            displayManager.refreshDisplays()
+            if case .failure(let error) = result {
+                message = error.description
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                message = nil
+            }
         }
     }
 }

@@ -269,6 +269,22 @@
         }
       }
     },
+    "Another input disconnects this display. Reconnect it from the menu bar to switch back." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "切换到其他输入源会断开此显示器。从菜单栏重新连接即可切换回来。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "切換到其他輸入來源會中斷此顯示器的連線。從選單列重新連接即可切換回來。"
+          }
+        }
+      }
+    },
     "Another input disconnects this display. Reconnect it here to switch back." : {
       "localizations" : {
         "zh-Hans" : {
@@ -553,6 +569,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "設定顯示器輸入來源"
+          }
+        }
+      }
+    },
+    "Stays disconnected until you reconnect it from the menu bar." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "将保持断开，直到你从菜单栏重新连接。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "將保持中斷連線狀態，直到你從選單列重新連接。"
           }
         }
       }
@@ -1667,6 +1699,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "刪除"
+          }
+        }
+      }
+    },
+    "Disconnect" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "断开"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "中斷連線"
           }
         }
       }
