@@ -12,9 +12,10 @@ jobs:
   # Everything a pull request is held to. The job name is the status check
   # main's branch rule requires, so it stays "build".
   build:
-    # macOS 26 SDK required: the panel backdrop uses NSGlassEffectView (macOS 26),
-    # which must exist at compile time even though it's #available-gated at runtime.
-    runs-on: macos-26
+    # The Xcode that releases are built with (docs/best-practice/ci-xcode-version.md).
+    # It also has the macOS 26 SDK's NSGlassEffectView, which the panel backdrop
+    # needs at compile time even though it's #available-gated at runtime.
+    runs-on: xcode-27
     steps:
       - uses: actions/checkout@v4
         with:
@@ -33,7 +34,7 @@ jobs:
       # without full Xcode, SWIFTLINT_DISABLE_SOURCEKIT=1 skips the
       # SourceKit-backed rules, so CI stays the authoritative check.
       #
-      # The macos-26 image ships no swiftlint, so install it explicitly (a
+      # The image ships no swiftlint, so install it explicitly (a
       # missing binary used to be swallowed as a silent no-op).
       - name: Install SwiftLint and xcodegen
         run: HOMEBREW_NO_AUTO_UPDATE=1 brew install swiftlint xcodegen
@@ -92,7 +93,7 @@ jobs:
   # touches the release path itself (the script, the project, the Makefile,
   # this workflow). Every push to main still runs it in full.
   release-build:
-    runs-on: macos-26
+    runs-on: xcode-27
     steps:
       - uses: actions/checkout@v4
         with:
