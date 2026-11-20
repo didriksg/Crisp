@@ -101,6 +101,29 @@ the walk failed, which mis-paired channels and drove the wrong monitor; the sort
 index doesn't track that the AVService order follows the framebuffer order within the
 same subtree, which is what proximity matching relies on instead.
 
+## Volume keys and the audio output (#276)
+
+Measured on 2× LG HDR 4K over DisplayPort, MacBook Pro M1 Max with the lid closed,
+macOS 26.6.2.
+
+macOS names identical displays `LG HDR 4K (1)` and `LG HDR 4K (2)`, while CoreAudio names
+both of their audio devices plain `LG HDR 4K`. The device UIDs carry vendor and product
+only (the second gets an extra `_xxxxxxxx` suffix), no serial, so neither the name nor
+the UID says which monitor is playing.
+
+The IORegistry does. Under each `dispextN`, next to the framebuffer (`AppleCLCD2`, whose
+path CoreDisplay reports as the display's location) and the DDC channel, a
+`DCPAVAudioDriver(iop-dcpextN-nub)` carries a `"device UID"` property equal to the
+CoreAudio UID. `VolumeService` finds the driver with the default output's UID and takes
+the display on the same `dispextN`; on the LGs that is the monitor actually playing.
+`"device UID"` is undocumented, so without it the names decide: an exact match, then a
+match without macOS's ` (n)` suffix (every such display steps, only one is audible),
+then the lone HDMI/DisplayPort candidate.
+
+`kAudioHardwareServiceDeviceProperty_VirtualMainVolume` is not settable on either LG
+output and is settable on the MacBook speakers. A Volume Keys selection only takes the
+keys when it isn't, so outputs macOS controls itself keep them.
+
 ## Failure classes and defenses
 
 | Failure | Symptom | Defense |
