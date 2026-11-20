@@ -161,6 +161,11 @@ struct AdvancedKeyboardTab: View {
     // AXIsProcessTrusted() is not observable, so it is re-read when Crisp becomes active.
     @State private var isTrusted = AXIsProcessTrusted()
 
+    /// Externals with speaker volume, which the volume keys can drive.
+    private var volumeDisplays: [DisplayInfo] {
+        displayManager.displays.filter { !$0.isBuiltin && $0.volumeSupported }
+    }
+
     var body: some View {
         Form {
             Section {
@@ -178,6 +183,24 @@ struct AdvancedKeyboardTab: View {
                                         settings.brightnessKeySelectedDisplayUUIDs.insert(display.displayUUID)
                                     } else {
                                         settings.brightnessKeySelectedDisplayUUIDs.remove(display.displayUUID)
+                                    }
+                                }
+                            ))
+                        }
+                    }
+                    Picker("Volume Keys", selection: $settings.volumeKeyTarget) {
+                        Text("Follow the audio output").tag(VolumeKeyTarget.audioOutput)
+                        Text("Selected displays only").tag(VolumeKeyTarget.selected)
+                    }
+                    if settings.volumeKeyTarget == .selected {
+                        ForEach(volumeDisplays) { display in
+                            Toggle(display.name, isOn: Binding(
+                                get: { settings.volumeKeySelectedDisplayUUIDs.contains(display.displayUUID) },
+                                set: { isOn in
+                                    if isOn {
+                                        settings.volumeKeySelectedDisplayUUIDs.insert(display.displayUUID)
+                                    } else {
+                                        settings.volumeKeySelectedDisplayUUIDs.remove(display.displayUUID)
                                     }
                                 }
                             ))

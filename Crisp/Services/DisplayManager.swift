@@ -161,6 +161,7 @@ class DisplayManager: ObservableObject {
         // Display IDs can be reshuffled across a reconnect storm with no ID leaving the
         // online list, so drop the whole channel map; it lazily rebuilds on the next DDC op.
         DDCService.shared.invalidateAllChannelMappings()
+        VolumeService.shared.forgetAudioOutputTies()
 
         var displayCount: UInt32 = 0
         CGGetOnlineDisplayList(0, nil, &displayCount)

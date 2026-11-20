@@ -178,7 +178,7 @@ final class VolumeService: ObservableObject {
 
         let transport = audioTransportType(deviceID)
         let output = VolumeKeyRouting.Output(
-            displayUUID: audioDeviceUID(deviceID).flatMap { displayUUID(owningAudioDeviceUID: $0, among: candidates) },
+            displayUUID: audioDeviceUID(deviceID).flatMap { cachedDisplayUUID(owningAudioDeviceUID: $0, among: candidates) },
             name: audioDeviceName(deviceID),
             isDisplayAudio: transport == kAudioDeviceTransportTypeHDMI
                 || transport == kAudioDeviceTransportTypeDisplayPort,
@@ -192,6 +192,23 @@ final class VolumeService: ObservableObject {
             selectedUUIDs: settings.volumeKeySelectedDisplayUUIDs
         )
         return picked.map { candidates[$0] }
+    }
+
+    /// The IORegistry ties already looked up, by audio device UID and candidates. The keys
+    /// ask on every press, and the walk only changes with the displays.
+    private var audioOutputTies: [String: String?] = [:]
+
+    /// Drops the cached ties; DisplayManager calls it on every display change.
+    func forgetAudioOutputTies() {
+        audioOutputTies.removeAll()
+    }
+
+    private func cachedDisplayUUID(owningAudioDeviceUID uid: String, among candidates: [DisplayInfo]) -> String? {
+        let key = ([uid] + candidates.map(\.displayUUID)).joined(separator: "|")
+        if let tie = audioOutputTies[key] { return tie }
+        let tie = displayUUID(owningAudioDeviceUID: uid, among: candidates)
+        audioOutputTies[key] = tie
+        return tie
     }
 
     /// The candidate whose DisplayPort/HDMI audio device has this UID, or nil to
