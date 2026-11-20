@@ -68,7 +68,7 @@ struct DisconnectDisplayRow: View {
 }
 
 /// Inline "Disconnected" section for the main display list: lists displays the
-/// user disconnected and offers a Reconnect action for each.
+/// user disconnected that are still plugged in, and offers a Reconnect action for each.
 struct ReconnectDisplaysSection: View {
     @EnvironmentObject var displayManager: DisplayManager
     @ObservedObject private var service = PhysicalDisplayToggleService.shared
@@ -78,9 +78,9 @@ struct ReconnectDisplaysSection: View {
     var body: some View {
         if settings.showConnectionSwitches {
             VStack(alignment: .leading, spacing: 0) {
-                ForEach(service.disconnected) { DisconnectedSwitchRow(record: $0) }
+                ForEach(service.reconnectable) { DisconnectedSwitchRow(record: $0) }
             }
-        } else if !service.disconnected.isEmpty {
+        } else if !service.reconnectable.isEmpty {
             VStack(alignment: .leading, spacing: 0) {
                 Text("Disconnected")
                     .font(.caption)
@@ -89,7 +89,7 @@ struct ReconnectDisplaysSection: View {
                     .padding(.top, 4)
                     .padding(.bottom, 2)
 
-                ForEach(service.disconnected) { record in
+                ForEach(service.reconnectable) { record in
                     DisconnectedDisplayRow(
                         record: record,
                         busy: busyUUIDs.contains(record.uuid),
