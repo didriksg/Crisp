@@ -429,6 +429,22 @@
         }
       }
     },
+    "Click the cup to turn Keep Awake on or off, right-click it for a time limit" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "点按杯子可打开或关闭防止睡眠，右键点按可设定时间限制"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "按一下杯子來開啟或關閉防止睡眠，按右鍵可設定時間限制"
+          }
+        }
+      }
+    },
     "Copied" : {
       "localizations" : {
         "zh-Hans" : {
@@ -665,6 +681,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "輸入來源 %@"
+          }
+        }
+      }
+    },
+    "Keep Awake in Menu Bar" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在菜单栏中显示防止睡眠"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在選單列中顯示防止睡眠"
+          }
+        }
+      }
+    },
+    "Keep Awake until %@" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "防止睡眠直到 %@"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "防止睡眠直到 %@"
           }
         }
       }
@@ -953,6 +1001,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "這是唯一的顯示器，因此在顯示其他輸入來源時仍保持連線。"
+          }
+        }
+      }
+    },
+    "Turn Off" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关闭"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "關閉"
           }
         }
       }

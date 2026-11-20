@@ -50,6 +50,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     /// Drives the menu-bar Keep Awake indicator (keep-awake indicator).
     private var keepAwakeCancellable: AnyCancellable?
     private var keepAwakeBadge: NSView?
+    private var keepAwakeItem: KeepAwakeStatusItem?
     private var panel: MenuPanel?
     /// The panel is NEVER ordered out once warmed: taking the backdrop surface
     /// off screen replays WindowServer's materialize bloom. Hidden = alpha 0 +
@@ -390,8 +391,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         // Small dot on the icon shows Keep Awake is on, at a glance. (keep-awake indicator)
         updateStatusIcon(active: KeepAwakeService.shared.isActive, animated: false)
+        // The cup (#266) already says Keep Awake is on, so the dot hides while it shows.
         keepAwakeCancellable = KeepAwakeService.shared.$isActive
-            .sink { [weak self] active in self?.updateStatusIcon(active: active, animated: true) }
+            .combineLatest(SettingsService.shared.$showKeepAwakeInMenuBar)
+            .sink { [weak self] active, cup in self?.updateStatusIcon(active: active && !cup, animated: true) }
+        keepAwakeItem = KeepAwakeStatusItem()
     }
 
     /// Fades a small orange dot in/out over the (unchanged) menu-bar icon to reflect Keep Awake.

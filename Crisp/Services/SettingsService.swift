@@ -66,6 +66,7 @@ final class SettingsService: ObservableObject, @unchecked Sendable {
         static let showVolumeSliders      = "crisp.showVolumeSliders"
         static let showCombinedVolume     = "crisp.showCombinedVolume"
         static let showConnectionSwitches = "crisp.showConnectionSwitches"
+        static let showKeepAwakeInMenuBar = "crisp.showKeepAwakeInMenuBar"
         static let crossDisplayGaps       = "crisp.crossDisplayGaps"
         static let disconnectBuiltinWhenDocked = "crisp.disconnectBuiltinWhenDocked"
         static let ddcCacheTTL            = "crisp.ddcCacheTTL"
@@ -129,6 +130,11 @@ final class SettingsService: ObservableObject, @unchecked Sendable {
     /// default: a control that blanks a screen does not belong under a stray click.
     @Published var showConnectionSwitches: Bool = false {
         didSet { defaults.set(showConnectionSwitches, forKey: Keys.showConnectionSwitches) }
+    }
+
+    /// A cup in the menu bar that turns Keep Awake on and off (#266). Off by default.
+    @Published var showKeepAwakeInMenuBar: Bool = false {
+        didSet { defaults.set(showKeepAwakeInMenuBar, forKey: Keys.showKeepAwakeInMenuBar) }
     }
 
     /// Pointer moves past display edges with no display behind them. Also starts and stops
@@ -326,6 +332,7 @@ final class SettingsService: ObservableObject, @unchecked Sendable {
             ? defaults.bool(forKey: Keys.showVolumeSliders) : true
         showCombinedVolume = defaults.bool(forKey: Keys.showCombinedVolume)
         showConnectionSwitches = defaults.bool(forKey: Keys.showConnectionSwitches)
+        showKeepAwakeInMenuBar = defaults.bool(forKey: Keys.showKeepAwakeInMenuBar)
         crossDisplayGaps = defaults.bool(forKey: Keys.crossDisplayGaps)
         disconnectBuiltinWhenDocked = defaults.bool(forKey: Keys.disconnectBuiltinWhenDocked)
         ddcCacheTTL = defaults.object(forKey: Keys.ddcCacheTTL) != nil

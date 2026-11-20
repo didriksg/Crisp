@@ -121,6 +121,11 @@ struct AdvancedGeneralTab: View {
                                    detail: Text("A switch on each display row that disconnects it"),
                                    isOn: $settings.showConnectionSwitches)
                 }
+                if !KeepAwakeService.isDisabledByPolicy {
+                    CenteredToggle(title: "Keep Awake in Menu Bar",
+                                   detail: Text("Click the cup to turn Keep Awake on or off, right-click it for a time limit"),
+                                   isOn: $settings.showKeepAwakeInMenuBar)
+                }
             }
             if CrispctlInstaller.isAvailable {
                 Section("Automation") {
