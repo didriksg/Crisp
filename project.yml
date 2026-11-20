@@ -90,6 +90,7 @@ targets:
       - path: Crisp/Models/VolumeKeyRouting.swift
       - path: Crisp/Models/EdgeCrossing.swift
       - path: Crisp/Models/DDCInputSource.swift
+      - path: Crisp/Models/BrightnessControlRoute.swift
       - path: Crisp/Models/DisplayRotation.swift
       - path: Crisp/Models/ArrangementSnap.swift
       - path: Crisp/Models/DebugReport.swift

@@ -79,8 +79,6 @@ struct BrightnessSliderView: View {
     /// Debug switch: `defaults write com.crisp.app crisp.showBrightnessControlMode -bool true`
     /// (relaunch) shows the DDC/software mode row on every slider, for support threads.
     /// Read once at launch; no Settings row on purpose.
-    /// ponytail: reads the DDC latch only; an HDR-dimmed external shows "DDC" while
-    /// writing gamma. Fold in BrightnessService.hdrDimmedDisplays if that misleads.
     static let showControlMode = UserDefaults.standard.bool(forKey: "crisp.showBrightnessControlMode")
 
     var body: some View {
@@ -203,6 +201,9 @@ struct BrightnessSliderView: View {
             localBrightness = display.brightness
             updateDDCStatus()
         }
+        .onReceive(NotificationCenter.default.publisher(for: BrightnessService.routeChanged)) { _ in
+            updateDDCStatus()
+        }
         .onChange(of: display.brightness) { _, newValue in
             // Holds at the click target until the fade catches up (see click-glide above).
             if clickGliding {
@@ -245,6 +246,12 @@ struct BrightnessSliderView: View {
     }
 
     private func updateDDCStatus() {
+        // Software by the user's choice or in HDR: writes still ack there, so the
+        // latch alone would say "DDC" while brightness goes through gamma.
+        if BrightnessService.shared.brightnessControlRow(for: display).shown == .software {
+            ddcStatus = .some(false)
+            return
+        }
         ddcStatus = BrightnessService.shared.isDDCAvailable(for: display.displayID)
     }
 
@@ -284,6 +291,7 @@ struct CombinedBrightnessView: View {
     @State private var dragConfirmed: Bool = false
     @State private var deferredFirstChange: Bool = false
     @State private var clickGliding: Bool = false
+    @State private var routeChanges = 0
 
     /// Externals define the shared scale; unlike the built-in panel, their
     /// current DDC percentage is already the combined control's reference.
@@ -302,18 +310,44 @@ struct CombinedBrightnessView: View {
 
     private var averageBrightness: Double {
         guard !referenceDisplays.isEmpty else { return 50 }
-        return referenceDisplays.map {
-            CombinedBrightnessMath.controlValue(
-                brightness: $0.brightness,
-                maxBrightness: $0.maxBrightness,
-                displayMaxNits: $0.nominalMaxNits,
+        return referenceDisplays.map { combinedControlValue(for: $0) }
+            .reduce(0, +) / Double(referenceDisplays.count)
+    }
+
+    /// The combined handle's position for one reference display. A display the
+    /// Brightness Control row shows as Software reports luminance through the
+    /// gamma square, every other route through its DDC-linear percent.
+    private func combinedControlValue(for display: DisplayInfo) -> Double {
+        if usesGammaCurve(display) {
+            return CombinedBrightnessMath.forcedSoftwareControlValue(
+                brightness: display.brightness,
+                displayMaxNits: display.nominalMaxNits,
                 referenceMaxNits: referenceMaxNits)
-        }.reduce(0, +) / Double(referenceDisplays.count)
+        }
+        return CombinedBrightnessMath.controlValue(
+            brightness: display.brightness,
+            maxBrightness: display.maxBrightness,
+            displayMaxNits: display.nominalMaxNits,
+            referenceMaxNits: referenceMaxNits)
+    }
+
+    /// A display the Brightness Control row shows as Software, while the combined slider
+    /// matches by luminance: with matching off every display takes the same percentage (#298).
+    private func usesGammaCurve(_ display: DisplayInfo) -> Bool {
+        settings.matchBrightnessByLuminance
+            && BrightnessService.shared.brightnessControlRow(for: display).shown == .software
     }
 
     private func targetBrightness(_ combined: Double, for display: DisplayInfo) -> Double {
         guard !display.isBuiltin else {
             return combined / 100.0 * display.maxBrightness
+        }
+        if usesGammaCurve(display) {
+            return CombinedBrightnessMath.forcedSoftwareTargetBrightness(
+                combined: combined,
+                maxBrightness: display.maxBrightness,
+                displayMaxNits: display.nominalMaxNits,
+                referenceMaxNits: referenceMaxNits)
         }
         return CombinedBrightnessMath.targetBrightness(
             combined: combined,
@@ -354,7 +388,9 @@ struct CombinedBrightnessView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        // Read so a route change that publishes nothing on the display redraws the handle.
+        _ = routeChanges
+        return VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 8) {
                 BrightnessStepButton(systemName: "sun.min.fill") { stepAll(-10.0) }
 
@@ -436,6 +472,14 @@ struct CombinedBrightnessView: View {
             }
         }
         .onAppear {
+            combinedBrightness = averageBrightness
+        }
+        .onReceive(NotificationCenter.default.publisher(for: BrightnessService.routeChanged)) { _ in
+            // A fallback latch, HDR, and a click in the Brightness Control row
+            // change which curve the readback uses without moving any display's
+            // brightness, so the probe-driven sync keeps the old handle position.
+            routeChanges += 1
+            guard !isDragging else { return }
             combinedBrightness = averageBrightness
         }
     }

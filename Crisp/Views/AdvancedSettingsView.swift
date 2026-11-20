@@ -426,6 +426,9 @@ private struct AdvancedDisplayPage: View {
     @State private var profilePath: URL?
     @State private var errorText: String?
     @State private var busy = false
+    /// Bumped on every display reconfiguration, which an HDR flip fires: macOS offers
+    /// "Automatically adjust brightness" on an HDR external only while HDR is on.
+    @State private var screenChanges = 0
 
     init(display: DisplayInfo, displayManager: DisplayManager) {
         self.display = display
@@ -504,8 +507,12 @@ private struct AdvancedDisplayPage: View {
                         .padding(.horizontal, -12)  // the panel's row inset
                         .frame(width: 300)
                 }
+                if !display.isBuiltin {
+                    BrightnessControlPicker(display: display)
+                }
                 ExtraBrightnessView(display: display, inForm: true)
                 SystemAutoBrightnessView(display: display)
+                    .id(screenChanges)
             }
             Section("Connection") {
                 AdvancedInputPicker(display: display)
@@ -539,6 +546,12 @@ private struct AdvancedDisplayPage: View {
         .onAppear {
             color.reload()
             rotation.reload()
+        }
+        .onReceive(
+            NotificationCenter.default.publisher(for: NSApplication.didChangeScreenParametersNotification)
+                .debounce(for: .milliseconds(500), scheduler: RunLoop.main)
+        ) { _ in
+            screenChanges += 1
         }
     }
 
@@ -662,7 +675,7 @@ private struct AdvancedInputPicker: View {
 /// row with a description in this window (Didrik, 2026-11-19; a stock form row puts the
 /// control level with the title). The fonts are the stock row's, compared in an
 /// off-screen render.
-private struct CenteredRow<Control: View>: View {
+struct CenteredRow<Control: View>: View {
     let title: LocalizedStringKey
     let detail: Text
     @ViewBuilder let control: Control
