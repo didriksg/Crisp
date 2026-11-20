@@ -264,17 +264,21 @@ struct AdvancedDisplaysTab: View {
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 16)
-            HStack(alignment: .bottom, spacing: 0) {
-                // Outside the scrolling row, so it stays in reach with many displays.
-                if displayManager.displays.count > 1 {
-                    Button("Arrange…") { arranging = true }
-                        .padding(.leading, 20)
-                        .padding(.bottom, 18)
-                }
-                // Centred while the row fits, scrolled when it does not.
+            let showsArrange = displayManager.displays.count > 1
+            ZStack(alignment: .bottomLeading) {
+                // Centred on the whole width while the row fits, scrolled when it does not.
+                // The same inset on both sides keeps the pictures clear of the button.
+                // ponytail: fixed inset for the button's width; measure it if a translation outgrows it.
                 ViewThatFits(in: .horizontal) {
                     pictures.frame(maxWidth: .infinity)
                     ScrollView(.horizontal) { pictures }
+                }
+                .padding(.horizontal, showsArrange ? 100 : 0)
+                // Outside the scrolling row, so it stays in reach with many displays.
+                if showsArrange {
+                    Button("Arrange…") { arranging = true }
+                        .padding(.leading, 20)
+                        .padding(.bottom, 18)
                 }
             }
             Divider()
