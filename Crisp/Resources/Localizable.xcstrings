@@ -135,22 +135,6 @@
         }
       }
     },
-    "%@ left" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "剩余 %@"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "剩餘 %@"
-          }
-        }
-      }
-    },
     "%@ off" : {
       "localizations" : {
         "zh-Hans" : {
@@ -1120,22 +1104,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "全部描述檔"
-          }
-        }
-      }
-    },
-    "Always" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "始终"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "始終"
           }
         }
       }
@@ -4739,6 +4707,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "無法切換色彩模式，請重試。"
+          }
+        }
+      }
+    },
+    "Until %@" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "直到 %@"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "直到 %@"
+          }
+        }
+      }
+    },
+    "Until turned off" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "直到关闭"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "直到關閉"
           }
         }
       }

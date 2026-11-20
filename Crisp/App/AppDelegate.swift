@@ -677,15 +677,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             }
         })
         let toolshead = block("toolshead") {
-            ToolsHeaderBlock(state: state)
+            VStack(alignment: .leading, spacing: 0) {
+                SectionDivider()
+                ExpandableRowStateful(icon: "wrench.and.screwdriver.fill", iconActive: false,
+                                      label: "Tools", state: state, key: \.showTools)
+            }
         }
         toolshead.liveInFlight = true
         blocks.append(toolshead)
+        blocks += keepAwakeBlocks()
         let toolsA = block("toolsA", isOpen: { state.showTools }) {
             VStack(alignment: .leading, spacing: 0) {
-                if !KeepAwakeService.isDisabledByPolicy {
-                    KeepAwakeRow()
-                }
                 EdgeCrossingRow()
                 ExpandableRowStateful(icon: "display.2", iconActive: false,
                                       label: "Virtual Displays", state: state, key: \.showVirtualDisplays)
@@ -1017,6 +1019,21 @@ extension AppDelegate {
         b.banded = true
         b.liveInFlight = live
         return b
+    }
+
+    /// The Keep Awake row and its list of time limits (#274). Built here, not in
+    /// rebuildBlocksIfNeeded, which is at its length cap.
+    private func keepAwakeBlocks() -> [PanelBlock] {
+        guard !KeepAwakeService.isDisabledByPolicy else { return [] }
+        let state = sectionState
+        let row = PanelBlock(id: "keepawake", host: hostPanelBlock("keepawake") {
+            KeepAwakeRow(state: state).padding(.leading, 8)
+        }, isOpen: { state.showTools })
+        row.liveInFlight = true   // chevron
+        let list = PanelBlock(id: "keepawake-times", host: hostPanelBlock("keepawake-times") {
+            KeepAwakeTimesBlock(state: state).padding(.leading, 8)
+        }, isOpen: { state.showTools && state.showKeepAwakeTimes })
+        return [row, list]
     }
 
     /// The Rotation row's head and list (#258). Built here, not in rebuildBlocksIfNeeded,

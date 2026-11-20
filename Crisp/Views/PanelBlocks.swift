@@ -12,6 +12,7 @@ final class PanelSectionState: ObservableObject {
     @Published var showTools = false
     @Published var showVirtualDisplays = false
     @Published var showArrangement = false
+    @Published var showKeepAwakeTimes = false
     @Published var showSettings = false
     @Published var expandedDisplayIDs: Set<CGDirectDisplayID> = []
     // Per-display dropdown sections, lifted out of view @State so each reveal
@@ -29,6 +30,7 @@ final class PanelSectionState: ObservableObject {
         showTools = false
         showVirtualDisplays = false
         showArrangement = false
+        showKeepAwakeTimes = false
         showSettings = false
         expandedDisplayIDs.removeAll()
         resolutionOpenIDs.removeAll()
@@ -146,115 +148,78 @@ struct DisplayHeaderBlock: View {
     }
 }
 
-/// Tools section header; surfaces Keep Awake status/countdown while collapsed.
-struct ToolsHeaderBlock: View {
-    @ObservedObject var state: PanelSectionState
-    @ObservedObject private var keepAwake = KeepAwakeService.shared
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            SectionDivider()
-            ExpandableRow(
-                icon: "wrench.and.screwdriver.fill",
-                iconActive: false,
-                label: "Tools",
-                subtitle: state.showTools ? nil : keepAwake.toolsSubtitle,
-                isExpanded: $state.showTools
-            )
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .crispPanelDidOpen)) { _ in
-            keepAwake.refreshRemaining()
-        }
-    }
-}
-
 /// Keep Awake: hold a power assertion against idle-sleep. Session-only, off
 /// each launch.
+/// The switch keeps it on until turned off; the row opens an optional list of time
+/// limits (#274), which closes on a pick.
 struct KeepAwakeRow: View {
     @ObservedObject private var keepAwake = KeepAwakeService.shared
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 8) {
-                MenuItemIcon(systemName: "cup.and.saucer.fill", color: .orange, active: keepAwake.isActive)
-                    .accessibilityHidden(true)
-                Text("Keep Awake")
-                    .font(.body)
-                Spacer()
-                if let subtitle = keepAwake.rowSubtitle {
-                    Text(subtitle)
-                        .font(.caption)
-                        .foregroundColor(.secondaryReadable)
-                        .monospacedDigit()
-                        .lineLimit(1)
-                }
-                Toggle("", isOn: Binding(
-                    get: { keepAwake.isActive },
-                    set: { newValue in
-                        guard PanelOpenGuard.allowsActivation else { return }
-                        withAnimation(.panelResize) { keepAwake.setActive(newValue) }
-                    }
-                ))
-                .toggleStyle(.switch)
-                .labelsHidden()
-                .controlSize(.small)
-                .accessibilityLabel("Keep Awake")
-                .accessibilityValue(
-                    keepAwake.rowSubtitle ?? (keepAwake.isActive ? String(localized: "Always") : String(localized: "Off"))
-                )
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 3)
-
-            HStack(spacing: 4) {
-                ForEach(KeepAwakeDuration.allCases) { item in
-                    KeepAwakeDurationPill(
-                        item: item,
-                        isSelected: keepAwake.duration == item
-                    ) {
-                        keepAwake.selectDuration(item)
-                    }
-                }
-            }
-            .padding(.leading, 46)
-            .padding(.trailing, 12)
-            .padding(.top, 1)
-            .padding(.bottom, 4)
-            .curtainReveal(keepAwake.isActive)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .crispPanelDidOpen)) { _ in
-            keepAwake.refreshRemaining()
-        }
-    }
-}
-
-private struct KeepAwakeDurationPill: View {
-    let item: KeepAwakeDuration
-    let isSelected: Bool
-    let action: () -> Void
+    @ObservedObject var state: PanelSectionState
     @State private var isHovered = false
 
     var body: some View {
-        Button {
-            guard PanelOpenGuard.allowsActivation else { return }
-            action()
-        } label: {
-            Text(item.pillLabel)
-                .font(.system(size: 11, weight: isSelected ? .semibold : .regular))
-                .lineLimit(1)
-                .foregroundColor(isSelected ? .white : (isHovered ? .primary : .secondaryReadable))
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 3)
-                .background(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .fill(isSelected ? Color.orange : (isHovered ? Color.primary.opacity(0.10) : Color.primary.opacity(0.05)))
-                )
-                .contentShape(Rectangle())
+        HStack(spacing: 8) {
+            MenuItemIcon(systemName: "cup.and.saucer.fill", color: .orange, active: keepAwake.isActive)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Keep Awake")
+                    .font(.body)
+                if let until = keepAwake.until {
+                    Text("Until \(until.formatted(date: .omitted, time: .shortened))")
+                        .font(.caption)
+                        .foregroundColor(.secondaryReadable)
+                }
+            }
+            Spacer()
+            Image(systemName: "chevron.right")
+                .font(.system(size: 12, weight: .regular))
+                .foregroundColor(.secondary)
+                .rotationEffect(.degrees(state.showKeepAwakeTimes ? 90 : 0))
+                .accessibilityHidden(true)
+            Toggle("Keep Awake", isOn: Binding(
+                get: { keepAwake.isActive },
+                set: { on in
+                    withAnimation(.panelResize) {
+                        keepAwake.setActive(on)
+                        if !on { state.showKeepAwakeTimes = false }
+                    }
+                }
+            ))
+            .toggleStyle(.switch)
+            .labelsHidden()
+            .controlSize(.small)
         }
-        .buttonStyle(.plain)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 3)
+        .menuRowHover(isHovered)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            guard PanelOpenGuard.allowsActivation else { return }
+            withAnimation(.panelResize) { state.showKeepAwakeTimes.toggle() }
+        }
         .onHover { isHovered = $0 }
-        .accessibilityLabel(item.accessibilityLabel)
-        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+    }
+}
+
+/// The time limits under Keep Awake. A pick starts Keep Awake with it and closes the list.
+struct KeepAwakeTimesBlock: View {
+    @ObservedObject private var keepAwake = KeepAwakeService.shared
+    @ObservedObject var state: PanelSectionState
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(KeepAwakeDuration.allCases) { duration in
+                CheckmarkRow(label: duration.label,
+                             isSelected: keepAwake.isActive && keepAwake.duration == duration) {
+                    guard PanelOpenGuard.allowsActivation else { return }
+                    withAnimation(.panelResize) {
+                        keepAwake.start(duration)
+                        state.showKeepAwakeTimes = false
+                    }
+                }
+            }
+        }
+        .padding(.bottom, 2)
     }
 }
 
