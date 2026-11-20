@@ -1107,3 +1107,43 @@ extension PhysicalDisplayToggleService {
         restoreIfNoActiveDisplay()
     }
 }
+
+extension PhysicalDisplayToggleService {
+    /// The disconnected displays that are still plugged in, which the panel offers to
+    /// reconnect. An unplugged one keeps its record, so a re-plug turns it off again (#101),
+    /// but gets no row: Reconnect cannot bring it back.
+    var reconnectable: [DisconnectedDisplay] {
+        let attached = attachedProductNames()
+        // A prefix, since macOS names two identical monitors "Name (1)" and "Name (2)".
+        return disconnected.filter { record in
+            record.isBuiltin == true || attached.contains { record.name.hasPrefix($0) }
+        }
+    }
+
+    /// The product names of the externals plugged in, lit or turned off. A display Crisp
+    /// turned off has no CoreGraphics UUID, and SkyLight keeps listing an unplugged one's
+    /// ID, so neither tells; the framebuffer's EDID attributes go away at the unplug
+    /// (measured 2026-11-20). ponytail: by name, so of two identical monitors one plugged
+    /// in shows both rows; match the EDID serial if that comes up.
+    private func attachedProductNames() -> Set<String> {
+        var names = Set<String>()
+        var iterator: io_iterator_t = 0
+        guard IOServiceGetMatchingServices(
+            kIOMainPortDefault, IOServiceMatching("IOMobileFramebufferShim"), &iterator
+        ) == KERN_SUCCESS else { return names }
+        defer { IOObjectRelease(iterator) }
+        var entry = IOIteratorNext(iterator)
+        while entry != IO_OBJECT_NULL {
+            let attributes = IORegistryEntryCreateCFProperty(
+                entry, "DisplayAttributes" as CFString, kCFAllocatorDefault, 0
+            )?.takeRetainedValue() as? [String: Any]
+            if let product = attributes?["ProductAttributes"] as? [String: Any],
+               let name = product["ProductName"] as? String {
+                names.insert(name)
+            }
+            IOObjectRelease(entry)
+            entry = IOIteratorNext(iterator)
+        }
+        return names
+    }
+}
