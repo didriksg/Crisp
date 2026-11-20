@@ -426,6 +426,9 @@ private struct AdvancedDisplayPage: View {
     @State private var profilePath: URL?
     @State private var errorText: String?
     @State private var busy = false
+    /// Bumped on every display reconfiguration, which an HDR flip fires: macOS offers
+    /// "Automatically adjust brightness" on an HDR external only while HDR is on.
+    @State private var screenChanges = 0
 
     init(display: DisplayInfo, displayManager: DisplayManager) {
         self.display = display
@@ -509,6 +512,7 @@ private struct AdvancedDisplayPage: View {
                 }
                 ExtraBrightnessView(display: display, inForm: true)
                 SystemAutoBrightnessView(display: display)
+                    .id(screenChanges)
             }
             Section("Connection") {
                 AdvancedInputPicker(display: display)
@@ -542,6 +546,12 @@ private struct AdvancedDisplayPage: View {
         .onAppear {
             color.reload()
             rotation.reload()
+        }
+        .onReceive(
+            NotificationCenter.default.publisher(for: NSApplication.didChangeScreenParametersNotification)
+                .debounce(for: .milliseconds(500), scheduler: RunLoop.main)
+        ) { _ in
+            screenChanges += 1
         }
     }
 

@@ -119,7 +119,8 @@ enum CombinedBrightnessMath {
         builtinLinear: Double,
         builtinMaxNits: Double,
         externalMaxNits: Double,
-        builtinAdjustment: Double
+        builtinAdjustment: Double,
+        softwareRoute: Bool = false
     ) -> Double {
         guard builtinLinear.isFinite, builtinMaxNits.isFinite, builtinMaxNits > 0,
               externalMaxNits.isFinite, externalMaxNits > 0 else { return 0 }
@@ -128,7 +129,10 @@ enum CombinedBrightnessMath {
                   max(builtinAdjustmentRange.lowerBound, builtinAdjustment))
             : defaultBuiltinAdjustment
         let externalNits = builtinLinear * builtinMaxNits / safeAdjustment
-        return externalBrightness(forLuminanceFraction: externalNits / externalMaxNits)
+        let fraction = externalNits / externalMaxNits
+        // The whole range goes through gamma on the Software route: the forced-software curve.
+        guard !softwareRoute else { return sqrt(min(1.0, max(0.0, fraction))) * 100.0 }
+        return externalBrightness(forLuminanceFraction: fraction)
     }
 
     /// Below 15%, Crisp layers gamma dimming on top of DDC backlight dimming.

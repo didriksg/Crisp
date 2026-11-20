@@ -94,6 +94,21 @@ final class CombinedBrightnessMathTests: XCTestCase {
         )
     }
 
+    func testAbsoluteAutoBrightnessUsesGammaCurveOnSoftwareRoute() {
+        // 200 of 400 nits: half the luminance is sqrt(0.5) of the gamma factor, not 50%.
+        XCTAssertEqual(
+            CombinedBrightnessMath.externalBrightnessMatchingBuiltin(
+                builtinLinear: 1.0 / 3.0,
+                builtinMaxNits: 600,
+                externalMaxNits: 400,
+                builtinAdjustment: 1,
+                softwareRoute: true
+            ),
+            sqrt(0.5) * 100,
+            accuracy: 0.001
+        )
+    }
+
     func testMissingMetadataFallsBackToProportionalMapping() {
         XCTAssertEqual(
             CombinedBrightnessMath.targetBrightness(

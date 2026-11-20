@@ -271,7 +271,8 @@ final class AutoBrightnessService: ObservableObject, @unchecked Sendable {
                     builtinLinear: builtinLinear,
                     builtinMaxNits: builtinMaxNits,
                     externalMaxNits: externalMaxNits,
-                    builtinAdjustment: SettingsService.shared.combinedBuiltinBrightnessFactor)
+                    builtinAdjustment: SettingsService.shared.combinedBuiltinBrightnessFactor,
+                    softwareRoute: BrightnessService.shared.brightnessControlRow(for: display).shown == .software)
                 target = min(display.maxBrightness, max(0.0, matched * sensitivity))
             } else {
                 // Luminance matching off, or no luminance metadata: same percentage.
