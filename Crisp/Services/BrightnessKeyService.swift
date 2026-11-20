@@ -13,7 +13,7 @@ private func brightnessKeyEventCallback(
     event: CGEvent,
     userInfo: UnsafeMutableRawPointer?
 ) -> Unmanaged<CGEvent>? {
-    guard let userInfo else { return Unmanaged.passRetained(event) }
+    guard let userInfo else { return Unmanaged.passUnretained(event) }
     let service = Unmanaged<BrightnessKeyService>.fromOpaque(userInfo).takeUnretainedValue()
     return service.handleEventFromCallback(type: type, event: event)
 }
@@ -230,7 +230,7 @@ final class BrightnessKeyService: @unchecked Sendable {
                     self.retryUntilArmed()
                 }
             }
-            return Unmanaged.passRetained(event)
+            return Unmanaged.passUnretained(event)
         }
 
         // Fallback: raw keyDown for brightness (144/145). In clamshell mode macOS can suppress
@@ -245,18 +245,18 @@ final class BrightnessKeyService: @unchecked Sendable {
             case 145, 107:
                 return routeBrightnessPress(up: false, event: event)
             default:
-                return Unmanaged.passRetained(event)
+                return Unmanaged.passUnretained(event)
             }
         }
 
         guard type.rawValue == Self.cgEventTypeSystemDefinedRaw else {
-            return Unmanaged.passRetained(event)
+            return Unmanaged.passUnretained(event)
         }
 
         // Convert to NSEvent to inspect media-key subtype.
-        guard let nsEvent = NSEvent(cgEvent: event) else { return Unmanaged.passRetained(event) }
+        guard let nsEvent = NSEvent(cgEvent: event) else { return Unmanaged.passUnretained(event) }
         guard nsEvent.subtype.rawValue == Self.nxSubtypeAuxControlButtons else {
-            return Unmanaged.passRetained(event)
+            return Unmanaged.passUnretained(event)
         }
 
         let data1 = nsEvent.data1
@@ -266,13 +266,13 @@ final class BrightnessKeyService: @unchecked Sendable {
         switch keyCode {
         case Self.nxKeytypeBrightnessUp, Self.nxKeytypeBrightnessDown:
             // For key-up events always pass through, only consume key-down on external displays.
-            guard isKeyDown else { return Unmanaged.passRetained(event) }
+            guard isKeyDown else { return Unmanaged.passUnretained(event) }
             return routeBrightnessPress(up: keyCode == Self.nxKeytypeBrightnessUp, event: event)
         case Self.nxKeytypeSoundUp, Self.nxKeytypeSoundDown, Self.nxKeytypeMute:
-            guard isKeyDown else { return Unmanaged.passRetained(event) }
+            guard isKeyDown else { return Unmanaged.passUnretained(event) }
             return routeVolumePress(keyCode: keyCode, event: event)
         default:
-            return Unmanaged.passRetained(event)
+            return Unmanaged.passUnretained(event)
         }
     }
 
@@ -298,7 +298,7 @@ final class BrightnessKeyService: @unchecked Sendable {
         guard let screen = NSScreen.screens.first(where: { NSMouseInRect(mouseLocation, $0.frame, false) }),
               let screenNumber = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID
         else {
-            return Unmanaged.passRetained(event)
+            return Unmanaged.passUnretained(event)
         }
 
         // Consume only when we can confirm the cursor is on a live, controllable
@@ -313,7 +313,7 @@ final class BrightnessKeyService: @unchecked Sendable {
             return !display.isBuiltin
         }
         guard isControllableExternal else {
-            return Unmanaged.passRetained(event)
+            return Unmanaged.passUnretained(event)
         }
 
         Task { @MainActor in
@@ -332,30 +332,33 @@ final class BrightnessKeyService: @unchecked Sendable {
     nonisolated private func routeVolumePress(keyCode: Int, event: CGEvent) -> Unmanaged<CGEvent>? {
         // Resolved synchronously on the main thread (this tap runs on the main run
         // loop): consume only when a live DDC-volume display owns the audio output.
-        let target = MainActor.assumeIsolated {
-            VolumeService.shared.displayForDefaultAudioOutput(in: DisplayManagerAccessor.shared.displays)
+        let targets = MainActor.assumeIsolated {
+            VolumeService.shared.volumeKeyTargets(in: DisplayManagerAccessor.shared.displays)
         }
-        guard let target else { return Unmanaged.passRetained(event) }
+        guard let primary = targets.first else { return Unmanaged.passUnretained(event) }
 
         // Option+Shift moves a quarter of a stop, the same finer grid the brightness
         // keys use. Read off the event here, where the flags still are.
         let fine = event.flags.contains([.maskAlternate, .maskShift])
         Task { @MainActor in
             let service = VolumeService.shared
-            switch keyCode {
-            case Self.nxKeytypeMute:
-                service.toggleMute(for: target)
-            case Self.nxKeytypeSoundUp:
-                service.setVolume(BrightnessKeySteps.next(from: target.volume, up: true, fine: fine), for: target)
-            default:
-                service.setVolume(BrightnessKeySteps.next(from: target.volume, up: false, fine: fine), for: target)
+            // Several targets (identical monitors, a selection) each step from their own level.
+            for target in targets {
+                switch keyCode {
+                case Self.nxKeytypeMute:
+                    service.toggleMute(for: target)
+                case Self.nxKeytypeSoundUp:
+                    service.setVolume(BrightnessKeySteps.next(from: target.volume, up: true, fine: fine), for: target)
+                default:
+                    service.setVolume(BrightnessKeySteps.next(from: target.volume, up: false, fine: fine), for: target)
+                }
             }
             if let screen = NSScreen.screens.first(where: {
-                ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID) == target.displayID
+                ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID) == primary.displayID
             }) {
                 BrightnessHUDService.shared.show(
-                    level: target.volume,
-                    image: target.volume <= 0 ? .mute : .volume,
+                    level: primary.volume,
+                    image: primary.volume <= 0 ? .mute : .volume,
                     on: screen
                 )
             }
@@ -449,6 +452,21 @@ final class BrightnessKeyService: @unchecked Sendable {
             }) {
                 BrightnessHUDService.shared.show(brightness: newBrightness / display.maxBrightness * 100.0, on: screen)
             }
+        }
+    }
+}
+
+extension BrightnessKeyService {
+    /// Arms the key tap and asks for Accessibility: the system prompt, plus the exact
+    /// System Settings pane, since the one-shot prompt may already be gone. Nothing is
+    /// asked at launch; the panel's Settings and Advanced Settings > Keyboard call this.
+    static func requestAccess() {
+        shared.start()
+        // kAXTrustedCheckOptionPrompt is a global var in the Command Line Tools SDK;
+        // name the key outright rather than string-literal it.
+        _ = AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": true] as CFDictionary)
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+            NSWorkspace.shared.open(url)
         }
     }
 }

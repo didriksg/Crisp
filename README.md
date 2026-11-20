@@ -75,6 +75,7 @@ Thank you to the people chipping in toward keeping Crisp signed and notarized:
 - **Arnor Ingthorsson** ([@arnor-ingthorsson](https://github.com/arnor-ingthorsson))
 - **Barry** ([@BarryBarrywu](https://github.com/BarryBarrywu))
 - **[@kuldipmaharjan](https://github.com/kuldipmaharjan)**
+- **Marek Goldmann** ([@goldmann](https://github.com/goldmann))
 - **Volodymyr Dombrovskyi** ([@rebelvg](https://github.com/rebelvg))
 
 ## Requirements

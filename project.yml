@@ -67,6 +67,7 @@ targets:
     deploymentTarget: "14.0"
     sources:
       - path: CrispTests
+      - path: Crisp/Models/DisplayColorMode.swift
       - path: Crisp/Models/DisplayModeGeometry.swift
       - path: Crisp/Models/DisplayModeCommitScope.swift
       - path: Crisp/Models/DDCServiceMatcher.swift
@@ -86,10 +87,14 @@ targets:
       - path: Crisp/Models/BrightnessKeySteps.swift
       - path: Crisp/Models/ScreenCount.swift
       - path: Crisp/Models/DDCVolumeMax.swift
+      - path: Crisp/Models/VolumeKeyRouting.swift
       - path: Crisp/Models/EdgeCrossing.swift
       - path: Crisp/Models/DDCInputSource.swift
       - path: Crisp/Models/BrightnessControlRoute.swift
+      - path: Crisp/Models/DisplayRotation.swift
       - path: Crisp/Models/ArrangementSnap.swift
+      - path: Crisp/Models/DebugReport.swift
+      - path: Crisp/Models/KeepAwakeDuration.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.crisp.tests

@@ -42,6 +42,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     let displayManager = DisplayManager()
     private lazy var controlServer = CrispControlServer(displayManager: displayManager)
+    private lazy var advancedSettings = AdvancedSettingsWindowController(displayManager: displayManager)
     private var statusItem: NSStatusItem?
     /// Whether the OSD banner is asking for the menu bar item to be lit. The
     /// open panel asks for the same light, so both are read together.
@@ -49,6 +50,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     /// Drives the menu-bar Keep Awake indicator (keep-awake indicator).
     private var keepAwakeCancellable: AnyCancellable?
     private var keepAwakeBadge: NSView?
+    private var keepAwakeItem: KeepAwakeStatusItem?
     private var panel: MenuPanel?
     /// The panel is NEVER ordered out once warmed: taking the backdrop surface
     /// off screen replays WindowServer's materialize bloom. Hidden = alpha 0 +
@@ -133,6 +135,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
             BrightnessBoostService.shared.reapplyAll()
         }
+
+        DisplayColorModeService.shared.restoreAtLaunchIfNeeded(using: displayManager)
 
         // Record every display's mode as the screens go down, so the wake passes
         // below can put back what macOS moved and nothing else. Both notifications:
@@ -293,7 +297,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 try? await Task.sleep(nanoseconds: 500_000_000)
                 // WindowServer keeps settling for seconds after wake: ICC restore and
                 // link retraining can clobber a freshly applied transfer table (#25).
-                // Three passes with increasing delays, each an idempotent no-op.
+                // Three passes with increasing delays; services reapply state as needed.
                 for delay: UInt64 in [0, 4_000_000_000, 8_000_000_000] {
                     try? await Task.sleep(nanoseconds: delay)
                     for display in dm.displays {
@@ -302,7 +306,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                         BrightnessService.shared.reapplySoftwareBrightnessIfNeeded(for: display)
                         GammaService.shared.reapplyIfNeeded(for: display)
                         // Re-apply any custom resolution that macOS may have reset on wake
-                        ResolutionService.shared.restoreModeAfterWakeIfNeeded(for: display.displayID)
+                        DisplayColorModeService.shared.restoreAfterWakeIfNeeded(for: display)
                     }
                     // Once an external is back after a full wake, toggle True Tone so macOS
                     // recomputes it with that display present (issue #131). Once per wake,
@@ -387,8 +391,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         // Small dot on the icon shows Keep Awake is on, at a glance. (keep-awake indicator)
         updateStatusIcon(active: KeepAwakeService.shared.isActive, animated: false)
+        // The cup (#266) already says Keep Awake is on, so the dot hides while it shows.
         keepAwakeCancellable = KeepAwakeService.shared.$isActive
-            .sink { [weak self] active in self?.updateStatusIcon(active: active, animated: true) }
+            .combineLatest(SettingsService.shared.$showKeepAwakeInMenuBar)
+            .sink { [weak self] active, cup in self?.updateStatusIcon(active: active && !cup, animated: true) }
+        keepAwakeItem = KeepAwakeStatusItem()
     }
 
     /// Fades a small orange dot in/out over the (unchanged) menu-bar icon to reflect Keep Awake.
@@ -574,23 +581,93 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         var blocks: [PanelBlock] = []
         for (index, display) in vis.enumerated() {
+            let id = display.displayID
             let uuid = display.displayUUID
             let dhead = block("dhead-\(uuid)") {
                 DisplayHeaderBlock(display: display, isFirst: index == 0, state: state)
             }
             dhead.liveInFlight = true   // display row chevron
             blocks.append(dhead)
-            blocks += detailBlocks(for: display)
+            // Split so every dropdown is its own block: the canvas clips content
+            // rendered once at natural height (the 120Hz fix; docs/panel-resize.md).
+            // Each detail block paints its shaded band on the clip layer (banded).
+            let modeC = DisplayModeController(display: display, displayManager: dm)
+            let profC = DisplayProfileController(display: display)
+            let detailOpen = { state.expandedDisplayIDs.contains(id) }
+            func detail<V: View>(_ sub: String, isOpen: @escaping () -> Bool,
+                                 live: Bool = false,
+                                 @ViewBuilder _ content: () -> V) -> PanelBlock {
+                detailBlock("\(sub)-\(uuid)", isOpen: isOpen, live: live, content)
+            }
+            blocks.append(detail("dgroup-picture", isOpen: detailOpen) {
+                GroupHeaderBlock(title: "Picture")
+            })
+            blocks.append(detail("dres-head", isOpen: detailOpen, live: true) {
+                ResolutionHeadBlock(controller: modeC, state: state)
+            })
+            blocks.append(detail("dres-body", isOpen: {
+                detailOpen() && state.resolutionOpenIDs.contains(id)
+            }) {
+                ResolutionSliderBlock(controller: modeC, state: state)
+            })
+            blocks.append(detail("dres-all", isOpen: {
+                detailOpen() && state.resolutionOpenIDs.contains(id)
+                    && state.allResolutionsOpenIDs.contains(id)
+            }) {
+                ResolutionFullListBlock(controller: modeC)
+            })
+            blocks.append(detail("dref-head", isOpen: detailOpen, live: true) {
+                RefreshHeadBlock(controller: modeC, state: state)
+            })
+            blocks.append(detail("dref-body", isOpen: {
+                detailOpen() && state.refreshOpenIDs.contains(id)
+            }) {
+                RefreshListBlock(controller: modeC)
+            })
+            blocks += rotationBlocks(display, detailOpen: detailOpen)
+            blocks.append(detail("dmode-tail", isOpen: detailOpen) {
+                ModeTailBlock(controller: modeC)
+            })
+            blocks.append(detail("dgroup-color", isOpen: detailOpen) {
+                GroupHeaderBlock(title: "Color")
+            })
+            blocks.append(detail("dprof-head", isOpen: detailOpen, live: true) {
+                ProfileHeadBlock(controller: profC, state: state)
+            })
+            blocks.append(detail("dprof-body", isOpen: {
+                detailOpen() && state.profileOpenIDs.contains(id)
+            }) {
+                ProfileBodyBlock(controller: profC)
+            })
+            blocks.append(detail("dimg-head", isOpen: detailOpen, live: true) {
+                ImageHeadBlock(display: display, state: state)
+            })
+            blocks.append(detail("dimg-body", isOpen: {
+                detailOpen() && state.imageOpenIDs.contains(id)
+            }) {
+                ImageBodyBlock(display: display, state: state)
+            })
+            blocks.append(detail("dmid", isOpen: detailOpen) {
+                DetailMiddleBlock(display: display)
+            })
+            blocks.append(detail("dinput-head", isOpen: detailOpen, live: true) {
+                InputHeadBlock(display: display, state: state)
+            })
+            blocks.append(detail("dinput-body", isOpen: {
+                detailOpen() && state.inputOpenIDs.contains(id)
+            }) {
+                InputBodyBlock(display: display, state: state)
+            })
+            blocks.append(detail("dtail", isOpen: detailOpen) {
+                DetailTailBlock(display: display)
+            })
         }
         blocks.append(block("reconnect") { ReconnectDisplaysSection() })
         let visCount = vis.count
-        blocks.append(block("combined",
-                            isOpen: { settings.showCombinedBrightness && visCount > 1 }) {
-            VStack(spacing: 0) {
-                SectionDivider()
-                CombinedBrightnessView(displays: vis)
-            }
-        })
+        let combinedShown = { settings.showCombinedBrightness && visCount > 1 }
+        blocks.append(block("combinedHeader", isOpen: { combinedShown() || CombinedVolumeBlock.isShown(vis) }) { CombinedHeaderBlock() })
+        blocks.append(block("combined", isOpen: combinedShown) { CombinedBrightnessView(displays: vis) })
+        blocks.append(block("combinedVolume", isOpen: { CombinedVolumeBlock.isShown(vis) }) { CombinedVolumeBlock(displays: vis) })
         if CoreBrightnessService.shared.darkModeAvailable
             || CoreBrightnessService.shared.nightShiftAvailable
             || CoreBrightnessService.shared.trueToneAvailable {
@@ -612,13 +689,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         toolshead.liveInFlight = true
         blocks.append(toolshead)
+        blocks += keepAwakeBlocks()
         let toolsA = block("toolsA", isOpen: { state.showTools }) {
             VStack(alignment: .leading, spacing: 0) {
-                if !KeepAwakeService.isDisabledByPolicy {
-                    KeepAwakeRow()
-                }
                 EdgeCrossingRow()
-                DisconnectBuiltinRow()
                 ExpandableRowStateful(icon: "display.2", iconActive: false,
                                       label: "Virtual Displays", state: state, key: \.showVirtualDisplays)
             }
@@ -627,7 +701,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         toolsA.liveInFlight = true   // Virtual Displays chevron
         blocks.append(toolsA)
         blocks.append(block("vdrows", isOpen: { state.showTools && state.showVirtualDisplays }) {
-            VirtualDisplayView()
+            VirtualDisplayView(openManager: { [weak self] in
+                self?.closePanel()
+                self?.advancedSettings.show(tab: AdvancedSettingsWindowController.virtualDisplaysTab)
+            })
                 .padding(.leading, 16)
         })
         let toolsB = block("toolsB", isOpen: { [weak dm] in
@@ -652,8 +729,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         settingshead.liveInFlight = true
         blocks.append(settingshead)
         blocks.append(block("settingsrows", isOpen: { state.showSettings }) {
-            SettingsView()
-                .padding(.leading, 8)
+            // The panel stays open on a click inside it and sits above normal windows,
+            // so close it first.
+            SettingsView(openAdvancedSettings: { [weak self] in
+                self?.closePanel()
+                self?.advancedSettings.show()
+            })
+            .padding(.leading, 8)
         })
         blocks.append(block("update") { UpdateBlockView() })
 
@@ -678,10 +760,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         ) { [weak self] _ in
             Task { @MainActor in self?.canvas.refreshAppearance() }
         }
-        SettingsService.shared.$showCombinedBrightness
-            .dropFirst()
-            .sink { [weak self] _ in self?.canvas.requestApply() }
-            .store(in: &canvasCancellables)
+        let settings = SettingsService.shared
+        for setting in [settings.$showCombinedBrightness, settings.$showCombinedVolume, settings.$showVolumeSliders] {
+            setting
+                .dropFirst()
+                .sink { [weak self] _ in self?.canvas.requestApply() }
+                .store(in: &canvasCancellables)
+        }
         displayManager.$displays
             .dropFirst()
             .receive(on: DispatchQueue.main)
@@ -928,112 +1013,49 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 }
 
-// MARK: - Display detail blocks
-
-extension AppDelegate {
-    /// The blocks of one display's expanded detail, in card order.
-    private func detailBlocks(for display: DisplayInfo) -> [PanelBlock] {
-        let dm = displayManager
-        let state = sectionState
-        let id = display.displayID
-        let uuid = display.displayUUID
-        var blocks: [PanelBlock] = []
-        // Split so every dropdown is its own block: the canvas clips content
-        // rendered once at natural height (the 120Hz fix; docs/panel-resize.md).
-        // Each detail block paints its shaded band on the clip layer (banded).
-        let modeC = DisplayModeController(display: display, displayManager: dm)
-        let profC = DisplayProfileController(display: display)
-        let detailOpen = { state.expandedDisplayIDs.contains(id) }
-        func detail<V: View>(_ sub: String, isOpen: @escaping () -> Bool,
-                             live: Bool = false,
-                             @ViewBuilder _ content: () -> V) -> PanelBlock {
-            let b = PanelBlock(id: "\(sub)-\(uuid)", host: hostPanelBlock("\(sub)-\(uuid)") {
-                content()
-                    .padding(.leading, 4)
-            }, isOpen: isOpen)
-            b.banded = true
-            b.liveInFlight = live
-            return b
-        }
-        blocks.append(detail("dgroup-picture", isOpen: detailOpen) {
-            GroupHeaderBlock(title: "Picture")
-        })
-        blocks.append(detail("dres-head", isOpen: detailOpen, live: true) {
-            ResolutionHeadBlock(controller: modeC, state: state)
-        })
-        blocks.append(detail("dres-body", isOpen: {
-            detailOpen() && state.resolutionOpenIDs.contains(id)
-        }) {
-            ResolutionSliderBlock(controller: modeC, state: state)
-        })
-        blocks.append(detail("dres-all", isOpen: {
-            detailOpen() && state.resolutionOpenIDs.contains(id)
-                && state.allResolutionsOpenIDs.contains(id)
-        }) {
-            ResolutionFullListBlock(controller: modeC)
-        })
-        blocks.append(detail("dref-head", isOpen: detailOpen, live: true) {
-            RefreshHeadBlock(controller: modeC, state: state)
-        })
-        blocks.append(detail("dref-body", isOpen: {
-            detailOpen() && state.refreshOpenIDs.contains(id)
-        }) {
-            RefreshListBlock(controller: modeC)
-        })
-        blocks.append(detail("dmode-tail", isOpen: detailOpen) {
-            ModeTailBlock(controller: modeC)
-        })
-        blocks.append(detail("dgroup-color", isOpen: detailOpen) {
-            GroupHeaderBlock(title: "Color")
-        })
-        blocks.append(detail("dprof-head", isOpen: detailOpen, live: true) {
-            ProfileHeadBlock(controller: profC, state: state)
-        })
-        blocks.append(detail("dprof-body", isOpen: {
-            detailOpen() && state.profileOpenIDs.contains(id)
-        }) {
-            ProfileBodyBlock(controller: profC)
-        })
-        blocks.append(detail("dimg-head", isOpen: detailOpen, live: true) {
-            ImageHeadBlock(display: display, state: state)
-        })
-        blocks.append(detail("dimg-body", isOpen: {
-            detailOpen() && state.imageOpenIDs.contains(id)
-        }) {
-            ImageBodyBlock(display: display, state: state)
-        })
-        blocks.append(detail("dmid", isOpen: detailOpen) {
-            DetailMiddleBlock(display: display)
-        })
-        blocks.append(detail("dbright-head", isOpen: detailOpen, live: true) {
-            BrightnessControlHeadBlock(display: display, state: state)
-        })
-        blocks.append(detail("dbright-body", isOpen: {
-            detailOpen() && state.brightnessControlOpenIDs.contains(id)
-        }) {
-            BrightnessControlBodyBlock(display: display)
-        })
-        blocks.append(detail("dgroup-connection", isOpen: detailOpen) {
-            GroupHeaderBlock(title: "Connection", divider: true)
-        })
-        blocks.append(detail("dinput-head", isOpen: detailOpen, live: true) {
-            InputHeadBlock(display: display, state: state)
-        })
-        blocks.append(detail("dinput-body", isOpen: {
-            detailOpen() && state.inputOpenIDs.contains(id)
-        }) {
-            InputBodyBlock(display: display, state: state)
-        })
-        blocks.append(detail("dtail", isOpen: detailOpen) {
-            DetailTailBlock(display: display)
-        })
-        return blocks
-    }
-}
-
 // MARK: - Panel window
 
 extension AppDelegate {
+    /// One block of the expanded display detail: indented, on the shaded band.
+    private func detailBlock<V: View>(_ id: String, isOpen: @escaping () -> Bool, live: Bool,
+                                      @ViewBuilder _ content: () -> V) -> PanelBlock {
+        let b = PanelBlock(id: id, host: hostPanelBlock(id) { content().padding(.leading, 4) }, isOpen: isOpen)
+        b.banded = true
+        b.liveInFlight = live
+        return b
+    }
+
+    /// The Keep Awake row and its list of time limits (#274). Built here, not in
+    /// rebuildBlocksIfNeeded, which is at its length cap.
+    private func keepAwakeBlocks() -> [PanelBlock] {
+        guard !KeepAwakeService.isDisabledByPolicy else { return [] }
+        let state = sectionState
+        let row = PanelBlock(id: "keepawake", host: hostPanelBlock("keepawake") {
+            KeepAwakeRow(state: state).padding(.leading, 8)
+        }, isOpen: { state.showTools })
+        row.liveInFlight = true   // chevron
+        let list = PanelBlock(id: "keepawake-times", host: hostPanelBlock("keepawake-times") {
+            KeepAwakeTimesBlock(state: state).padding(.leading, 8)
+        }, isOpen: { state.showTools && state.showKeepAwakeTimes })
+        return [row, list]
+    }
+
+    /// The Rotation row's head and list (#258). Built here, not in rebuildBlocksIfNeeded,
+    /// which is at its length cap.
+    private func rotationBlocks(_ display: DisplayInfo, detailOpen: @escaping () -> Bool) -> [PanelBlock] {
+        let id = display.displayID, uuid = display.displayUUID, state = sectionState
+        let controller = RotationController(display: display, displayManager: displayManager)
+        let listOpen = { detailOpen() && state.rotationOpenIDs.contains(id) }
+        return [
+            detailBlock("drot-head-\(uuid)", isOpen: detailOpen, live: true) {
+                RotationHeadBlock(controller: controller, state: state)
+            },
+            detailBlock("drot-body-\(uuid)", isOpen: listOpen, live: false) {
+                RotationListBlock(controller: controller)
+            }
+        ]
+    }
+
     private func hostPanelBlock<V: View>(_ id: String, @ViewBuilder _ content: () -> V) -> NSView {
         let h = CountedHostingView(rootView: AnyView(
             BlockHost(onHeight: { [weak self] h in self?.canvas.contentChanged(id, height: h) }) {

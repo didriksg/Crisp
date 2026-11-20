@@ -112,7 +112,7 @@ final class CrispControlModelTests: XCTestCase {
         for word in ["help", "version", "crispctl <command>"] {
             XCTAssertTrue(CrispControlCLIModel.help.contains(word), word)
         }
-        XCTAssertEqual(CrispControlCLIModel.entries.count, 20)
+        XCTAssertEqual(CrispControlCLIModel.entries.count, 22)
         for entry in CrispControlCLIModel.entries {
             let columns = entry.columns
             XCTAssertTrue(CrispControlCLIModel.help.contains("  " + columns.command + " "), entry.usage)

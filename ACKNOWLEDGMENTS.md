@@ -48,6 +48,10 @@ SOFTWARE.
 - [@andrewfoster](https://github.com/andrewfoster) ([#214](https://github.com/didriksg/Crisp/pull/214))
 - [@gerritgutzeit](https://github.com/gerritgutzeit) ([#256](https://github.com/didriksg/Crisp/pull/256))
 - [@R-V-L](https://github.com/R-V-L) ([#257](https://github.com/didriksg/Crisp/pull/257))
+- [@itsmepetrov](https://github.com/itsmepetrov) ([#280](https://github.com/didriksg/Crisp/pull/280), [#279](https://github.com/didriksg/Crisp/pull/279))
+- [@colorfulshark](https://github.com/colorfulshark) ([#185](https://github.com/didriksg/Crisp/pull/185))
+- [@ekxs-dev](https://github.com/ekxs-dev) ([#274](https://github.com/didriksg/Crisp/pull/274))
+- [@temporaryna](https://github.com/temporaryna) ([#251](https://github.com/didriksg/Crisp/pull/251))
 
 ## Translations
 

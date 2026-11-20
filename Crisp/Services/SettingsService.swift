@@ -32,7 +32,15 @@ final class SettingsService: ObservableObject, @unchecked Sendable {
     }()
 
     private init() {
+        // loadAll() stores the login state on every launch, so a missing key means a new
+        // install: Launch at Login starts on there (macOS then shows its "login item
+        // added" notice). An existing user's choice is never changed.
+        let isNewInstall = defaults.object(forKey: Keys.launchAtLogin) == nil
         loadAll()
+        if isNewInstall && !launchAtLogin {
+            LaunchService.shared.enable()
+            launchAtLogin = LaunchService.shared.isEnabled
+        }
         // Re-sync launch-at-login from SMAppService on every panel open (no OS notification
         // exists for login-item changes), so an external toggle reflects without a relaunch.
         NotificationCenter.default.addObserver(
@@ -54,14 +62,19 @@ final class SettingsService: ObservableObject, @unchecked Sendable {
         static let menuWidth              = "crisp.menuWidth"
         static let showCombinedBrightness = "crisp.showCombinedBrightness"
         static let combinedBuiltinFactor  = "crisp.combinedBuiltinBrightnessAdjustment"
+        static let matchByLuminance       = "crisp.combinedMatchByLuminance"
         static let showVolumeSliders      = "crisp.showVolumeSliders"
+        static let showCombinedVolume     = "crisp.showCombinedVolume"
         static let showConnectionSwitches = "crisp.showConnectionSwitches"
+        static let showKeepAwakeInMenuBar = "crisp.showKeepAwakeInMenuBar"
         static let crossDisplayGaps       = "crisp.crossDisplayGaps"
         static let disconnectBuiltinWhenDocked = "crisp.disconnectBuiltinWhenDocked"
         static let ddcCacheTTL            = "crisp.ddcCacheTTL"
         static let colorPickerHistory     = "crisp.colorPickerHistory"
         static let brightnessKeyTarget    = "crisp.brightnessKeyTarget"
         static let brightnessKeySelected  = "crisp.brightnessKeySelectedDisplays"
+        static let volumeKeyTarget        = "crisp.volumeKeyTarget"
+        static let volumeKeySelected      = "crisp.volumeKeySelectedDisplays"
         static let hidpiShortcut          = "crisp.hidpiShortcut"
         static let brightnessUpShortcut   = "crisp.brightnessUpShortcut"
         static let brightnessDownShortcut = "crisp.brightnessDownShortcut"
@@ -92,6 +105,12 @@ final class SettingsService: ObservableObject, @unchecked Sendable {
         didSet { defaults.set(showCombinedBrightness, forKey: Keys.showCombinedBrightness) }
     }
 
+    /// Combined brightness and absolute Auto Brightness match displays by rated nits; off,
+    /// every display gets the same percentage.
+    @Published var matchBrightnessByLuminance: Bool = true {
+        didSet { defaults.set(matchBrightnessByLuminance, forKey: Keys.matchByLuminance) }
+    }
+
     /// Fine tuning on top of the absolute-luminance match. 1.0 means equal
     /// estimated nits; lower values dim the built-in relative to externals.
     @Published var combinedBuiltinBrightnessFactor: Double = CombinedBrightnessMath.defaultBuiltinAdjustment {
@@ -104,10 +123,20 @@ final class SettingsService: ObservableObject, @unchecked Sendable {
         didSet { defaults.set(showVolumeSliders, forKey: Keys.showVolumeSliders) }
     }
 
+    /// One speaker volume slider for every DDC-volume external, in the Combined block. Off by default.
+    @Published var showCombinedVolume: Bool = false {
+        didSet { defaults.set(showCombinedVolume, forKey: Keys.showCombinedVolume) }
+    }
+
     /// A switch on each display row that disconnects and reconnects it (#103). Off by
     /// default: a control that blanks a screen does not belong under a stray click.
     @Published var showConnectionSwitches: Bool = false {
         didSet { defaults.set(showConnectionSwitches, forKey: Keys.showConnectionSwitches) }
+    }
+
+    /// A cup in the menu bar that turns Keep Awake on and off (#266). Off by default.
+    @Published var showKeepAwakeInMenuBar: Bool = false {
+        didSet { defaults.set(showKeepAwakeInMenuBar, forKey: Keys.showKeepAwakeInMenuBar) }
     }
 
     /// Pointer moves past display edges with no display behind them. Also starts and stops
@@ -148,6 +177,16 @@ final class SettingsService: ObservableObject, @unchecked Sendable {
         didSet {
             defaults.set(Array(brightnessKeySelectedDisplayUUIDs), forKey: Keys.brightnessKeySelected)
         }
+    }
+
+    /// Which displays the volume and mute keys drive (#276).
+    @Published var volumeKeyTarget: VolumeKeyTarget = .audioOutput {
+        didSet { defaults.set(volumeKeyTarget.rawValue, forKey: Keys.volumeKeyTarget) }
+    }
+
+    /// Displays for the `.selected` volume-key target, by DisplayInfo.displayUUID.
+    @Published var volumeKeySelectedDisplayUUIDs: Set<String> = [] {
+        didSet { defaults.set(Array(volumeKeySelectedDisplayUUIDs), forKey: Keys.volumeKeySelected) }
     }
 
     /// Global shortcut that toggles the display under the pointer between HiDPI and
@@ -290,6 +329,8 @@ final class SettingsService: ObservableObject, @unchecked Sendable {
             ? defaults.double(forKey: Keys.menuWidth) : 320
         showCombinedBrightness = defaults.object(forKey: Keys.showCombinedBrightness) != nil
             ? defaults.bool(forKey: Keys.showCombinedBrightness) : true
+        matchBrightnessByLuminance = defaults.object(forKey: Keys.matchByLuminance) != nil
+            ? defaults.bool(forKey: Keys.matchByLuminance) : true
         if defaults.object(forKey: Keys.combinedBuiltinFactor) != nil {
             let storedFactor = defaults.double(forKey: Keys.combinedBuiltinFactor)
             combinedBuiltinBrightnessFactor = storedFactor.isFinite
@@ -301,7 +342,9 @@ final class SettingsService: ObservableObject, @unchecked Sendable {
         }
         showVolumeSliders = defaults.object(forKey: Keys.showVolumeSliders) != nil
             ? defaults.bool(forKey: Keys.showVolumeSliders) : true
+        showCombinedVolume = defaults.bool(forKey: Keys.showCombinedVolume)
         showConnectionSwitches = defaults.bool(forKey: Keys.showConnectionSwitches)
+        showKeepAwakeInMenuBar = defaults.bool(forKey: Keys.showKeepAwakeInMenuBar)
         crossDisplayGaps = defaults.bool(forKey: Keys.crossDisplayGaps)
         disconnectBuiltinWhenDocked = defaults.bool(forKey: Keys.disconnectBuiltinWhenDocked)
         ddcCacheTTL = defaults.object(forKey: Keys.ddcCacheTTL) != nil
@@ -310,6 +353,9 @@ final class SettingsService: ObservableObject, @unchecked Sendable {
         brightnessKeyTarget = defaults.string(forKey: Keys.brightnessKeyTarget)
             .flatMap(BrightnessKeyTarget.init(rawValue:)) ?? .underCursor
         brightnessKeySelectedDisplayUUIDs = Set(defaults.stringArray(forKey: Keys.brightnessKeySelected) ?? [])
+        volumeKeyTarget = defaults.string(forKey: Keys.volumeKeyTarget)
+            .flatMap(VolumeKeyTarget.init(rawValue:)) ?? .audioOutput
+        volumeKeySelectedDisplayUUIDs = Set(defaults.stringArray(forKey: Keys.volumeKeySelected) ?? [])
         hidpiShortcut = defaults.data(forKey: Keys.hidpiShortcut)
             .flatMap { try? JSONDecoder().decode(KeyboardShortcut.self, from: $0) }
         brightnessUpShortcut = defaults.data(forKey: Keys.brightnessUpShortcut)

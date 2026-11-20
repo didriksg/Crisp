@@ -37,3 +37,37 @@ enum EdgeCrossing {
         return best.point
     }
 }
+
+/// A jump that a move back takes back: a small push past the edge should not cost
+/// the pointer its place, so moving back across the edge before going far on the new
+/// display returns the pointer to `origin` instead of the height it slid to.
+struct EdgeReturn {
+    // ponytail: tuned by feel (40 was too small); no time limit, on purpose.
+    static let reach: CGFloat = 150
+
+    /// Where the pointer was before the jump, on the display `from`.
+    let origin: CGPoint
+    let from: CGRect
+    /// Where the jump put it, on the display across the edge.
+    let landing: CGPoint
+
+    enum Step: Equatable { case wait, back(CGPoint), expire }
+
+    func step(at point: CGPoint, delta: CGVector) -> Step {
+        guard hypot(point.x - landing.x, point.y - landing.y) <= Self.reach else { return .expire }
+        // How far past `from` the pointer is on the crossing axis (1 on the landing edge,
+        // 0 or less once back on `from`), and the move's part back toward `from` and along the edge.
+        let gap, back, along: CGFloat
+        if landing.x >= from.maxX {
+            (gap, back, along) = (point.x - from.maxX + 1, -delta.dx, delta.dy)
+        } else if landing.x < from.minX {
+            (gap, back, along) = (from.minX - point.x, delta.dx, delta.dy)
+        } else if landing.y >= from.maxY {
+            (gap, back, along) = (point.y - from.maxY + 1, -delta.dy, delta.dx)
+        } else {
+            (gap, back, along) = (from.minY - point.y, delta.dy, delta.dx)
+        }
+        // Mostly back, so a slide along the edge does not count.
+        return gap <= 1 && back > abs(along) ? .back(origin) : .wait
+    }
+}

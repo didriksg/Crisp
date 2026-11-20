@@ -135,8 +135,8 @@ struct GroupHeaderBlock: View {
     }
 }
 
-/// Ends the Color group and holds the Brightness group's switches. Its Brightness
-/// Control row is a dropdown block of its own, after this one.
+/// Ends the Color group, holds the Brightness group, and opens Connection, whose
+/// Input row is a dropdown block of its own.
 struct DetailMiddleBlock: View {
     @ObservedObject var display: DisplayInfo
 
@@ -147,13 +147,12 @@ struct DetailMiddleBlock: View {
             HDRToggleView(display: display)
 
             // A group with no row on this display gets no header.
-            if BrightnessBoostService.shared.isEligible(display)
-                || SystemAutoBrightness.supported(display.displayID)
-                || BrightnessService.shared.brightnessControlRow(for: display).visible {
+            if BrightnessBoostService.shared.isEligible(display) {
                 GroupHeaderBlock(title: "Brightness", divider: true)
                 ExtraBrightnessView(display: display)
-                SystemAutoBrightnessView(display: display)
             }
+
+            GroupHeaderBlock(title: "Connection", divider: true)
         }
     }
 }
@@ -163,8 +162,6 @@ struct DetailTailBlock: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            VolumeOverrideView(display: display)
-
             MainDisplayView(display: display)
 
             // Always last: it removes the section it's in.

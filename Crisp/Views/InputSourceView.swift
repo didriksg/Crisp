@@ -4,7 +4,7 @@ import SwiftUI
 // checkmark list to switch it. Switching away disconnects the display, so the way
 // back is its Reconnect row (InputSwitchService).
 
-private func inputLabel(_ value: UInt16) -> String {
+func inputLabel(_ value: UInt16) -> String {
     DDCInputSource.name(for: value) ?? String(localized: "Input \(String(format: "0x%02X", value))")
 }
 

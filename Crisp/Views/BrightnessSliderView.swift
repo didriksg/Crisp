@@ -14,6 +14,9 @@ struct BrightnessStepButton: View {
         Button(action: {}) {
             Image(systemName: systemName)
                 .font(.system(size: 15))
+                // Widest glyph (speaker.wave.3.fill, 24pt), so stacked
+                // brightness and volume tracks line up.
+                .frame(width: 24)
         }
         .buttonStyle(HoldRepeatButtonStyle(action: action))
         .accessibilityHidden(true)
@@ -60,6 +63,8 @@ private struct HoldRepeatButtonStyle: ButtonStyle {
 struct BrightnessSliderView: View {
     @ObservedObject var display: DisplayInfo
     var compact: Bool = false  // Compact mode: hides the mode label row (used for top-level inline sliders)
+    /// Advanced Settings: never the mode row, not even with the debug switch.
+    var inForm = false
     @State private var localBrightness: Double = 50
     @State private var isDragging: Bool = false
     @State private var ddcStatus: Bool? = nil  // nil=unknown, true=DDC, false=Software
@@ -79,7 +84,7 @@ struct BrightnessSliderView: View {
     var body: some View {
         VStack(spacing: 2) {
             // Shown outside compact mode, or always when the debug switch is set.
-            if !compact || Self.showControlMode {
+            if !inForm, !compact || Self.showControlMode {
             HStack(spacing: 4) {
                 Spacer()
                 if display.hasNativeBrightness {
@@ -261,6 +266,23 @@ struct BrightnessSliderView: View {
     }
 }
 
+/// The "Combined" title over the combined brightness and volume sliders, shown when either is.
+struct CombinedHeaderBlock: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SectionDivider()
+            // Matches DisplayRowView's bold title so this reads as another row.
+            // 14pt inset matches the display titles; the sliders below use 12pt.
+            Text("Combined")
+                .fontWeight(.semibold)
+                .lineLimit(1)
+                .padding(.horizontal, 14)
+                .padding(.top, 6)
+                .padding(.bottom, 2)
+        }
+    }
+}
+
 struct CombinedBrightnessView: View {
     let displays: [DisplayInfo]
     @ObservedObject private var settings = SettingsService.shared
@@ -278,7 +300,9 @@ struct CombinedBrightnessView: View {
         return externals.isEmpty ? displays : externals
     }
 
+    /// nil makes every display take the same percentage (CombinedBrightnessMath's fallback).
     private var referenceMaxNits: Double? {
+        guard settings.matchBrightnessByLuminance else { return nil }
         let values = referenceDisplays.compactMap(\.nominalMaxNits)
         guard !values.isEmpty else { return nil }
         return values.reduce(0, +) / Double(values.count)
@@ -294,7 +318,7 @@ struct CombinedBrightnessView: View {
     /// Brightness Control row shows as Software reports luminance through the
     /// gamma square, every other route through its DDC-linear percent.
     private func combinedControlValue(for display: DisplayInfo) -> Double {
-        if BrightnessService.shared.brightnessControlRow(for: display).shown == .software {
+        if usesGammaCurve(display) {
             return CombinedBrightnessMath.forcedSoftwareControlValue(
                 brightness: display.brightness,
                 displayMaxNits: display.nominalMaxNits,
@@ -307,11 +331,18 @@ struct CombinedBrightnessView: View {
             referenceMaxNits: referenceMaxNits)
     }
 
+    /// A display the Brightness Control row shows as Software, while the combined slider
+    /// matches by luminance: with matching off every display takes the same percentage (#298).
+    private func usesGammaCurve(_ display: DisplayInfo) -> Bool {
+        settings.matchBrightnessByLuminance
+            && BrightnessService.shared.brightnessControlRow(for: display).shown == .software
+    }
+
     private func targetBrightness(_ combined: Double, for display: DisplayInfo) -> Double {
         guard !display.isBuiltin else {
             return combined / 100.0 * display.maxBrightness
         }
-        if BrightnessService.shared.brightnessControlRow(for: display).shown == .software {
+        if usesGammaCurve(display) {
             return CombinedBrightnessMath.forcedSoftwareTargetBrightness(
                 combined: combined,
                 maxBrightness: display.maxBrightness,
@@ -360,13 +391,6 @@ struct CombinedBrightnessView: View {
         // Read so a route change that publishes nothing on the display redraws the handle.
         _ = routeChanges
         return VStack(alignment: .leading, spacing: 2) {
-            // Matches DisplayRowView's bold title so this reads as another row.
-            // 14pt inset matches the display titles; the slider below uses 12pt.
-            Text("Combined")
-                .fontWeight(.semibold)
-                .lineLimit(1)
-                .padding(.horizontal, 14)
-
             HStack(spacing: 8) {
                 BrightnessStepButton(systemName: "sun.min.fill") { stepAll(-10.0) }
 
@@ -420,7 +444,7 @@ struct CombinedBrightnessView: View {
             }
             .padding(.horizontal, 12)
         }
-        .padding(.vertical, 6)
+        .padding(.bottom, 4)
         .background {
             // Mirrors the displays' real brightness so the combined handle glides in
             // sync; skipped while dragging (the drag itself drives the displays).
@@ -434,6 +458,10 @@ struct CombinedBrightnessView: View {
                     if !isDragging { combinedBrightness = averageBrightness }
                 }
             }
+        }
+        .onChange(of: settings.matchBrightnessByLuminance) { _, _ in
+            // The handle moves to the new scale; the displays change on the next slider move.
+            if !isDragging { combinedBrightness = averageBrightness }
         }
         .onChange(of: settings.combinedBuiltinBrightnessFactor) { _, _ in
             // Visible immediately: keep the external reference fixed, re-aim the built-in.

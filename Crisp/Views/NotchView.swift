@@ -8,8 +8,9 @@ import SwiftUI
 /// builtin mirroring a virtual display has no NSScreen at all.
 struct NotchView: View {
     @ObservedObject var display: DisplayInfo
+    /// Plain form switch for Advanced Settings instead of the panel row.
+    var inForm = false
     @State private var isSwitching = false
-    @State private var isHovered = false
 
     private var nativeAspect: Double {
         let (w, h) = display.nativeResolution
@@ -29,21 +30,10 @@ struct NotchView: View {
 
     var body: some View {
         if hasNotch {
-            HStack {
-                MenuItemIcon(systemName: isNotchHidden ? "eye.slash" : "eye", color: .teal, active: isNotchHidden)
-                Text("Hide Notch Area")
-                    .font(.body)
-                Spacer()
-                Toggle("", isOn: Binding(get: { isNotchHidden }, set: { setNotchHidden($0) }))
-                    .toggleStyle(.switch)
-                    .labelsHidden()
-                    .controlSize(.small)
-                    .disabled(isSwitching)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 3)
-            .menuRowHover(isHovered)
-            .onHover { isHovered = $0 }
+            SettingSwitchRow(inForm: inForm, icon: isNotchHidden ? "eye.slash" : "eye", color: .teal,
+                             label: "Hide Notch Area",
+                             isOn: Binding(get: { isNotchHidden }, set: { setNotchHidden($0) }),
+                             disabled: isSwitching)
         }
     }
 

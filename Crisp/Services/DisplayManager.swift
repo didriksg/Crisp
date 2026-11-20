@@ -23,6 +23,10 @@ private func displayReconfigCallback(
         } else {
             // refreshExistingDisplayModes doesn't re-read bounds, so add/remove/move needs a rebuild.
             manager.refreshDisplays()
+            if flags.contains(.addFlag),
+               let display = manager.displays.first(where: { $0.displayID == displayID }) {
+                DisplayColorModeService.shared.restoreAfterConnectionIfNeeded(for: display)
+            }
         }
     }
 }
@@ -157,6 +161,7 @@ class DisplayManager: ObservableObject {
         // Display IDs can be reshuffled across a reconnect storm with no ID leaving the
         // online list, so drop the whole channel map; it lazily rebuilds on the next DDC op.
         DDCService.shared.invalidateAllChannelMappings()
+        VolumeService.shared.forgetAudioOutputTies()
 
         var displayCount: UInt32 = 0
         CGGetOnlineDisplayList(0, nil, &displayCount)
@@ -315,6 +320,19 @@ class DisplayManager: ObservableObject {
         refreshDisplays()
         if case .success = result { return true }
         return false
+    }
+
+    /// Turns one display (#258), for the panel's Rotation row and crispctl. Width and height
+    /// swap, so the mode list is read again; the full refresh also moves the remembered-
+    /// disconnect baseline to the new rotation. Neither waits on a reconfiguration callback.
+    func rotate(_ display: DisplayInfo, to rotation: DisplayRotation) async -> Bool {
+        let ok = await ResolutionService.shared.setRotation(rotation, on: display.displayID)
+        if ok {
+            await display.loadDetails()
+            display.currentDisplayMode = DisplayMode.currentMode(for: display.displayID)
+        }
+        refreshDisplays()
+        return ok
     }
 
     /// Makes the target display the main display by repositioning it to origin (0, 0).

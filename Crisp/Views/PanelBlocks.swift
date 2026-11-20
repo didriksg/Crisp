@@ -12,6 +12,7 @@ final class PanelSectionState: ObservableObject {
     @Published var showTools = false
     @Published var showVirtualDisplays = false
     @Published var showArrangement = false
+    @Published var showKeepAwakeTimes = false
     @Published var showSettings = false
     @Published var expandedDisplayIDs: Set<CGDirectDisplayID> = []
     // Per-display dropdown sections, lifted out of view @State so each reveal
@@ -19,25 +20,26 @@ final class PanelSectionState: ObservableObject {
     @Published var resolutionOpenIDs: Set<CGDirectDisplayID> = []
     @Published var allResolutionsOpenIDs: Set<CGDirectDisplayID> = []
     @Published var refreshOpenIDs: Set<CGDirectDisplayID> = []
+    @Published var rotationOpenIDs: Set<CGDirectDisplayID> = []
     @Published var profileOpenIDs: Set<CGDirectDisplayID> = []
     @Published var imageOpenIDs: Set<CGDirectDisplayID> = []
     @Published var inputOpenIDs: Set<CGDirectDisplayID> = []
-    @Published var brightnessControlOpenIDs: Set<CGDirectDisplayID> = []
 
     /// Collapse every section so the panel reopens fresh; called once hidden.
     func collapseAll() {
         showTools = false
         showVirtualDisplays = false
         showArrangement = false
+        showKeepAwakeTimes = false
         showSettings = false
         expandedDisplayIDs.removeAll()
         resolutionOpenIDs.removeAll()
         allResolutionsOpenIDs.removeAll()
         refreshOpenIDs.removeAll()
+        rotationOpenIDs.removeAll()
         profileOpenIDs.removeAll()
         imageOpenIDs.removeAll()
         inputOpenIDs.removeAll()
-        brightnessControlOpenIDs.removeAll()
     }
 
     /// Drop state for displays that disappeared (disconnect, reconfiguration).
@@ -46,10 +48,10 @@ final class PanelSectionState: ObservableObject {
         resolutionOpenIDs.formIntersection(valid)
         allResolutionsOpenIDs.formIntersection(valid)
         refreshOpenIDs.formIntersection(valid)
+        rotationOpenIDs.formIntersection(valid)
         profileOpenIDs.formIntersection(valid)
         imageOpenIDs.formIntersection(valid)
         inputOpenIDs.formIntersection(valid)
-        brightnessControlOpenIDs.formIntersection(valid)
     }
 
     /// Binding into one of the per-display sets, for ExpandableRow chevrons.
@@ -148,26 +150,76 @@ struct DisplayHeaderBlock: View {
 
 /// Keep Awake: hold a power assertion against idle-sleep. Session-only, off
 /// each launch.
+/// The switch keeps it on until turned off; the row opens an optional list of time
+/// limits (#274), which closes on a pick.
 struct KeepAwakeRow: View {
     @ObservedObject private var keepAwake = KeepAwakeService.shared
+    @ObservedObject var state: PanelSectionState
+    @State private var isHovered = false
 
     var body: some View {
-        Toggle(isOn: Binding(
-            get: { keepAwake.isActive },
-            set: { keepAwake.setActive($0) }
-        )) {
-            HStack(spacing: 8) {
-                MenuItemIcon(systemName: "cup.and.saucer.fill", color: .orange, active: keepAwake.isActive)
-                    .accessibilityHidden(true)
+        HStack(spacing: 8) {
+            MenuItemIcon(systemName: "cup.and.saucer.fill", color: .orange, active: keepAwake.isActive)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 1) {
                 Text("Keep Awake")
                     .font(.body)
-                Spacer()
+                if let until = keepAwake.until {
+                    Text("Until \(until.formatted(date: .omitted, time: .shortened))")
+                        .font(.caption)
+                        .foregroundColor(.secondaryReadable)
+                }
             }
+            Spacer()
+            Image(systemName: "chevron.right")
+                .font(.system(size: 12, weight: .regular))
+                .foregroundColor(.secondary)
+                .rotationEffect(.degrees(state.showKeepAwakeTimes ? 90 : 0))
+                .accessibilityHidden(true)
+            Toggle("Keep Awake", isOn: Binding(
+                get: { keepAwake.isActive },
+                set: { on in
+                    withAnimation(.panelResize) {
+                        keepAwake.setActive(on)
+                        if !on { state.showKeepAwakeTimes = false }
+                    }
+                }
+            ))
+            .toggleStyle(.switch)
+            .labelsHidden()
+            .controlSize(.small)
         }
-        .toggleStyle(.switch)
-        .controlSize(.small)
         .padding(.horizontal, 12)
         .padding(.vertical, 3)
+        .menuRowHover(isHovered)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            guard PanelOpenGuard.allowsActivation else { return }
+            withAnimation(.panelResize) { state.showKeepAwakeTimes.toggle() }
+        }
+        .onHover { isHovered = $0 }
+    }
+}
+
+/// The time limits under Keep Awake. A pick starts Keep Awake with it and closes the list.
+struct KeepAwakeTimesBlock: View {
+    @ObservedObject private var keepAwake = KeepAwakeService.shared
+    @ObservedObject var state: PanelSectionState
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(KeepAwakeDuration.allCases) { duration in
+                CheckmarkRow(label: duration.label,
+                             isSelected: keepAwake.isActive && keepAwake.duration == duration) {
+                    guard PanelOpenGuard.allowsActivation else { return }
+                    withAnimation(.panelResize) {
+                        keepAwake.start(duration)
+                        state.showKeepAwakeTimes = false
+                    }
+                }
+            }
+        }
+        .padding(.bottom, 2)
     }
 }
 
@@ -203,49 +255,6 @@ struct EdgeCrossingRow: View {
         .controlSize(.small)
         .padding(.horizontal, 12)
         .padding(.vertical, 3)
-    }
-}
-
-/// Saved and off by default. Hidden on a Mac with no built-in panel (battery as the laptop
-/// test, since a disconnected built-in is gone from the display list) and on Intel. See
-/// PhysicalDisplayToggleService (parked record and the Tools switch).
-struct DisconnectBuiltinRow: View {
-    @ObservedObject private var settings = SettingsService.shared
-
-    var body: some View {
-        if PhysicalDisplayToggleService.shared.isSupported && PhysicalDisplayToggleService.hasBattery {
-            toggle
-        }
-    }
-
-    private var toggle: some View {
-        Toggle(isOn: $settings.disconnectBuiltinWhenDocked) {
-            HStack(spacing: 8) {
-                MenuItemIcon(systemName: "laptopcomputer.slash", color: .indigo,
-                             active: settings.disconnectBuiltinWhenDocked)
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Auto-Disconnect Built-in")
-                        .font(.body)
-                    Text("Turns the built-in display off while an external display is connected")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer()
-            }
-        }
-        .toggleStyle(.switch)
-        .controlSize(.small)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 3)
-        .onChange(of: settings.disconnectBuiltinWhenDocked) { _, isOn in
-            if isOn {
-                PhysicalDisplayToggleService.shared.reapplyParkedIfDocked()
-            } else {
-                PhysicalDisplayToggleService.shared.clearParked()
-            }
-        }
     }
 }
 
