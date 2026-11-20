@@ -281,6 +281,7 @@ struct AdvancedDisplaysTab: View {
                         .padding(.bottom, 18)
                 }
             }
+            .zIndex(1)  // the notch draws over the divider
             Divider()
             if let selected {
                 AdvancedDisplayPage(display: selected, displayManager: displayManager)
@@ -313,35 +314,65 @@ private struct DisplayPicture: View {
         let aspect = display.bounds.height > 0 ? display.bounds.width / display.bounds.height : 16.0 / 9
         let millimetres = CGDisplayScreenSize(display.displayID)
         let diagonal = hypot(millimetres.width, millimetres.height)
-        // ponytail: 0.17 pt per mm puts a 27-inch 16:9 at about 56 pt tall; no EDID size reads as 27 inch.
-        let points = min(max(diagonal > 0 ? diagonal : 686, 400), 1300) * 0.17
+        // ponytail: 0.2 pt per mm puts a 27-inch 16:9 at about 120 pt wide, as System Settings
+        // draws it; a laptop reads as at least 20 inch so it is not tiny; no EDID size reads as 27 inch.
+        let points = min(max(diagonal > 0 ? diagonal : 686, 500), 1300) * 0.2
         let height = points / (1 + aspect * aspect).squareRoot()
         return CGSize(width: height * aspect, height: height)
     }
 
     var body: some View {
         VStack(spacing: 6) {
-            Group {
-                if let wallpaper {
-                    Image(nsImage: wallpaper).resizable().scaledToFill()
-                } else {
-                    Color(nsColor: .controlBackgroundColor)
+            // A black bezel, and a base under the built-in, as System Settings draws them.
+            VStack(spacing: 0) {
+                Group {
+                    if let wallpaper {
+                        Image(nsImage: wallpaper).resizable().scaledToFill()
+                    } else {
+                        Color(nsColor: .controlBackgroundColor)
+                    }
+                }
+                .frame(width: size.width, height: size.height)
+                .clipShape(RoundedRectangle(cornerRadius: 2))
+                .padding(display.isBuiltin ? 3 : 4)
+                .background(RoundedRectangle(cornerRadius: 5).fill(.black))
+                .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(.gray.opacity(0.5), lineWidth: 1))
+                if display.isBuiltin {
+                    UnevenRoundedRectangle(bottomLeadingRadius: 3, bottomTrailingRadius: 3)
+                        .fill(Color(white: 0.6))
+                        .frame(width: size.width + 22, height: 4)
                 }
             }
-            .frame(width: size.width, height: size.height)
-            .clipShape(RoundedRectangle(cornerRadius: 3))
-            .overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(.black.opacity(0.6), lineWidth: 2))
-            .padding(3)
-            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.accentColor, lineWidth: 3).opacity(isSelected ? 1 : 0))
             Text(display.name)
-                .font(.callout.weight(isSelected ? .semibold : .regular))
+                .font(.callout.weight(.semibold))
                 .fixedSize()
+        }
+        // The selected display points at its settings with a notch in the line below the
+        // row, as in System Settings. The row's bottom padding is 16.
+        .overlay(alignment: .bottom) {
+            if isSelected {
+                SelectionNotch().fill(Color(nsColor: .windowBackgroundColor))
+                    .overlay(SelectionNotch().stroke(Color(nsColor: .separatorColor), lineWidth: 1))
+                    .frame(width: 18, height: 9)
+                    .offset(y: 16.5)
+            }
         }
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(display.name)
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
         .task(id: display.displayID) { wallpaper = await DesktopWallpaper.image(for: display.displayID) }
+    }
+}
+
+/// An open-bottomed triangle: the notch under the selected display picture.
+private struct SelectionNotch: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.midX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+        return path
     }
 }
 
