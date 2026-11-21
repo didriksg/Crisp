@@ -3,7 +3,7 @@ import CoreGraphics
 
 struct DisplayPresetEntry: Codable, Identifiable {
     var id = UUID()
-    var displayUUID: String       // matches physical display
+    var displayUUID: String
     // nil == attribute not included in this preset (won't be applied).
     // Old presets always stored these keys, so they decode as "included".
     var width: Int?
@@ -26,6 +26,14 @@ struct DisplayPresetEntry: Codable, Identifiable {
     var connected: Bool? = nil
     /// The display's color (#226). nil = not included.
     var color: PresetColor? = nil
+
+    var stableDisplayUUID: String {
+        CrispVirtualDisplayIdentity.canonicalUUID(displayUUID)
+    }
+
+    func matchesDisplay(uuid: String) -> Bool {
+        stableDisplayUUID == CrispVirtualDisplayIdentity.canonicalUUID(uuid)
+    }
 
     /// Drops a capture's stored value, so applying the preset leaves it alone.
     mutating func clear(_ capture: PresetCapture) {
@@ -122,11 +130,13 @@ extension DisplayPreset {
     /// `online` are the lit displays' UUIDs, `disconnected` those Crisp has disconnected.
     func connectionPlan(online: Set<String>, disconnected: Set<String>) -> PresetConnectionPlan {
         var plan = PresetConnectionPlan()
+        let online = Set(online.map(CrispVirtualDisplayIdentity.canonicalUUID))
+        let disconnected = Set(disconnected.map(CrispVirtualDisplayIdentity.canonicalUUID))
         for entry in displays {
-            if entry.connected == true, disconnected.contains(entry.displayUUID) {
-                plan.reconnect.append(entry.displayUUID)
-            } else if entry.connected == false, online.contains(entry.displayUUID) {
-                plan.disconnect.append(entry.displayUUID)
+            if entry.connected == true, disconnected.contains(entry.stableDisplayUUID) {
+                plan.reconnect.append(entry.stableDisplayUUID)
+            } else if entry.connected == false, online.contains(entry.stableDisplayUUID) {
+                plan.disconnect.append(entry.stableDisplayUUID)
             }
         }
         return plan

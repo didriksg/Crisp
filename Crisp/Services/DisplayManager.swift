@@ -264,6 +264,7 @@ class DisplayManager: ObservableObject {
 
     /// Auto-enables HiDPI plist override for external 2K+ displays that don't have it yet.
     private func autoEnableHiDPIIfNeeded(for display: DisplayInfo) async {
+        guard !VirtualDisplayService.shared.isVirtualDisplay(display.displayID) else { return }
         let vendor = display.vendorNumber
         let product = display.modelNumber
         guard vendor != 0, product != 0 else { return }

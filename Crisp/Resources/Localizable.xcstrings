@@ -909,6 +909,22 @@
         }
       }
     },
+    "Start in HiDPI" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "以 HiDPI 启动"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "以 HiDPI 啟動"
+          }
+        }
+      }
+    },
     "Stays disconnected until you reconnect it from the menu bar." : {
       "localizations" : {
         "zh-Hans" : {

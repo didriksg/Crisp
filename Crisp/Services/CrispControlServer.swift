@@ -363,11 +363,14 @@ final class CrispControlServer {
             return CrispControlModel.encode(.failure("another preset is being applied; try again"))
         }
         await service.applyPreset(preset)
+        guard service.activePresetID == preset.id else {
+            return CrispControlModel.encode(.failure("could not apply the preset's display connections"))
+        }
         // applyPreset skips a display that is not online without a word; say which. Read after
         // the apply, which can turn displays on and off (#211); one the preset turns off is not skipped.
-        let online = displayManager.displays.filter(\.isOnline).map(\.displayUUID)
+        let online = displayManager.displays.filter(\.isOnline).map(\.presetUUID)
         let skipped = preset.displays
-            .filter { $0.connected != false && !online.contains($0.displayUUID) }
+            .filter { entry in entry.connected != false && !online.contains(where: { entry.matchesDisplay(uuid: $0) }) }
             .map(\.displayUUID)
         return CrispControlModel.encode(.success(preset: Self.listed(preset), skippedDisplays: skipped))
     }
