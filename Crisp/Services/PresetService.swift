@@ -332,12 +332,6 @@ final class PresetService: ObservableObject, @unchecked Sendable {
             // A refusal (last active display) leaves it on; the other settings still apply.
             _ = await toggle.disconnect(display, fromPreset: true)
         }
-        for entry in preset.displays {
-            guard let enabled = entry.connected, var config = virtualConfigs[entry.stableDisplayUUID],
-                  config.autoCreate != enabled else { continue }
-            config.autoCreate = enabled
-            _ = await virtual.updateConfig(config)
-        }
         toggle.displayManager?.refreshDisplays()
         let refreshed = DisplayManagerAccessor.shared.displays
         // refreshDisplays loads a returning display's modes in the background; the

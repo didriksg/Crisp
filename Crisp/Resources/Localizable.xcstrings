@@ -909,6 +909,22 @@
         }
       }
     },
+    "Start in HiDPI" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "以 HiDPI 启动"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "以 HiDPI 啟動"
+          }
+        }
+      }
+    },
     "Stays disconnected until you reconnect it from the menu bar." : {
       "localizations" : {
         "zh-Hans" : {
@@ -2937,22 +2953,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "HiDPI"
-          }
-        }
-      }
-    },
-    "HiDPI requires an even width and height." : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "开启 HiDPI 时，宽度和高度必须为偶数。"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "開啟 HiDPI 時，寬度和高度必須為偶數。"
           }
         }
       }
@@ -5225,22 +5225,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "寬度"
-          }
-        }
-      }
-    },
-    "With HiDPI, the desktop appears at half the configured width and height." : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "开启 HiDPI 后，桌面显示为所设宽高的一半，使用 2 倍像素渲染。"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "開啟 HiDPI 後，桌面顯示為所設寬高的一半，使用 2 倍像素算繪。"
           }
         }
       }

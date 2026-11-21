@@ -52,6 +52,7 @@ SOFTWARE.
 - [@colorfulshark](https://github.com/colorfulshark) ([#185](https://github.com/didriksg/Crisp/pull/185))
 - [@ekxs-dev](https://github.com/ekxs-dev) ([#274](https://github.com/didriksg/Crisp/pull/274))
 - [@temporaryna](https://github.com/temporaryna) ([#251](https://github.com/didriksg/Crisp/pull/251))
+- [@yao177](https://github.com/yao177) ([#284](https://github.com/didriksg/Crisp/pull/284))
 
 ## Translations
 

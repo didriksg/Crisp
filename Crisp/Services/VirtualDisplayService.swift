@@ -27,6 +27,10 @@ final class VirtualDisplayService: ObservableObject, @unchecked Sendable {
         var refreshRate: Double
         var hiDPI: Bool
         var autoCreate: Bool
+        /// Starts at the 2x mode (half the width and height in points) instead of the native
+        /// 1x. Optional so configs saved before it decode, as off: `hiDPI` was always saved on
+        /// and only offers the 2x modes, so it can't mean this.
+        var startsHiDPI: Bool?
 
         var productID: UInt32 {
             let bytes = id.uuid
@@ -59,6 +63,7 @@ final class VirtualDisplayService: ObservableObject, @unchecked Sendable {
     /// "3840 × 2160 · 60 Hz", the line under a virtual display's name.
     static func summary(_ config: VirtualDisplayConfig) -> String {
         "\(config.width) × \(config.height) · \(RefreshRateFormat.label(config.refreshRate))"
+            + (config.startsHiDPI == true ? " · HiDPI" : "")
     }
 
     // MARK: - State
@@ -99,10 +104,11 @@ final class VirtualDisplayService: ObservableObject, @unchecked Sendable {
     func applyConfiguredRefreshRate(for displayID: CGDirectDisplayID) async {
         guard let rate = configuredRefreshRate(for: displayID),
               let current = CGDisplayCopyDisplayMode(displayID) else { return }
-        let config = VirtualDisplayConfig(
+        var config = VirtualDisplayConfig(
             name: "", width: current.pixelWidth, height: current.pixelHeight,
-            refreshRate: rate, hiDPI: current.pixelWidth > current.width, autoCreate: false
+            refreshRate: rate, autoCreate: false
         )
+        config.startsHiDPI = current.pixelWidth > current.width
         await applyConfiguredResolution(displayID, config: config)
     }
 
@@ -188,25 +194,35 @@ final class VirtualDisplayService: ObservableObject, @unchecked Sendable {
         return true
     }
 
+    /// Sets the configured start mode: macOS gives a high-resolution virtual display a
+    /// scaled default whatever modes are supplied. Returns once the mode holds through 0.3 s
+    /// with no further mode change: on Intel, WindowServer replaced a mode that had
+    /// already held once during registration (#284).
     private func applyConfiguredResolution(_ displayID: CGDirectDisplayID, config: VirtualDisplayConfig) async {
         let options = [kCGDisplayShowDuplicateLowResolutionModes as String: true] as CFDictionary
-        let width = config.hiDPI ? config.width / 2 : config.width
-        let height = config.hiDPI ? config.height / 2 : config.height
-        for attempt in 0..<10 {
-            if attempt > 0 {
-                try? await Task.sleep(nanoseconds: 300_000_000)
-            }
+        let scale = config.startsHiDPI == true ? 2 : 1
+        let width = config.width / scale
+        let height = config.height / scale
+        for _ in 0..<10 {
             if let cur = CGDisplayCopyDisplayMode(displayID),
                cur.width == width, cur.height == height,
                cur.pixelWidth == config.width, cur.pixelHeight == config.height,
-               abs(cur.refreshRate - config.refreshRate) < 0.5 { continue }
+               abs(cur.refreshRate - config.refreshRate) < 0.5 {
+                guard await ReconfigEvents.shared.next(for: displayID, matching: .setModeFlag, timeout: 0.3) else {
+                    return
+                }
+                continue
+            }
             guard let modes = CGDisplayCopyAllDisplayModes(displayID, options) as? [CGDisplayMode],
                   let target = modes.first(where: {
                       $0.pixelWidth == config.width && $0.pixelHeight == config.height
                           && $0.width == width && $0.height == height
                           && abs($0.refreshRate - config.refreshRate) < 0.5
                   })
-            else { continue }
+            else {
+                await ReconfigEvents.shared.next(for: displayID, matching: .setModeFlag, timeout: 0.3)
+                continue
+            }
             _ = await ResolutionService.applyModeSync(target, on: displayID)
         }
     }
@@ -294,6 +310,9 @@ final class VirtualDisplayService: ObservableObject, @unchecked Sendable {
             destroy(configID: updated.id)
             if let oldDisplayID { await waitForDisplayOffline(oldDisplayID) }
             return await create(config: updated)
+        }
+        if old.startsHiDPI != updated.startsHiDPI, let displayID = activeDisplayObjects[updated.id]?.displayID {
+            await applyConfiguredResolution(displayID, config: updated)
         }
         return true
     }

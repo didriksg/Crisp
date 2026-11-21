@@ -307,6 +307,12 @@ private struct VirtualDisplayEditor: View {
                 )) {
                     ForEach(rateOptions, id: \.self) { Text(verbatim: RefreshRateFormat.label($0)).tag($0) }
                 }
+                // The 2x mode needs an even width and height.
+                Toggle("Start in HiDPI", isOn: Binding(
+                    get: { draft.startsHiDPI == true },
+                    set: { on in save { $0.startsHiDPI = on } }
+                ))
+                .disabled(!draft.width.isMultiple(of: 2) || !draft.height.isMultiple(of: 2))
                 Toggle("Create at launch", isOn: Binding(
                     get: { draft.autoCreate },
                     set: { on in save { $0.autoCreate = on } }
