@@ -153,7 +153,7 @@ final class PresetService: ObservableObject, @unchecked Sendable {
                 e.connected = false
                 return e
             }
-            guard let live = displays.first(where: { entry.matchesDisplay(uuid: $0.displayUUID) && $0.isOnline }) else {
+            guard let live = displays.first(where: { entry.matchesDisplay(uuid: $0.presetUUID) && $0.isOnline }) else {
                 return e
             }
             switch capture {
@@ -206,7 +206,7 @@ final class PresetService: ObservableObject, @unchecked Sendable {
         }
 
         for entry in preset.displays {
-            guard let display = displays.first(where: { entry.matchesDisplay(uuid: $0.displayUUID) }),
+            guard let display = displays.first(where: { entry.matchesDisplay(uuid: $0.presetUUID) }),
                   display.isOnline else { continue }
             let displayID = display.displayID
 
@@ -296,7 +296,7 @@ final class PresetService: ObservableObject, @unchecked Sendable {
         for display in displays where display.isOnline {
             guard VirtualDisplayService.shared.isVirtualDisplay(display.displayID),
                   preset.displays.contains(where: {
-                      $0.matchesDisplay(uuid: display.displayUUID) && ($0.width != nil || $0.connected == true)
+                      $0.matchesDisplay(uuid: display.presetUUID) && ($0.width != nil || $0.connected == true)
                   }) else { continue }
             await VirtualDisplayService.shared.applyConfiguredRefreshRate(for: display.displayID)
             display.currentDisplayMode = DisplayMode.currentMode(for: display.displayID)
@@ -312,7 +312,7 @@ final class PresetService: ObservableObject, @unchecked Sendable {
         let displays = DisplayManagerAccessor.shared.displays
         let inactiveVirtual = virtual.configs.filter { !virtual.isActive($0.id) }.map(\.displayUUID)
         let plan = preset.connectionPlan(
-            online: Set(displays.filter(\.isOnline).map(\.displayUUID)),
+            online: Set(displays.filter(\.isOnline).map(\.presetUUID)),
             disconnected: Set(toggle.disconnected.map(\.uuid) + inactiveVirtual)
         )
         // Reconnects first, so a swap never trips the last-screen guard.
@@ -361,7 +361,7 @@ final class PresetService: ObservableObject, @unchecked Sendable {
             guard display.isOnline else { return nil }
             let mode = display.currentDisplayMode
             return DisplayPresetEntry(
-                displayUUID: display.displayUUID,
+                displayUUID: display.presetUUID,
                 width: includeResolution ? (mode?.width ?? display.pixelWidth) : nil,
                 height: includeResolution ? (mode?.height ?? display.pixelHeight) : nil,
                 isHiDPI: includeResolution ? (mode?.isHiDPI ?? false) : nil,
@@ -468,7 +468,7 @@ final class PresetService: ObservableObject, @unchecked Sendable {
             guard preset.includesResolution else { continue }
             let matches = preset.displays.allSatisfy { entry in
                 if entry.connected == false { return disconnected.contains(entry.stableDisplayUUID) }
-                guard let display = displays.first(where: { entry.matchesDisplay(uuid: $0.displayUUID) }),
+                guard let display = displays.first(where: { entry.matchesDisplay(uuid: $0.presetUUID) }),
                       display.isOnline else { return false }
                 // Entry without a resolution doesn't gate on it
                 guard let w = entry.width, let h = entry.height else { return true }

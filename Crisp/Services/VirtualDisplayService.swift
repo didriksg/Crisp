@@ -87,6 +87,17 @@ final class VirtualDisplayService: ObservableObject, @unchecked Sendable {
         activeConfigIDs.contains(configID)
     }
 
+    /// The UUID a preset stores for a display. On Apple Silicon WindowServer gives a virtual
+    /// display a random UUID, so a Crisp virtual display is stored by its config's identity.
+    func presetUUID(of display: DisplayInfo) -> String {
+        let id = display.displayID
+        guard CGDisplayVendorNumber(id) == Self.crispVirtualVendorID,
+              let config = configs.first(where: {
+                  $0.productID == CGDisplayModelNumber(id) && $0.serialNumber == CGDisplaySerialNumber(id)
+              }) else { return display.displayUUID }
+        return config.displayUUID
+    }
+
     func isVirtualDisplay(_ displayID: CGDirectDisplayID) -> Bool {
         // Vendor ID first: it's live the instant the display is online, so a freshly created
         // one is filtered on the first refresh. The object set below is a backstop.
@@ -372,4 +383,9 @@ final class VirtualDisplayService: ObservableObject, @unchecked Sendable {
         guard let data = try? JSONEncoder().encode(configs) else { return }
         UserDefaults.standard.set(data, forKey: configsKey)
     }
+}
+
+extension DisplayInfo {
+    /// The UUID presets store for this display (see `VirtualDisplayService.presetUUID(of:)`).
+    var presetUUID: String { VirtualDisplayService.shared.presetUUID(of: self) }
 }

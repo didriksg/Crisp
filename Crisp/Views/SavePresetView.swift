@@ -140,6 +140,7 @@ struct SavePresetForm: View {
         let names = editing.displays.filter { $0.connected == false }.compactMap { entry in
             DisplayManagerAccessor.shared.displays.first { $0.displayUUID == entry.displayUUID }?.name
                 ?? PhysicalDisplayToggleService.shared.disconnected.first { $0.uuid == entry.displayUUID }?.name
+                ?? VirtualDisplayService.shared.configs.first { entry.matchesDisplay(uuid: $0.displayUUID) }?.name
         }
         guard !names.isEmpty else { return String(localized: "All displays on") }
         return String(localized: "\(names.formatted(.list(type: .and))) off")
@@ -562,7 +563,7 @@ struct PresetArrangementThumbnail: View {
 
     /// Saved resolution/brightness for the hover balloon, limited to captures on.
     private func detail(for display: DisplayInfo) -> String? {
-        guard let e = preset.displays.first(where: { $0.displayUUID == display.displayUUID }) else { return nil }
+        guard let e = preset.displays.first(where: { $0.matchesDisplay(uuid: display.presetUUID) }) else { return nil }
         var parts: [String] = []
         if includeResolution, e.width != nil { parts.append(e.resolutionLabel) }
         if includeBrightness, let b = e.brightness { parts.append("\(Int((b * 100).rounded()))%") }
@@ -579,7 +580,7 @@ struct PresetArrangementThumbnail: View {
     private func layout(in size: CGSize) -> [Placed] {
         let raw: [(screen: CGRect, display: DisplayInfo?)] = preset.displays.compactMap { e in
             guard let x = e.arrangementX, let y = e.arrangementY else { return nil }
-            let live = displayManager.displays.first { $0.displayUUID == e.displayUUID }
+            let live = displayManager.displays.first { e.matchesDisplay(uuid: $0.presetUUID) }
             let sz = live.map { CGDisplayBounds($0.displayID).size } ?? pointSize(e)
             return (CGRect(x: x, y: y, width: sz.width, height: sz.height), live)
         }

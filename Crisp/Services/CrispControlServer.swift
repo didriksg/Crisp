@@ -368,7 +368,7 @@ final class CrispControlServer {
         }
         // applyPreset skips a display that is not online without a word; say which. Read after
         // the apply, which can turn displays on and off (#211); one the preset turns off is not skipped.
-        let online = displayManager.displays.filter(\.isOnline).map(\.displayUUID)
+        let online = displayManager.displays.filter(\.isOnline).map(\.presetUUID)
         let skipped = preset.displays
             .filter { entry in entry.connected != false && !online.contains(where: { entry.matchesDisplay(uuid: $0) }) }
             .map(\.displayUUID)
