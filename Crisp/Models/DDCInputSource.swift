@@ -14,8 +14,37 @@ enum DDCInputSource {
     private static let names: [UInt16: String] = [
         0x01: "VGA 1", 0x02: "VGA 2", 0x03: "DVI 1", 0x04: "DVI 2",
         0x0F: "DisplayPort 1", 0x10: "DisplayPort 2",
-        0x11: "HDMI 1", 0x12: "HDMI 2", 0x1B: "USB-C"
+        0x11: "HDMI 1", 0x12: "HDMI 2", 0x1B: "USB-C",
+        0xF4D0: "DisplayPort 1 (LG)", 0xF4D1: "DisplayPort 2 / USB-C (LG)", 0xF4D2: "USB-C (LG)",
+        0xF490: "HDMI 1 (LG)", 0xF491: "HDMI 2 (LG)"
     ]
+
+    // MARK: - LG alternate input channel
+
+    /// Many LG monitors ack a VCP 0x60 input write and ignore it: they switch only on
+    /// LG's side channel, VCP 0xF4 sent from source address 0x50 instead of 0x51, with
+    /// codes of their own (docs/ddc-notes.md, LG alternate input channel). Crisp keeps
+    /// one value per input, so an LG code travels as 0xF400 plus the code: a 0x60 value
+    /// is one byte, so the two never collide, and the high byte names the channel.
+    static let lgVCP: UInt8 = 0xF4
+    static let lgSourceAddress: UInt8 = 0x50
+    private static let lgFlag: UInt16 = 0xF400
+
+    /// EDID manufacturer ID of LG Electronics ("GSM"), from CGDisplayVendorNumber.
+    static let lgVendor: UInt32 = 0x1E6D
+
+    /// The LG codes offered next to the monitor's own list on an LG display. The USB-C
+    /// code differs by model and firmware (0xD1 on some, 0xD2 on others), so both stay.
+    static let lg: [UInt16] = [0xF490, 0xF491, 0xF4D0, 0xF4D1, 0xF4D2]
+
+    /// Whether a value is an LG side-channel code rather than a VCP 0x60 value.
+    static func isLG(_ value: UInt16) -> Bool { value & 0xFF00 == lgFlag }
+
+    /// The VCP code, value and source address that write an input: VCP 0x60 from 0x51,
+    /// or for an LG code, VCP 0xF4 from 0x50 with the code in the low byte.
+    static func message(for value: UInt16) -> (command: UInt8, value: UInt16, sourceAddress: UInt8) {
+        isLG(value) ? (lgVCP, value & 0xFF, lgSourceAddress) : (vcp, value, 0x51)
+    }
 
     /// The connector name for a value, or nil for one without a common name. The
     /// names are connector trademarks, the same in every language.
@@ -95,21 +124,36 @@ enum DDCInputSource {
     }
 
     /// The value for what a person typed: a connector name in any case and spacing
-    /// ("HDMI 1", "hdmi1", "dp2", "usb-c"), a decimal number ("17", as m1ddc takes
-    /// it) or a hex number ("0x11"). nil for anything else or for 0.
+    /// ("HDMI 1", "hdmi1", "dp2", "usb-c"), an LG side-channel name ("lg-usbc",
+    /// "lg-hdmi1"), a decimal number ("17", as m1ddc takes it) or a hex number ("0x11",
+    /// or "0xF4D2" for an LG code). nil for anything else, for 0, and for an LG code of 0.
     static func value(from text: String) -> UInt16? {
         let compact = text.lowercased().filter { !" -_".contains($0) }
         if let named = aliases[compact] { return named }
         let parsed = compact.hasPrefix("0x") ? UInt16(compact.dropFirst(2), radix: 16) : UInt16(compact)
-        guard let parsed, parsed != 0 else { return nil }
+        guard let parsed, parsed & 0xFF != 0 || !isLG(parsed), parsed != 0 else { return nil }
         return parsed
     }
 
     private static let aliases: [String: UInt16] = {
-        var aliases: [String: UInt16] = ["dp1": 0x0F, "dp2": 0x10]
+        var aliases: [String: UInt16] = [
+            "dp1": 0x0F, "dp2": 0x10,
+            "lghdmi1": 0xF490, "lghdmi2": 0xF491, "lgdp1": 0xF4D0, "lgdp2": 0xF4D1, "lgusbc": 0xF4D2,
+            "lgdisplayport1": 0xF4D0, "lgdisplayport2": 0xF4D1
+        ]
         for (value, name) in names { aliases[name.lowercased().filter { !" -".contains($0) }] = value }
         return aliases
     }()
+}
+
+/// A Set VCP Feature message (DDC/CI 1.1): the bytes after the source address,
+/// checksum included. The checksum starts from the 0x6E destination XOR the source
+/// address, which is 0x51 for every message except LG's input side channel (0x50).
+enum DDCSetVCP {
+    static func bytes(command: UInt8, value: UInt16, sourceAddress: UInt8 = 0x51) -> [UInt8] {
+        let payload: [UInt8] = [0x84, 0x03, command, UInt8((value >> 8) & 0xFF), UInt8(value & 0xFF)]
+        return payload + [payload.reduce(UInt8(0x6E) ^ sourceAddress, ^)]
+    }
 }
 
 /// The capabilities string travels in chunks: a request names an offset, the reply
