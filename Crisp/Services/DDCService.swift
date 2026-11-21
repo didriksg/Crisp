@@ -294,11 +294,12 @@ final class DDCService: ObservableObject, @unchecked Sendable {
 
     /// Each message goes out twice, 10 ms before each copy, as in MonitorControl, BetterDisplay
     /// and m1ddc: some monitors act only on the second copy (docs/ddc-notes.md, PR #245).
-    private func arm64Send(_ avService: IOAVService, _ buf: inout [UInt8]) -> IOReturn {
+    /// `sourceAddress` is 0x51 for every message except LG's input side channel (0x50).
+    private func arm64Send(_ avService: IOAVService, _ buf: inout [UInt8], sourceAddress: UInt8 = 0x51) -> IOReturn {
         var ret = kIOReturnSuccess
         for _ in 0..<2 {
             Thread.sleep(forTimeInterval: 0.01)
-            ret = IOAVServiceWriteI2C(avService, 0x37, 0x51, &buf, UInt32(buf.count))
+            ret = IOAVServiceWriteI2C(avService, 0x37, UInt32(sourceAddress), &buf, UInt32(buf.count))
             // A deaf channel can take seconds per call, so a failed first copy ends it.
             guard ret == kIOReturnSuccess else { break }
         }
@@ -306,22 +307,16 @@ final class DDCService: ObservableObject, @unchecked Sendable {
     }
 
     /// ARM64 DDC write: Set VCP Feature over IOAVService.
-    /// Payload: [0x84, 0x03, vcpCode, valueHigh, valueLow, checksum], checksum XORed
-    /// from 0x50 (0x6E DDC dest ^ 0x51 sub-address) over the payload bytes.
-    private func arm64Write(displayID: CGDirectDisplayID, command: UInt8, value: UInt16) -> Bool {
+    /// Payload: [0x84, 0x03, vcpCode, valueHigh, valueLow, checksum] (DDCSetVCP), sent
+    /// from source address 0x51, or 0x50 for LG's input side channel.
+    private func arm64Write(displayID: CGDirectDisplayID, command: UInt8, value: UInt16, sourceAddress: UInt8 = 0x51) -> Bool {
         guard let avService = findAVService(for: displayID) else {
             Self.log.debug("write \(Self.hex(command), privacy: .public) display \(displayID, privacy: .public): no DDC channel")
             return false
         }
 
-        let valueHigh = UInt8((value >> 8) & 0xFF)
-        let valueLow  = UInt8(value & 0xFF)
-        var checksum  = UInt8(0x6E ^ 0x51)
-        let payload: [UInt8] = [0x84, 0x03, command, valueHigh, valueLow]
-        for b in payload { checksum ^= b }
-
-        var buf: [UInt8] = payload + [checksum]
-        let ret = arm64Send(avService, &buf)
+        var buf = DDCSetVCP.bytes(command: command, value: value, sourceAddress: sourceAddress)
+        let ret = arm64Send(avService, &buf, sourceAddress: sourceAddress)
         if ret != kIOReturnSuccess {
             Self.log.debug("write \(Self.hex(command), privacy: .public)=\(value, privacy: .public) display \(displayID, privacy: .public): I2C error \(String(format: "0x%08X", ret), privacy: .public)")
         }
@@ -503,7 +498,7 @@ final class DDCService: ObservableObject, @unchecked Sendable {
 
     /// Synchronous DDC write (VCP Set). Returns true on success.
     /// On ARM64 uses the IOAVService path; on x86_64 uses the IOFramebuffer I2C path.
-    private func writeSynchronous(displayID: CGDirectDisplayID, command: UInt8, value: UInt16) -> Bool {
+    private func writeSynchronous(displayID: CGDirectDisplayID, command: UInt8, value: UInt16, sourceAddress: UInt8 = 0x51) -> Bool {
         let start = DispatchTime.now()
         defer {
             let ms = Self.millisSince(start)
@@ -512,12 +507,12 @@ final class DDCService: ObservableObject, @unchecked Sendable {
             }
         }
 #if arch(arm64)
-        if arm64Write(displayID: displayID, command: command, value: value) {
+        if arm64Write(displayID: displayID, command: command, value: value, sourceAddress: sourceAddress) {
             return true
         }
         return false
 #else
-        return intelWriteSynchronous(displayID: displayID, command: command, value: value)
+        return intelWriteSynchronous(displayID: displayID, command: command, value: value, sourceAddress: sourceAddress)
 #endif
     }
 
@@ -593,7 +588,7 @@ final class DDCService: ObservableObject, @unchecked Sendable {
 
     // MARK: - Intel Write/Read
 
-    private func intelWriteSynchronous(displayID: CGDirectDisplayID, command: UInt8, value: UInt16) -> Bool {
+    private func intelWriteSynchronous(displayID: CGDirectDisplayID, command: UInt8, value: UInt16, sourceAddress: UInt8 = 0x51) -> Bool {
         guard let fb = framebufferService(for: displayID) else {
             return false
         }
@@ -611,9 +606,9 @@ final class DDCService: ObservableObject, @unchecked Sendable {
             defer { IOI2CInterfaceClose(conn, IOOptionBits(0)) }
 
             // Build DDC/CI Set VCP packet:
-            // [0x51, 0x84, 0x03, VCP, val_hi, val_lo, checksum]
+            // [source (0x51, or 0x50 for LG's side channel), 0x84, 0x03, VCP, val_hi, val_lo, checksum]
             var buf: [UInt8] = [
-                0x51,
+                sourceAddress,
                 0x84,
                 0x03,
                 command,
@@ -768,11 +763,12 @@ final class DDCService: ObservableObject, @unchecked Sendable {
         displayID: CGDirectDisplayID,
         command: UInt8,
         value: UInt16,
+        sourceAddress: UInt8 = 0x51,
         completion: (@Sendable (Bool) -> Void)? = nil
     ) {
         operationQueues.queue(for: displayID).async {
             for attempt in 0..<3 {
-                if self.writeSynchronous(displayID: displayID, command: command, value: value) {
+                if self.writeSynchronous(displayID: displayID, command: command, value: value, sourceAddress: sourceAddress) {
                     // Invalidate cached value so next read reflects the new setting.
                     self.cacheLock.lock()
                     self.vcpCache[displayID]?[command] = nil
@@ -836,9 +832,13 @@ final class DDCService: ObservableObject, @unchecked Sendable {
         }
     }
 
+    /// Writes an input: a VCP 0x60 value, or an LG code on LG's side channel.
     func writeInput(displayID: CGDirectDisplayID, value: UInt16) async -> Bool {
-        await withCheckedContinuation { continuation in
-            writeAsync(displayID: displayID, command: DDCInputSource.vcp, value: value) { continuation.resume(returning: $0) }
+        let message = DDCInputSource.message(for: value)
+        return await withCheckedContinuation { continuation in
+            writeAsync(displayID: displayID, command: message.command, value: message.value, sourceAddress: message.sourceAddress) {
+                continuation.resume(returning: $0)
+            }
         }
     }
 

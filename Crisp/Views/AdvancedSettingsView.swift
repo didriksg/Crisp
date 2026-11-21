@@ -634,7 +634,7 @@ private struct AdvancedInputPicker: View {
                 await service.refreshInput(display)
                 await service.readListIfNeeded(display)
             }
-            if service.markedByUser.contains(uuid) {
+            if service.offersChoosingAgain(display) {
                 LabeledContent("") {
                     Button("Choose Again") { service.forgetMark(for: display) }.buttonStyle(.link)
                 }

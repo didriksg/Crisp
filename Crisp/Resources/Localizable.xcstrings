@@ -429,6 +429,22 @@
         }
       }
     },
+    "Click Choose Again, then choose the (LG) input this Mac is on." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请点按“重新选择”，然后选择这台 Mac 所用的 (LG) 输入源。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "請點按「重新選擇」，然後選擇這台 Mac 所用的 (LG) 輸入來源。"
+          }
+        }
+      }
+    },
     "Click the cup to turn Keep Awake on or off, right-click it for a time limit" : {
       "localizations" : {
         "zh-Hans" : {
@@ -1049,6 +1065,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "這是唯一的顯示器，因此在顯示其他輸入來源時仍保持連線。"
+          }
+        }
+      }
+    },
+    "This monitor switches through LG's channel. Choose an input marked (LG)." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这台显示器通过 LG 通道切换输入源。请选择标有 (LG) 的输入源。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "這台顯示器透過 LG 通道切換輸入來源。請選擇標有 (LG) 的輸入來源。"
           }
         }
       }

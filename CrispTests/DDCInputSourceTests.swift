@@ -60,4 +60,51 @@ final class DDCInputSourceTests: XCTestCase {
         // An empty reply is the end of the string.
         XCTAssertEqual(DDCCapabilities.data(fromReply: [0x6E, 0x83, 0xE3, 0x00, 0x02, 0x5C], offset: 2), [])
     }
+
+    // MARK: - LG alternate input channel
+
+    /// The standard message keeps its bytes: checksum from 0x6E ^ 0x51 over the payload.
+    func testSetVCPBytesFromStandardSource() {
+        XCTAssertEqual(DDCSetVCP.bytes(command: 0x10, value: 50), [0x84, 0x03, 0x10, 0x00, 0x32, 0x9A])
+        XCTAssertEqual(DDCSetVCP.bytes(command: 0x60, value: 0x11), [0x84, 0x03, 0x60, 0x00, 0x11, 0xC9])
+    }
+
+    /// LG's side channel: VCP 0xF4 with the code in the low byte, checksum from 0x6E ^ 0x50.
+    func testSetVCPBytesForLGSideChannel() {
+        XCTAssertEqual(DDCSetVCP.bytes(command: 0xF4, value: 0xD2, sourceAddress: 0x50), [0x84, 0x03, 0xF4, 0x00, 0xD2, 0x9F])
+        XCTAssertEqual(DDCSetVCP.bytes(command: 0xF4, value: 0x90, sourceAddress: 0x50), [0x84, 0x03, 0xF4, 0x00, 0x90, 0xDD])
+    }
+
+    /// An input write picks its channel from the value.
+    func testInputMessageChannel() {
+        let standard = DDCInputSource.message(for: 0x11)
+        XCTAssertEqual([standard.command, UInt8(standard.value), standard.sourceAddress], [0x60, 0x11, 0x51])
+        let lg = DDCInputSource.message(for: 0xF4D2)
+        XCTAssertEqual(lg.value, 0xD2)
+        XCTAssertEqual([lg.command, lg.sourceAddress], [0xF4, 0x50])
+    }
+
+    /// LG codes carry 0xF4 in the high byte; a VCP 0x60 value never does.
+    func testLGValuesAreFlagged() {
+        for value in DDCInputSource.lg { XCTAssertTrue(DDCInputSource.isLG(value), String(format: "0x%04X", value)) }
+        for value in DDCInputSource.standard + [0xD2, 0x90, 0x00FF] {
+            XCTAssertFalse(DDCInputSource.isLG(value), String(format: "0x%04X", value))
+        }
+    }
+
+    func testLGInputNamesAndTypedForms() {
+        XCTAssertEqual(DDCInputSource.name(for: 0xF4D2), "USB-C (LG)")
+        XCTAssertEqual(DDCInputSource.name(for: 0xF490), "HDMI 1 (LG)")
+        let cases: [(String, UInt16?)] = [
+            ("lg-usbc", 0xF4D2), ("LG USB-C", 0xF4D2), ("lg-hdmi1", 0xF490), ("lg_hdmi2", 0xF491),
+            ("lg-dp1", 0xF4D0), ("lg-dp2", 0xF4D1), ("0xF4D1", 0xF4D1),
+            // The names crispctl prints go back in as they are.
+            ("USB-C (LG)", 0xF4D2), ("HDMI 1 (LG)", 0xF490), ("DisplayPort 2 / USB-C (LG)", 0xF4D1),
+            // The plain names still mean the standard VCP 0x60 inputs.
+            ("usb-c", 0x1B), ("hdmi1", 0x11)
+        ]
+        for (text, expected) in cases {
+            XCTAssertEqual(DDCInputSource.value(from: text), expected, text)
+        }
+    }
 }

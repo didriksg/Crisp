@@ -72,7 +72,7 @@ struct InputBodyBlock: View {
             } else {
                 Text("Another input disconnects this display. Reconnect it here to switch back.").caption()
             }
-            if service.markedByUser.contains(uuid) {
+            if service.offersChoosingAgain(display) {
                 Button("Choose Again") { service.forgetMark(for: display) }
                     .buttonStyle(.link)
                     .font(.caption)
