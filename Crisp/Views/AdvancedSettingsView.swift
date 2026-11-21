@@ -624,7 +624,13 @@ private struct AdvancedInputPicker: View {
             CenteredRow(title: "Input", detail: detail) {
                 Picker("Input", selection: Binding(get: { service.macInput[uuid] }, set: { if let value = $0 { choose(value) } })) {
                     if service.macInput[uuid] == nil { Text("").tag(UInt16?.none) }
-                    ForEach(service.options(for: display), id: \.self) { Text(verbatim: inputLabel($0)).tag(Optional($0)) }
+                    // The monitor's own inputs, then LG's side-channel inputs after a divider.
+                    let options = service.options(for: display)
+                    let standard = options.filter { !DDCInputSource.isLG($0) }
+                    let lgInputs = options.filter(DDCInputSource.isLG)
+                    ForEach(standard, id: \.self) { Text(verbatim: inputLabel($0)).tag(Optional($0)) }
+                    if !standard.isEmpty, !lgInputs.isEmpty { Divider() }
+                    ForEach(lgInputs, id: \.self) { Text(verbatim: inputLabel($0)).tag(Optional($0)) }
                 }
                 .labelsHidden()
                 .fixedSize()
@@ -633,6 +639,15 @@ private struct AdvancedInputPicker: View {
             .task {
                 await service.refreshInput(display)
                 await service.readListIfNeeded(display)
+            }
+            // On its own line, so it never hides the row's own detail: a fallback for LG monitors
+            // that ignore the standard inputs (InputSwitchService.awaitsLGMark).
+            if service.awaitsLGMark(display) {
+                LabeledContent("") {
+                    Text("If the standard inputs don't switch, first choose the (LG) input this Mac is on.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
             }
             if service.offersChoosingAgain(display) {
                 LabeledContent("") {
@@ -653,8 +668,9 @@ private struct AdvancedInputPicker: View {
 
     private func choose(_ value: UInt16) {
         guard !pending, value != service.macInput[uuid] else { return }
-        guard service.macInput[uuid] != nil else {
+        guard !service.choiceMarks(value, for: display) else {
             service.mark(value, for: display)
+            message = nil
             return
         }
         pending = true

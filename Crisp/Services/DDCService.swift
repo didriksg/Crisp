@@ -605,17 +605,9 @@ final class DDCService: ObservableObject, @unchecked Sendable {
                   let conn = conn else { continue }
             defer { IOI2CInterfaceClose(conn, IOOptionBits(0)) }
 
-            // Build DDC/CI Set VCP packet:
-            // [source (0x51, or 0x50 for LG's side channel), 0x84, 0x03, VCP, val_hi, val_lo, checksum]
-            var buf: [UInt8] = [
-                sourceAddress,
-                0x84,
-                0x03,
-                command,
-                UInt8(value >> 8),
-                UInt8(value & 0xFF)
-            ]
-            buf.append(ddcChecksum(destAddress: 0x6E, bytes: buf))
+            // DDC/CI Set VCP packet: the source address (0x51, or 0x50 for LG's side channel),
+            // then the same bytes and checksum as the arm64 path (DDCSetVCP).
+            var buf: [UInt8] = [sourceAddress] + DDCSetVCP.bytes(command: command, value: value, sourceAddress: sourceAddress)
             let bufCount = buf.count
 
             let ok = buf.withUnsafeMutableBytes { raw -> Bool in

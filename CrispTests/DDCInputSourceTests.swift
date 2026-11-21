@@ -75,6 +75,17 @@ final class DDCInputSourceTests: XCTestCase {
         XCTAssertEqual(DDCSetVCP.bytes(command: 0xF4, value: 0x90, sourceAddress: 0x50), [0x84, 0x03, 0xF4, 0x00, 0x90, 0xDD])
     }
 
+    /// Intel sends the source address as the packet's first byte (DDCService.intelWriteSynchronous),
+    /// so the checksum must equal 0x6E XOR every byte before it, the source address included.
+    func testIntelPacketChecksumCoversSourceAddress() {
+        for (source, command): (UInt8, UInt8) in [(0x51, 0x60), (0x50, 0xF4)] {
+            let packet = [source] + DDCSetVCP.bytes(command: command, value: 0x90, sourceAddress: source)
+            XCTAssertEqual(packet.dropLast().reduce(UInt8(0x6E), ^), packet.last, String(format: "source 0x%02X", source))
+        }
+        let lgHDMI1 = [0x50] + DDCSetVCP.bytes(command: 0xF4, value: 0x90, sourceAddress: 0x50)
+        XCTAssertEqual(lgHDMI1, [0x50, 0x84, 0x03, 0xF4, 0x00, 0x90, 0xDD])
+    }
+
     /// An input write picks its channel from the value.
     func testInputMessageChannel() {
         let standard = DDCInputSource.message(for: 0x11)
@@ -98,6 +109,9 @@ final class DDCInputSourceTests: XCTestCase {
         let cases: [(String, UInt16?)] = [
             ("lg-usbc", 0xF4D2), ("LG USB-C", 0xF4D2), ("lg-hdmi1", 0xF490), ("lg_hdmi2", 0xF491),
             ("lg-dp1", 0xF4D0), ("lg-dp2", 0xF4D1), ("0xF4D1", 0xF4D1),
+            ("lg-displayport1", 0xF4D0), ("LG DisplayPort 2", 0xF4D1),
+            // An LG code needs a code: 0xF400 alone is not an input.
+            ("0xF400", nil), ("62464", nil),
             // The names crispctl prints go back in as they are.
             ("USB-C (LG)", 0xF4D2), ("HDMI 1 (LG)", 0xF490), ("DisplayPort 2 / USB-C (LG)", 0xF4D1),
             // The plain names still mean the standard VCP 0x60 inputs.

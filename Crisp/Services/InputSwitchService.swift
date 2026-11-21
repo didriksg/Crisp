@@ -23,9 +23,6 @@ final class InputSwitchService: ObservableObject {
     @Published private(set) var macInput: [String: UInt16]
     /// Displays whose macInput the user marked, so the list offers to mark it again.
     @Published private(set) var markedByUser: Set<String>
-    /// Displays whose mark the user cleared with Choose Again and has not set again: the
-    /// Input row stays while they choose, even where the cleared value was its only reason.
-    @Published private(set) var choosing: Set<String> = []
 
     private let listedKey = "crisp.InputSourcesListed"
     private let macInputKey = "crisp.InputMacSource"
@@ -47,9 +44,10 @@ final class InputSwitchService: ObservableObject {
     /// A monitor with other codes of its own is reached by number through crispctl and
     /// Shortcuts.
     func options(for display: DisplayInfo) -> [UInt16] {
-        if hasLGMark(display.displayUUID) { return DDCInputSource.lg }
+        let lg = offersLGInputs(display)
+        if lg, hasLGMark(display.displayUUID) { return DDCInputSource.lg }
         let base = listed[display.displayUUID].flatMap { $0.isEmpty ? nil : $0 } ?? DDCInputSource.standard
-        return offersLGInputs(display) ? base + DDCInputSource.lg : base
+        return lg ? base + DDCInputSource.lg : base
     }
 
     /// Whether the display is an LG monitor, which gets LG's side-channel inputs.
@@ -57,19 +55,32 @@ final class InputSwitchService: ObservableObject {
         display.vendorNumber == DDCInputSource.lgVendor
     }
 
-    /// Whether the input list offers Choose Again: after a mark, and on an LG monitor
-    /// whose input is not an LG mark, because a 0x60 read there is often wrong and a
-    /// switch through LG's side channel needs this Mac's input marked as an LG code.
-    func offersChoosingAgain(_ display: DisplayInfo) -> Bool {
-        guard let current = macInput[display.displayUUID] else { return false }
-        return markedByUser.contains(display.displayUUID) || (offersLGInputs(display) && !DDCInputSource.isLG(current))
+    /// Whether choosing `value` in a picker marks it as this Mac's input instead of
+    /// switching to it: while this Mac's input is unknown, as for any monitor whose reads
+    /// fail, and for an LG side-channel input until this Mac's input is an LG code, since
+    /// no read can tell which LG input the Mac is on.
+    func choiceMarks(_ value: UInt16, for display: DisplayInfo) -> Bool {
+        macInput[display.displayUUID] == nil || (DDCInputSource.isLG(value) && !hasLGMark(display.displayUUID))
     }
 
-    /// Whether the user marked this Mac's input as an LG side-channel code. A VCP 0x60
-    /// read does not describe that channel (and on LG monitors over HDMI it is often
-    /// wrong), so such a mark is never replaced by a read.
+    /// Whether the list offers Choose Again: after a mark, and whenever this Mac's input is
+    /// an LG code, which only a mark sets, so a mark whose flag was lost can still be cleared.
+    func offersChoosingAgain(_ display: DisplayInfo) -> Bool {
+        markedByUser.contains(display.displayUUID) || hasLGMark(display.displayUUID)
+    }
+
+    /// Whether the list should ask for this Mac's LG input: an LG monitor whose input is
+    /// not an LG code yet, so the first click on an LG input marks it (choiceMarks).
+    func awaitsLGMark(_ display: DisplayInfo) -> Bool {
+        offersLGInputs(display) && !hasLGMark(display.displayUUID)
+    }
+
+    /// Whether this Mac's input is an LG side-channel code. Only a mark can set one, since a
+    /// 0x60 read is one byte (DDCInputSource.current). A 0x60 read does not describe that
+    /// channel (and on LG monitors over HDMI it is often wrong), so such a value is never
+    /// replaced by a read.
     private func hasLGMark(_ uuid: String) -> Bool {
-        markedByUser.contains(uuid) && macInput[uuid].map(DDCInputSource.isLG) == true
+        macInput[uuid].map(DDCInputSource.isLG) == true
     }
 
     /// Whether the display gets an Input row: an external whose DDC answers.
@@ -79,7 +90,7 @@ final class InputSwitchService: ObservableObject {
     func isAvailable(for display: DisplayInfo) -> Bool {
         guard !display.isBuiltin, !display.hasNativeBrightness else { return false }
         let uuid = display.displayUUID
-        return macInput[uuid] != nil || listed[uuid]?.isEmpty == false || choosing.contains(uuid)
+        return macInput[uuid] != nil || listed[uuid]?.isEmpty == false
             || BrightnessService.shared.isDDCAvailable(for: display.displayID) == true
     }
 
@@ -132,7 +143,6 @@ final class InputSwitchService: ObservableObject {
         let uuid = display.displayUUID
         macInput[uuid] = nil
         markedByUser.remove(uuid)
-        choosing.insert(uuid)
         saveMacInput()
     }
 
@@ -141,13 +151,15 @@ final class InputSwitchService: ObservableObject {
         case writeFailed
         case lgChannelOnly
         case lgMacInputUnmarked
+        case notLGMonitor
 
         var description: String {
             switch self {
             case .macInputUnknown: String(localized: "Crisp could not read which input this Mac is on. Choose it once in the menu.")
             case .writeFailed: String(localized: "The monitor did not take the input change.")
             case .lgChannelOnly: String(localized: "This monitor switches through LG's channel. Choose an input marked (LG).")
-            case .lgMacInputUnmarked: String(localized: "Click Choose Again, then choose the (LG) input this Mac is on.")
+            case .lgMacInputUnmarked: String(localized: "First choose the (LG) input this Mac is on in the menu.")
+            case .notLGMonitor: String(localized: "Inputs marked (LG) work only on LG monitors.")
             }
         }
     }
@@ -159,6 +171,13 @@ final class InputSwitchService: ObservableObject {
     func switchInput(_ display: DisplayInfo, to value: UInt16) async -> Result<Bool, SwitchError> {
         let uuid = display.displayUUID
         let displayID = display.displayID
+        // LG codes are offered only on LG monitors, and need this Mac's input marked as an
+        // LG code (the pickers mark it on the first click, choiceMarks); a 0x60 read can
+        // never supply one, so check before reading.
+        if DDCInputSource.isLG(value) {
+            guard offersLGInputs(display) else { return .failure(.notLGMonitor) }
+            guard hasLGMark(uuid) else { return .failure(.lgMacInputUnmarked) }
+        }
         if !hasLGMark(uuid), let current = await DDCService.shared.readInput(displayID: displayID) {
             setMacInput(current, for: uuid, marked: false)
         }
@@ -176,9 +195,8 @@ final class InputSwitchService: ObservableObject {
         }
         // The way out and the way back use one channel. A monitor that leaves through LG's
         // side channel ignores a VCP 0x60 write on Reconnect, so it needs this Mac's input
-        // marked as an LG code; and with that mark, a 0x60 write would be ignored too and
-        // only disconnect the display.
-        if DDCInputSource.isLG(value), !DDCInputSource.isLG(returnInput) { return .failure(.lgMacInputUnmarked) }
+        // marked as an LG code (checked above); and with that mark, a 0x60 write would be
+        // ignored too and only disconnect the display.
         if !DDCInputSource.isLG(value), DDCInputSource.isLG(returnInput) { return .failure(.lgChannelOnly) }
         guard await DDCService.shared.writeInput(displayID: displayID, value: value) else {
             return .failure(.writeFailed)
@@ -225,10 +243,6 @@ final class InputSwitchService: ObservableObject {
         // Checked here, after the read's await, so a read that started before the user
         // marked an LG code cannot replace that mark when it lands.
         guard marked || !hasLGMark(uuid) else { return }
-        // While the user chooses again, a read (one already in flight, or one from opening
-        // the panel) must not fill the value back in: the next click would switch, not mark.
-        guard marked || !choosing.contains(uuid) else { return }
-        if marked { choosing.remove(uuid) }
         guard macInput[uuid] != value || markedByUser.contains(uuid) != marked else { return }
         macInput[uuid] = value
         if marked { markedByUser.insert(uuid) } else { markedByUser.remove(uuid) }

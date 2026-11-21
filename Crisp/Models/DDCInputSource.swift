@@ -126,19 +126,20 @@ enum DDCInputSource {
     /// The value for what a person typed: a connector name in any case and spacing
     /// ("HDMI 1", "hdmi1", "dp2", "usb-c"), an LG side-channel name ("lg-usbc",
     /// "lg-hdmi1"), a decimal number ("17", as m1ddc takes it) or a hex number ("0x11",
-    /// or "0xF4D2" for an LG code). nil for anything else or for 0.
+    /// or "0xF4D2" for an LG code). nil for anything else, for 0, and for an LG code of 0.
     static func value(from text: String) -> UInt16? {
         let compact = text.lowercased().filter { !" -_".contains($0) }
         if let named = aliases[compact] { return named }
         let parsed = compact.hasPrefix("0x") ? UInt16(compact.dropFirst(2), radix: 16) : UInt16(compact)
-        guard let parsed, parsed != 0 else { return nil }
+        guard let parsed, parsed & 0xFF != 0 || !isLG(parsed), parsed != 0 else { return nil }
         return parsed
     }
 
     private static let aliases: [String: UInt16] = {
         var aliases: [String: UInt16] = [
             "dp1": 0x0F, "dp2": 0x10,
-            "lghdmi1": 0xF490, "lghdmi2": 0xF491, "lgdp1": 0xF4D0, "lgdp2": 0xF4D1, "lgusbc": 0xF4D2
+            "lghdmi1": 0xF490, "lghdmi2": 0xF491, "lgdp1": 0xF4D0, "lgdp2": 0xF4D1, "lgusbc": 0xF4D2,
+            "lgdisplayport1": 0xF4D0, "lgdisplayport2": 0xF4D1
         ]
         for (value, name) in names { aliases[name.lowercased().filter { !" -".contains($0) }] = value }
         return aliases

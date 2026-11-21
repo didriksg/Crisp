@@ -429,22 +429,6 @@
         }
       }
     },
-    "Click Choose Again, then choose the (LG) input this Mac is on." : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "请点按“重新选择”，然后选择这台 Mac 所用的 (LG) 输入源。"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "請點按「重新選擇」，然後選擇這台 Mac 所用的 (LG) 輸入來源。"
-          }
-        }
-      }
-    },
     "Click the cup to turn Keep Awake on or off, right-click it for a time limit" : {
       "localizations" : {
         "zh-Hans" : {
@@ -685,6 +669,22 @@
         }
       }
     },
+    "If the standard inputs don't switch, first choose the (LG) input this Mac is on." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "如果标准输入源无法切换，请先选择这台 Mac 所用的 (LG) 输入源。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "如果標準輸入來源無法切換，請先選擇這台 Mac 所用的 (LG) 輸入來源。"
+          }
+        }
+      }
+    },
     "Input" : {
       "localizations" : {
         "zh-Hans" : {
@@ -713,6 +713,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "輸入來源 %@"
+          }
+        }
+      }
+    },
+    "Inputs marked (LG) work only on LG monitors." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "标有 (LG) 的输入源仅适用于 LG 显示器。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "標有 (LG) 的輸入來源僅適用於 LG 顯示器。"
           }
         }
       }
@@ -2632,6 +2648,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "更新虛擬顯示器失敗，請重試。"
+          }
+        }
+      }
+    },
+    "First choose the (LG) input this Mac is on in the menu." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请先在菜单中选择这台 Mac 所用的 (LG) 输入源。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "請先在選單中選擇這台 Mac 所用的 (LG) 輸入來源。"
           }
         }
       }

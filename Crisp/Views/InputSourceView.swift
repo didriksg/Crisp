@@ -57,13 +57,21 @@ struct InputBodyBlock: View {
                 .caption()
             }
 
-            ForEach(service.options(for: display), id: \.self) { value in
-                CheckmarkRow(
-                    label: inputLabel(value),
-                    isSelected: service.macInput[uuid] == value,
-                    isPending: pending == value
-                ) { choose(value) }
+            // LG's side-channel inputs (DDCInputSource.lg) follow the monitor's own, set apart
+            // by a divider: the connector names repeat, and the two groups use different channels.
+            let options = service.options(for: display)
+            let standard = options.filter { !DDCInputSource.isLG($0) }
+            let lgInputs = options.filter(DDCInputSource.isLG)
+            ForEach(standard, id: \.self) { row($0) }
+            if !standard.isEmpty, !lgInputs.isEmpty {
+                Divider().padding(.leading, 24).padding(.vertical, 3)
             }
+            // Until this Mac's input is an LG code, the first click on an LG input marks it.
+            // Worded as a fallback: many LG monitors switch fine with the inputs above.
+            if service.awaitsLGMark(display) {
+                Text("If the standard inputs don't switch, first choose the (LG) input this Mac is on.").caption()
+            }
+            ForEach(lgInputs, id: \.self) { row($0) }
 
             if service.macInput[uuid] == nil {
                 Text("Crisp could not read which input this Mac is on. Choose it once.").caption()
@@ -89,10 +97,20 @@ struct InputBodyBlock: View {
         }
     }
 
+    private func row(_ value: UInt16) -> some View {
+        CheckmarkRow(
+            label: inputLabel(value),
+            isSelected: service.macInput[uuid] == value,
+            isPending: pending == value
+        ) { choose(value) }
+    }
+
     private func choose(_ value: UInt16) {
-        guard pending == nil else { return }
-        guard service.macInput[uuid] != nil else {
+        // The checked row is this Mac's input: choosing it again would only re-send it.
+        guard pending == nil, value != service.macInput[uuid] else { return }
+        guard !service.choiceMarks(value, for: display) else {
             service.mark(value, for: display)
+            message = nil
             return
         }
         pending = value
