@@ -21,6 +21,26 @@ final class CrispControlInputTests: XCTestCase {
         XCTAssertEqual(set.inputChange, .init(displayID: display.id, input: "0x11"))
     }
 
+    func testInputListEncodesCurrentAsNumberOrNull() throws {
+        let cases: [(Int?, NSObject)] = [(17, NSNumber(value: 17)), (nil, NSNull())]
+        for (current, expected) in cases {
+            let response = CrispControlResponse.success(inputs: .init(
+                displayID: display.id, uuid: "U", current: current, inputs: [.init(value: 17, name: "HDMI 1")]
+            ))
+            let data = CrispControlModel.encode(response)
+            let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+            let inputs = try XCTUnwrap(json["inputs"] as? [String: Any])
+            XCTAssertEqual(inputs["current"] as? NSObject, expected)
+            XCTAssertEqual(try JSONDecoder().decode(CrispControlResponse.self, from: data), response)
+        }
+    }
+
+    func testInputListDecodesOlderRepliesWithoutCurrent() throws {
+        let reply = #"{"ok":true,"inputs":{"displayID":7,"uuid":"U","inputs":[]}}"#
+        let decoded = try JSONDecoder().decode(CrispControlResponse.self, from: Data(reply.utf8))
+        XCTAssertEqual(decoded.inputs, .init(displayID: 7, uuid: "U", current: nil, inputs: []))
+    }
+
     /// Inputs go over the display's DDC channel: a held display has none until it is
     /// reconnected, and the built-in panel has none at all.
     func testInputCommandsRefuseDisplaysWithoutAChannel() {
