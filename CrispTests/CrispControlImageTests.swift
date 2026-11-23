@@ -25,6 +25,14 @@ final class CrispControlImageTests: XCTestCase {
         }
     }
 
+    func testParserRejectsNonFiniteImageValues() {
+        for value in ["nan", "inf", "-inf", "1e999"] {
+            let arguments = ["image", "set", "7", "contrast", value]
+            XCTAssertEqual(CrispControlCLIModel.parse(arguments: arguments),
+                           .failure("usage: crispctl image set <display> <setting> <value>"), value)
+        }
+    }
+
     func testSetIsRefusedOutOfRangeAndOnADisconnectedDisplay() throws {
         func set(_ selector: String, _ setting: CrispControlImageSetting, _ value: Double) throws -> CrispControlResult {
             let request = CrispControlRequest(command: .setImage, selector: selector, setting: setting, value: value)
