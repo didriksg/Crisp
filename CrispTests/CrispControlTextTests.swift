@@ -74,4 +74,16 @@ final class CrispControlTextTests: XCTestCase {
             XCTAssertEqual(CrispControlText.render(response, for: command), text, "\(command)")
         }
     }
+
+    func testVirtualDisplayListPreservesUnicodeNames() {
+        let response = CrispControlResponse.success(virtualDisplays: [
+            .init(id: "V1", name: "Desk 👩🏻‍💻", width: 1920, height: 1080, hiDPI: false, active: true),
+            .init(id: "V2", name: "Cafe\u{301}", width: 1920, height: 1080, hiDPI: false, active: false)
+        ])
+        XCTAssertEqual(CrispControlText.render(response, for: .listVirtualDisplays), """
+            NAME    RESOLUTION  STATE  ID
+            Desk 👩🏻‍💻  1920x1080   on     V1
+            Cafe\u{301}    1920x1080   off    V2
+            """)
+    }
 }

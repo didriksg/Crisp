@@ -1245,7 +1245,7 @@ enum CrispControlText {
     private static func table(_ rows: [[String]]) -> String {
         let widths = (0..<(rows.first?.count ?? 0)).map { column in rows.map { $0[column].count }.max() ?? 0 }
         return rows.map { row in
-            zip(row, widths).map { $0.padding(toLength: $1, withPad: " ", startingAt: 0) }
+            zip(row, widths).map { cell, width in cell + String(repeating: " ", count: width - cell.count) }
                 .joined(separator: "  ").replacingOccurrences(of: "\\s+$", with: "", options: .regularExpression)
         }.joined(separator: "\n")
     }
