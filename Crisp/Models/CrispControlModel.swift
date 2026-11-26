@@ -1125,7 +1125,8 @@ enum CrispControlCLIModel {
             case (.invert, _): value = nil
             default: value = Double(arguments[4])
             }
-            return value.map { .init(command: .setImage, selector: arguments[2], setting: setting, value: $0) }
+            guard let value, value.isFinite else { return nil }
+            return .init(command: .setImage, selector: arguments[2], setting: setting, value: value)
         default: return nil
         }
     }
