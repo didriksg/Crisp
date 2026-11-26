@@ -70,6 +70,10 @@ jobs:
           cp build/Localizable.xcstrings.orig Crisp/Resources/Localizable.xcstrings
           python3 scripts/check-localization-keys.py build/loc/en.xcloc \
             Crisp/Resources/Localizable.xcstrings scripts/i18n-missing-allowlist.txt
+      # Blocking everywhere: a translated %d where English has %@ can crash
+      # String(format:) for every user of that language.
+      - name: Translation format specifiers
+        run: python3 scripts/check-format-specifiers.py Crisp/Resources/Localizable.xcstrings
       # Blocking on pushes to main, advisory on pull requests. A contributor
       # adding an English string is never blocked (the release path,
       # release.sh --publish, still enforces completeness before shipping). But

@@ -93,6 +93,7 @@ loc-check: vendor
 		cp build/Localizable.xcstrings.orig Crisp/Resources/Localizable.xcstrings; exit $$status
 	python3 scripts/check-localization-keys.py build/loc/en.xcloc \
 		Crisp/Resources/Localizable.xcstrings scripts/i18n-missing-allowlist.txt
+	python3 scripts/check-format-specifiers.py Crisp/Resources/Localizable.xcstrings
 
 # The release binary is universal, and code that only compiles on arm64 (an
 # `#if arch(arm64)` block that a caller outside it depends on, which is how #110
