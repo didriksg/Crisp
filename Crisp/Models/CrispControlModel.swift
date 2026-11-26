@@ -142,6 +142,14 @@ struct CrispControlInputs: Codable, Equatable {
     let uuid: String
     let current: Int?
     let inputs: [CrispControlInput]
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(displayID, forKey: .displayID)
+        try container.encode(uuid, forKey: .uuid)
+        try container.encode(current, forKey: .current)
+        try container.encode(inputs, forKey: .inputs)
+    }
 }
 struct CrispControlInputChange: Equatable {
     let displayID: UInt32
