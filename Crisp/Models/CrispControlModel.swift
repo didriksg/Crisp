@@ -1179,7 +1179,7 @@ enum CrispControlText {
             return response.hdr.map { onOff($0.enabled) } ?? response.rotation.map { String($0.degrees) } ?? ""
         case .connectDisplay, .disconnectDisplay, .toggleDisplay, .setInput:
             guard let display = response.display else { return "" }
-            return display.name + ((display.connected ?? true) ? " connected" : " disconnected")
+            return printable(display.name) + ((display.connected ?? true) ? " connected" : " disconnected")
         case .listInputs:
             guard let inputs = response.inputs else { return "" }
             return table(inputs.inputs.map { [$0.value == inputs.current ? "*" : "", $0.name, String($0.value)] })
@@ -1188,7 +1188,7 @@ enum CrispControlText {
             guard let presets = response.presets, !presets.isEmpty else { return "no presets" }
             return table([["", "NAME", "CAPTURES", "ID"]]
                 + presets.map { [$0.active ? "*" : "", $0.name, $0.captures.joined(separator: ","), $0.id] })
-        case .applyPreset: return (response.skippedDisplays ?? []).map { "skipped \($0): not connected" }.joined(separator: "\n")
+        case .applyPreset: return (response.skippedDisplays ?? []).map { "skipped \(printable($0)): not connected" }.joined(separator: "\n")
         case .listVirtualDisplays, .setVirtualDisplay: return virtualText(response)
         case .setBrightness, .setBrightnessBoost, .setHDR, .setImage, .resetImage, .setRotation: return ""
         }
@@ -1196,7 +1196,7 @@ enum CrispControlText {
 
     /// A list prints a table; an on or off prints the state the display ended in.
     private static func virtualText(_ response: CrispControlResponse) -> String {
-        if let virtual = response.virtualDisplay { return virtual.name + " " + onOff(virtual.active) }
+        if let virtual = response.virtualDisplay { return printable(virtual.name) + " " + onOff(virtual.active) }
         guard let virtuals = response.virtualDisplays, !virtuals.isEmpty else { return "no virtual displays" }
         return table([["NAME", "RESOLUTION", "STATE", "ID"]] + virtuals.map {
             [$0.name, "\($0.width)x\($0.height)" + ($0.hiDPI ? " HiDPI" : ""), onOff($0.active), $0.id]
@@ -1238,11 +1238,18 @@ enum CrispControlText {
             }
             return [setting.rawValue, value]
         }
-        return "\(image.name) (\(image.displayID))\n" + table(rows + [["paused", image.paused ? "yes" : "no"]])
+        return "\(printable(image.name)) (\(image.displayID))\n" + table(rows + [["paused", image.paused ? "yes" : "no"]])
+    }
+
+    /// A monitor sets its own name (EDID), and a control character such as ESC in it would
+    /// reach the terminal as an escape sequence; each one prints as "?".
+    private static func printable(_ text: String) -> String {
+        String(String.UnicodeScalarView(text.unicodeScalars.map { $0.properties.generalCategory == .control ? "?" : $0 }))
     }
 
     /// Columns padded to their widest cell, two spaces apart.
     private static func table(_ rows: [[String]]) -> String {
+        let rows = rows.map { $0.map(printable) }
         let widths = (0..<(rows.first?.count ?? 0)).map { column in rows.map { $0[column].count }.max() ?? 0 }
         return rows.map { row in
             zip(row, widths).map { cell, width in cell + String(repeating: " ", count: width - cell.count) }
