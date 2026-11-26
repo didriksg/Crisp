@@ -86,4 +86,17 @@ final class CrispControlTextTests: XCTestCase {
             Cafe\u{301}    1920x1080   off    V2
             """)
     }
+
+    /// A monitor's EDID name reaches the terminal; ESC, BEL and C1 controls must not.
+    func testControlCharactersInNamesPrintAsQuestionMarks() {
+        let display = CrispControlDisplay(
+            id: 2, name: "\u{1b}]0;X\u{07}Dell\u{9b}2J", brightness: 50, maxBrightness: 100, isBuiltin: false,
+            uuid: "U", resolution: nil, brightnessBackend: .ddc, connected: true
+        )
+        XCTAssertEqual(CrispControlText.render(.success(displays: [display]), for: .list), """
+            ID  NAME           BRIGHTNESS  RESOLUTION  BACKEND  UUID
+            2   ?]0;X?Dell?2J  50%         -           ddc      U
+            """)
+        XCTAssertEqual(CrispControlText.render(.success(display: display), for: .toggleDisplay), "?]0;X?Dell?2J connected")
+    }
 }
