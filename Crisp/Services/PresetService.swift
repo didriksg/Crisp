@@ -276,9 +276,11 @@ final class PresetService: ObservableObject, @unchecked Sendable {
                 )
             }
 
-            if let x = entry.arrangementX, let y = entry.arrangementY {
+            // Int(exactly:) is nil for NaN, infinity and out-of-range values, where Int() traps.
+            if let x = entry.arrangementX.flatMap({ Int(exactly: $0.rounded()) }),
+               let y = entry.arrangementY.flatMap({ Int(exactly: $0.rounded()) }) {
                 _ = await ArrangementService.shared.setPosition(
-                    x: Int(x), y: Int(y), for: displayID
+                    x: x, y: y, for: displayID
                 )
             }
 

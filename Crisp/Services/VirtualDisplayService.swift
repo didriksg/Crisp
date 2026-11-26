@@ -130,6 +130,9 @@ final class VirtualDisplayService: ObservableObject, @unchecked Sendable {
     /// block on WindowServer IPC. See docs/display-notes.md (VirtualDisplayService.create).
     @discardableResult
     func create(config: VirtualDisplayConfig) async -> Bool {
+        // A stored size comes from defaults; a negative or huge one trapped here at every launch.
+        guard let pixelsWide = UInt32(exactly: config.width), let pixelsHigh = UInt32(exactly: config.height),
+              pixelsWide > 0, pixelsHigh > 0 else { return false }
         // Registration pops macOS's own "what to show" picker, which steals key focus and
         // would trip the panel's auto-dismiss; harmless at launch since the panel isn't open then.
         PanelOpenGuard.suppressAutoDismiss = true
@@ -151,8 +154,8 @@ final class VirtualDisplayService: ObservableObject, @unchecked Sendable {
             width: Double(w) / ppi * 25.4,
             height: Double(h) / ppi * 25.4
         )
-        descriptor.maxPixelsWide = UInt32(w)
-        descriptor.maxPixelsHigh = UInt32(h)
+        descriptor.maxPixelsWide = pixelsWide
+        descriptor.maxPixelsHigh = pixelsHigh
         descriptor.name = config.name.isEmpty ? String(localized: "Crisp Virtual") : config.name
         descriptor.vendorID = Self.crispVirtualVendorID  // must be non-zero or init returns nil
         // Must be unique per config AND stable across recreations (macOS keys per-display
