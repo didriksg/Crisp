@@ -26,7 +26,20 @@ enum DebugReport {
             lines.append(line)
         }
         lines += ["", allRuns ? "Log, last 30 minutes:" : "Log, last 30 minutes of this run of Crisp:"]
-        lines += log.isEmpty ? ["(no lines)"] : log
+        lines += log.isEmpty ? ["(no lines)"] : numberingUUIDs(log)
         return lines.joined(separator: "\n")
+    }
+
+    /// Crisp logs display UUIDs as public, and a UUID names one physical monitor. Each one
+    /// becomes uuid-1, uuid-2, ... in order of first use, so lines about one display still match.
+    private static func numberingUUIDs(_ log: [String]) -> [String] {
+        var numbers: [String: Int] = [:]
+        return log.map { line in
+            line.replacing(/[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}/) { match in
+                let uuid = match.output.uppercased()
+                if numbers[uuid] == nil { numbers[uuid] = numbers.count + 1 }
+                return "uuid-\(numbers[uuid]!)"
+            }
+        }
     }
 }

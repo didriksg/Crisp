@@ -34,4 +34,17 @@ final class DebugReportTests: XCTestCase {
         let text = DebugReport.text(crisp: "1", macOS: "2", mac: "3", displays: [], log: [], allRuns: false)
         XCTAssertTrue(text.hasSuffix("Log, last 30 minutes of this run of Crisp:\n(no lines)"))
     }
+
+    /// The template promises no UUID; the same display keeps its number across lines.
+    func testLogUUIDsAreNumbered() {
+        let first = "37D8832A-2D66-02CA-B9F7-8F30A301B230", second = "decc7cef-5e36-4e9b-8f18-ce11ae5902ad"
+        let text = DebugReport.text(crisp: "1", macOS: "2", mac: "3", displays: [], log: [
+            "disconnect requested: \(first) id 2",
+            "reconnect requested: \(second) id 3, after \(first.lowercased())"
+        ], allRuns: true)
+        XCTAssertTrue(text.hasSuffix("""
+            disconnect requested: uuid-1 id 2
+            reconnect requested: uuid-2 id 3, after uuid-1
+            """))
+    }
 }
