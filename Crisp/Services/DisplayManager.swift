@@ -269,17 +269,18 @@ class DisplayManager: ObservableObject {
         let product = display.modelNumber
         guard vendor != 0, product != 0 else { return }
 
-        guard !HiDPIService.shared.isHiDPIEnabled(vendor: vendor, product: product) else { return }
+        guard !HiDPIService.shared.isHiDPIEnabled(vendor: vendor, product: product),
+              Self.lacksHiDPIModes(display) else { return }
 
-        let (nativeW, nativeH) = display.nativeResolution
-
-        guard nativeW >= 2560 || (nativeW * nativeH >= 2560 * 1440) else { return }
-
-        // CGS-direct already surfaces HiDPI scaled modes with no override for most 2K+ panels;
-        // skip the write and its admin prompt/blank when that's already true.
-        if display.availableModes.contains(where: {
-            $0.isHiDPI && $0.pixelWidth >= nativeW && $0.width >= nativeW / 2
-        }) { return }
+        // At wake a display can come back under a short-lived id before its mode list is
+        // complete, which read as "no HiDPI modes" and raised the admin prompt for a display
+        // that has them. Ask only if the same display still lacks them once settled.
+        try? await Task.sleep(nanoseconds: 3_000_000_000)
+        guard displays.contains(where: { $0.displayID == display.displayID }),
+              CGDisplayIsOnline(display.displayID) != 0 else { return }
+        await display.loadDetails()
+        guard !HiDPIService.shared.isHiDPIEnabled(vendor: vendor, product: product),
+              Self.lacksHiDPIModes(display) else { return }
 
         // Installs the dense smooth-scaling ladder directly (not just coarse HiDPI), since the
         // admin prompt is the one interruption. Panel-space dims: the plist is rotation-blind.
@@ -291,6 +292,18 @@ class DisplayManager: ObservableObject {
             await PhysicalDisplayToggleService.shared.softReconnect(display)
             HiDPIService.shared.refreshModes(for: display)
             await display.loadDetails()
+        }
+    }
+
+    /// A 2K+ panel whose loaded mode list has no HiDPI mode at native width. CGS-direct
+    /// already surfaces HiDPI modes for most 2K+ panels, so this is rare. An empty list
+    /// means not loaded yet, not "none".
+    private static func lacksHiDPIModes(_ display: DisplayInfo) -> Bool {
+        guard !display.availableModes.isEmpty else { return false }
+        let (nativeW, nativeH) = display.nativeResolution
+        guard nativeW >= 2560 || (nativeW * nativeH >= 2560 * 1440) else { return false }
+        return !display.availableModes.contains {
+            $0.isHiDPI && $0.pixelWidth >= nativeW && $0.width >= nativeW / 2
         }
     }
 
