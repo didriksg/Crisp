@@ -74,8 +74,13 @@ final class CrispControlServer {
         while true {
             let client = Darwin.accept(listener, nil, nil)
             if client < 0 {
-                if errno == EINTR { continue }
-                return
+                switch errno {
+                case EINTR, ECONNABORTED: continue
+                // Out of descriptors or buffers: wait and retry. Returning here left the
+                // socket dead until relaunch.
+                case EMFILE, ENFILE, ENOBUFS, ENOMEM: usleep(100_000); continue
+                default: return  // stop() closed the listener
+                }
             }
             guard Self.configure(client), Self.isCurrentUser(client), Self.admit() else {
                 Darwin.close(client)
