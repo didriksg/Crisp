@@ -84,7 +84,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // Prevent duplicate launch via an exclusive file lock. Unlike consulting
         // NSWorkspace (whose entries linger during teardown and race with fast
         // relaunches), flock is released by the kernel the moment a process dies.
-        let lockPath = NSTemporaryDirectory() + "crisp.lock"
+        let lockPath = NSTemporaryDirectory() + AppIsolation.lockFileName()
         let lockFD = open(lockPath, O_CREAT | O_RDWR, 0o600)
         if lockFD == -1 || flock(lockFD, LOCK_EX | LOCK_NB) != 0 {
             exit(0)
@@ -137,6 +137,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
 
         DisplayColorModeService.shared.restoreAtLaunchIfNeeded(using: displayManager)
+        UnderscanService.shared.handleAppStartup(displays: displayManager.displays)
 
         // Record every display's mode as the screens go down, so the wake passes
         // below can put back what macOS moved and nothing else. Both notifications:
@@ -295,6 +296,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 // it runs reconcile, which puts a remembered disconnect back.
                 dm.refreshDisplays()
                 try? await Task.sleep(nanoseconds: 500_000_000)
+                UnderscanService.shared.handleSystemWake(displays: dm.displays)
                 // WindowServer keeps settling for seconds after wake: ICC restore and
                 // link retraining can clobber a freshly applied transfer table (#25).
                 // Three passes with increasing delays; services reapply state as needed.
@@ -625,6 +627,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 RefreshListBlock(controller: modeC)
             })
             blocks += rotationBlocks(display, detailOpen: detailOpen)
+            blocks += underscanBlocks(display, detailOpen: detailOpen)
             blocks.append(detail("dmode-tail", isOpen: detailOpen) {
                 ModeTailBlock(controller: modeC)
             })
@@ -1052,6 +1055,21 @@ extension AppDelegate {
             },
             detailBlock("drot-body-\(uuid)", isOpen: listOpen, live: false) {
                 RotationListBlock(controller: controller)
+            }
+        ]
+    }
+
+    /// Native underscan header and slider blocks under Picture. Built here to keep
+    /// rebuildBlocksIfNeeded within SwiftLint's function length limit.
+    private func underscanBlocks(_ display: DisplayInfo, detailOpen: @escaping () -> Bool) -> [PanelBlock] {
+        let id = display.displayID, uuid = display.displayUUID, state = sectionState
+        let bodyOpen = { detailOpen() && state.underscanOpenIDs.contains(id) }
+        return [
+            detailBlock("dunder-head-\(uuid)", isOpen: detailOpen, live: true) {
+                UnderscanHeadBlock(display: display, state: state)
+            },
+            detailBlock("dunder-body-\(uuid)", isOpen: bodyOpen, live: false) {
+                UnderscanBodyBlock(display: display)
             }
         ]
     }

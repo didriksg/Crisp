@@ -31,6 +31,7 @@ struct AdvancedAboutTab: View {
 
             HStack(spacing: 8) {
                 Button("Check for Updates…") { UpdateService.shared.installUpdate() }
+                    .disabled(!UpdateService.shared.isUpdaterEnabled)
                 Button(copied ? "Copied" : copying ? "Copying…" : "Copy Debug Info") { copyDebugInfo() }
                     .disabled(copying)
             }

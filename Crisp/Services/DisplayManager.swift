@@ -20,6 +20,10 @@ private func displayReconfigCallback(
         ReconfigEvents.shared.resolve(displayID: displayID, flags: flags)
         if flags.isDisjoint(with: [.addFlag, .removeFlag, .movedFlag]) {
             manager.refreshExistingDisplayModes()
+            if flags.contains(.setModeFlag),
+               let display = manager.displays.first(where: { $0.displayID == displayID }) {
+                UnderscanService.shared.handleModeChangeIfNeeded(for: display, among: manager.displays)
+            }
         } else {
             // refreshExistingDisplayModes doesn't re-read bounds, so add/remove/move needs a rebuild.
             manager.refreshDisplays()
@@ -179,6 +183,7 @@ class DisplayManager: ObservableObject {
             GammaService.shared.invalidate(for: $0)
             BrightnessBoostService.shared.invalidate(for: $0)
             VolumeService.shared.invalidate(for: $0)
+            UnderscanService.shared.handleDisplayDisconnected(displayID: $0)
         }
         // Checked against the online list, not removedIDs: the mirror virtual is never in
         // `displays`, so its death wouldn't show up there otherwise.
@@ -242,12 +247,21 @@ class DisplayManager: ObservableObject {
 
         // Kept displays: only bounds/main flag, no DDC probe.
         let keptIDs = currentIDs.intersection(newIDSet)
-        for display in updatedDisplays where keptIDs.contains(display.displayID) {
+        let keptDisplays = updatedDisplays.filter { keptIDs.contains($0.displayID) }
+        for display in keptDisplays {
             display.bounds = CGDisplayBounds(display.displayID)
             display.isMain = CGDisplayIsMain(display.displayID) != 0
             // Reconfigurations can reset the transfer table macOS-side, losing gamma
             // adjustments (issue #25); no-op when there's none to restore.
             GammaService.shared.reapply(for: display.displayID)
+        }
+
+        if !addedDisplays.isEmpty || !removedIDs.isEmpty {
+            UnderscanService.shared.handleDisplaysReconfigured(
+                added: addedDisplays,
+                kept: keptDisplays,
+                all: updatedDisplays
+            )
         }
 
         // Drops any physical-disconnect record whose display came back online.
