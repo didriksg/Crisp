@@ -16,14 +16,18 @@ final class UpdateService: NSObject, ObservableObject {
     @Published var hasUpdate: Bool = false
     @Published var latestVersion: String? = nil
 
-    // lazy so `self` can be the user-driver delegate; touched in init so the updater
-    // starts at launch, not on first access.
+    let isUpdaterEnabled: Bool = AppIsolation.shouldStartSparkleUpdater()
+
+    // lazy so `self` can be the user-driver delegate; touched in init only when updates
+    // are enabled (disabled for isolated dev builds so upstream releases never overwrite them).
     private lazy var updaterController = SPUStandardUpdaterController(
         startingUpdater: true, updaterDelegate: nil, userDriverDelegate: self)
 
     private override init() {
         super.init()
-        _ = updaterController
+        if isUpdaterEnabled {
+            _ = updaterController
+        }
     }
 
     // MARK: - Install
@@ -32,6 +36,7 @@ final class UpdateService: NSObject, ObservableObject {
     /// explicit activate, macOS 14's cooperative activation leaves Sparkle's window behind
     /// the frontmost app.
     func installUpdate() {
+        guard isUpdaterEnabled else { return }
         NSApp.activate()
         updaterController.checkForUpdates(nil)
     }

@@ -20,12 +20,15 @@ final class SettingsService: ObservableObject, @unchecked Sendable {
     private let defaults = UserDefaults.standard
     private let supportDir: URL = {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let dir = base.appendingPathComponent("Crisp", isDirectory: true)
-        // One-time migration from the pre-rename storage folder.
-        let legacy = base.appendingPathComponent("FreeDisplay", isDirectory: true)
-        if !FileManager.default.fileExists(atPath: dir.path),
-           FileManager.default.fileExists(atPath: legacy.path) {
-            try? FileManager.default.moveItem(at: legacy, to: dir)
+        let dirName = AppIsolation.applicationSupportDirectoryName()
+        let dir = base.appendingPathComponent(dirName, isDirectory: true)
+        // One-time migration from the pre-rename storage folder (production bundle only).
+        if !AppIsolation.isIsolatedBuild() {
+            let legacy = base.appendingPathComponent("FreeDisplay", isDirectory: true)
+            if !FileManager.default.fileExists(atPath: dir.path),
+               FileManager.default.fileExists(atPath: legacy.path) {
+                try? FileManager.default.moveItem(at: legacy, to: dir)
+            }
         }
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
@@ -37,7 +40,7 @@ final class SettingsService: ObservableObject, @unchecked Sendable {
         // added" notice). An existing user's choice is never changed.
         let isNewInstall = defaults.object(forKey: Keys.launchAtLogin) == nil
         loadAll()
-        if isNewInstall && !launchAtLogin {
+        if isNewInstall && !launchAtLogin && AppIsolation.shouldAutoRegisterLaunchAtLogin() {
             LaunchService.shared.enable()
             launchAtLogin = LaunchService.shared.isEnabled
         }

@@ -138,6 +138,7 @@ struct AdvancedGeneralTab: View {
                     ))
                 }
             }
+            AdvancedUnderscanRecoverySection()
         }
         .formStyle(.grouped)
         .scrollDisabled(true)  // the window's scroll view scrolls; this one took the wheel
@@ -460,6 +461,7 @@ private struct AdvancedDisplayPage: View {
                     Text(message).font(.caption).foregroundStyle(.secondary)
                 }
             }
+            AdvancedUnderscanSection(display: display)
             Section("Color") {
                 if !color.presetName.isEmpty {
                     Picker("Preset", selection: Binding(

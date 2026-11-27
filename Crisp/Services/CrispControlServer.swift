@@ -28,10 +28,15 @@ final class CrispControlServer {
         return (try? JSONDecoder().decode(CrispControlResponse.self, from: reply)) ?? .failure("response decoding failed")
     }
 
+    private var socketPath: String {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent(AppIsolation.controlSocketFileName()).path
+    }
+
     func start() throws {
         Self.running = self
         guard listenerFD == -1 else { return }
-        let path = CrispControlSocket.path
+        let path = socketPath
         guard path.utf8.count < MemoryLayout.size(ofValue: sockaddr_un().sun_path) else {
             throw ServerError("control socket path is too long")
         }
@@ -67,7 +72,7 @@ final class CrispControlServer {
         Darwin.shutdown(listenerFD, SHUT_RDWR)
         Darwin.close(listenerFD)
         listenerFD = -1
-        try? Self.removeOwnedSocket(CrispControlSocket.path)
+        try? Self.removeOwnedSocket(socketPath)
     }
 
     private nonisolated func acceptConnections(_ listener: Int32) {

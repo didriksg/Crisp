@@ -96,6 +96,11 @@ targets:
       - path: Crisp/Models/ArrangementSnap.swift
       - path: Crisp/Models/DebugReport.swift
       - path: Crisp/Models/KeepAwakeDuration.swift
+      - path: Crisp/Models/AppIsolation.swift
+      - path: Crisp/Models/DisplayUnderscanIdentity.swift
+      - path: Crisp/Models/UnderscanModels.swift
+      - path: Crisp/Models/UnderscanStore.swift
+      - path: Crisp/Models/UnderscanCoordinator.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.crisp.tests

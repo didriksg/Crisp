@@ -5261,6 +5261,1094 @@
           }
         }
       }
+    },
+    "Adjusts visible desktop area between %@%% and %@%%" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在 %@%% 到 %@%% 之间调整可见桌面区域"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在 %@%% 到 %@%% 之間調整可見桌面區域"
+          }
+        }
+      }
+    },
+    "Auto-restore paused after %@ failed attempts." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在 %@ 次失败尝试后已暂停自动恢复。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在 %@ 次失敗嘗試後已暫停自動恢復。"
+          }
+        }
+      }
+    },
+    "Automatic restore paused after repeated failures." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "由于多次失败，自动恢复已暂停。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "由於多次失敗，自動恢復已暫停。"
+          }
+        }
+      }
+    },
+    "Automatic restore suspended" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自动恢复已暂停"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自動恢復已暫停"
+          }
+        }
+      }
+    },
+    "Automatic rollback depends on macOS accepting the revert request." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自动回滚取决于 macOS 是否接受还原请求。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自動還原取決於 macOS 是否接受還原請求。"
+          }
+        }
+      }
+    },
+    "Automatically Restore Underscan" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自动恢复欠扫描"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自動恢復欠掃描"
+          }
+        }
+      }
+    },
+    "Checking display underscan capability…" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在检查显示器欠扫描支持情况…"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在檢查顯示器欠掃描支援情況…"
+          }
+        }
+      }
+    },
+    "Confirm Experimental Hardware Test" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "确认实验性硬件测试"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "確認實驗性硬體測試"
+          }
+        }
+      }
+    },
+    "Confirm Experimental Underscan" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "确认实验性欠扫描"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "確認實驗性欠掃描"
+          }
+        }
+      }
+    },
+    "Confirm Test" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "确认测试"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "確認測試"
+          }
+        }
+      }
+    },
+    "Confirm the experimental hardware test before applying forced underscan." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在应用强制欠扫描前，请先确认实验性硬件测试。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在套用強制欠掃描前，請先確認實驗性硬體測試。"
+          }
+        }
+      }
+    },
+    "Disable All" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "全部停用"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "全部停用"
+          }
+        }
+      }
+    },
+    "Disable All & Reset to 100%" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "全部停用并重置为 100%"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "全部停用並重設為 100%"
+          }
+        }
+      }
+    },
+    "Disable All Underscan Settings" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "停用所有欠扫描设置"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "停用所有欠掃描設定"
+          }
+        }
+      }
+    },
+    "Disable Underscan" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "停用欠扫描"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "停用欠掃描"
+          }
+        }
+      }
+    },
+    "Disable all underscan settings?" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "要停用所有欠扫描设置吗？"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "要停用所有欠掃描設定嗎？"
+          }
+        }
+      }
+    },
+    "Display %@ is no longer online." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示器 %@ 已离线。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "顯示器 %@ 已離線。"
+          }
+        }
+      }
+    },
+    "Display Recovery" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示器恢复"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "顯示器恢復"
+          }
+        }
+      }
+    },
+    "Display is currently offline." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示器当前处于离线状态。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "顯示器目前處於離線狀態。"
+          }
+        }
+      }
+    },
+    "Display reported an unsupported underscan range." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示器报告了不受支持的欠扫描范围。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "顯示器回報了不支援的欠掃描範圍。"
+          }
+        }
+      }
+    },
+    "Display underscan" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示器欠扫描"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "顯示器欠掃描"
+          }
+        }
+      }
+    },
+    "Enable Force-enable Native Underscan (Experimental) in Advanced Settings > Displays to test." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请在“高级设置 > 显示器”中启用“强制启用原生欠扫描（实验性）”进行测试。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "請在「進階設定 > 顯示器」中啟用「強制啟用原生欠掃描（實驗性）」進行測試。"
+          }
+        }
+      }
+    },
+    "Enable Underscan" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "启用欠扫描"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "啟用欠掃描"
+          }
+        }
+      }
+    },
+    "Every monitor's underscan setting will be disabled and active displays will be reset to 100% where supported." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "所有显示器的欠扫描设置都将被停用，支持重置的活动显示器将恢复为 100%。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "所有顯示器的欠掃描設定都將被停用，支援重設的活動顯示器將恢復為 100%。"
+          }
+        }
+      }
+    },
+    "Experimental Underscan Confirmation" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "实验性欠扫描确认"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "實驗性欠掃描確認"
+          }
+        }
+      }
+    },
+    "Experimental force-enabled · Hardware readback unavailable" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "实验性强制启用 · 硬件回读不可用"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "實驗性強制啟用 · 硬體回讀不可用"
+          }
+        }
+      }
+    },
+    "Experimental force-enabled · Submitted %@%% (unconfirmed)" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "实验性强制启用 · 已提交 %@%%（未确认）"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "實驗性強制啟用 · 已提交 %@%%（未確認）"
+          }
+        }
+      }
+    },
+    "Exposes the native underscan control even when macOS reports this display as unsupported. Hardware compatibility and readback are not guaranteed on Apple Silicon." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "即使 macOS 报告此显示器不受支持，也显示原生欠扫描控件。在 Apple 芯片上不保证硬件兼容性和回读。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "即使 macOS 回報此顯示器不支援，仍顯示原生欠掃描控制項。在 Apple 晶片上不保證硬體相容性與回讀。"
+          }
+        }
+      }
+    },
+    "Force-enable Native Underscan (Experimental)" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "强制启用原生欠扫描（实验性）"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "強制啟用原生欠掃描（實驗性）"
+          }
+        }
+      }
+    },
+    "Forced native underscan is experimental on Apple Silicon and may have no effect or cause temporary display glitches. Confirm before testing." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在 Apple 芯片上，强制原生欠扫描属于实验性功能，可能无效或导致短暂的显示异常。测试前请确认。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在 Apple 晶片上，強制原生欠掃描屬於實驗性功能，可能無效或導致短暫的顯示異常。測試前請確認。"
+          }
+        }
+      }
+    },
+    "Hardware Status" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "硬件状态"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "硬體狀態"
+          }
+        }
+      }
+    },
+    "Hardware readback is unavailable; tracking last requested value locally." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "硬件回读不可用；已在本地记录上次请求的值。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "硬體回讀不可用；已在本地記錄上次請求的值。"
+          }
+        }
+      }
+    },
+    "Hardware underscan readback is unavailable on this display." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此显示器不支持硬件欠扫描回读。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此顯示器不支援硬體欠掃描回讀。"
+          }
+        }
+      }
+    },
+    "Hardware-confirmed: %@%%" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "硬件已确认：%@%%"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "硬體已確認：%@%%"
+          }
+        }
+      }
+    },
+    "Hardware-confirmed: Unavailable" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "硬件确认：不可用"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "硬體確認：不可用"
+          }
+        }
+      }
+    },
+    "Incompatible macOS API signature (%@)." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "不兼容的 macOS API 签名（%@）。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "不相容的 macOS API 簽名（%@）。"
+          }
+        }
+      }
+    },
+    "Keep %@%% underscan? Reverting to %@%% in %@s." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "要保留 %1$@%% 欠扫描吗？将在 %3$@ 秒后恢复为 %2$@%%。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "要保留 %1$@%% 欠掃描嗎？將在 %3$@ 秒後恢復為 %2$@%%。"
+          }
+        }
+      }
+    },
+    "Keep %@%%? Reverting to %@%% in %@s. Rollback depends on macOS accepting the revert call." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "要保留 %1$@%% 吗？将在 %3$@ 秒后恢复为 %2$@%%。回滚取决于 macOS 是否接受还原调用。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "要保留 %1$@%% 嗎？將在 %3$@ 秒後恢復為 %2$@%%。還原取決於 macOS 是否接受還原呼叫。"
+          }
+        }
+      }
+    },
+    "Native underscan API symbol unavailable (%@)." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "原生欠扫描 API 符号不可用（%@）。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "原生欠掃描 API 符號不可用（%@）。"
+          }
+        }
+      }
+    },
+    "Native underscan is not available on virtual displays." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "虚拟显示器不支持原生欠扫描。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "虛擬顯示器不支援原生欠掃描。"
+          }
+        }
+      }
+    },
+    "Native underscan is not supported on the built-in display." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "内建显示器不支持原生欠扫描。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "內建顯示器不支援原生欠掃描。"
+          }
+        }
+      }
+    },
+    "Native underscan supported" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "支持原生欠扫描"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "支援原生欠掃描"
+          }
+        }
+      }
+    },
+    "Native underscan supported · Confirmed %@%%" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "支持原生欠扫描 · 已确认 %@%%"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "支援原生欠掃描 · 已確認 %@%%"
+          }
+        }
+      }
+    },
+    "Native underscan supported · Submitted %@%% (unconfirmed)" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "支持原生欠扫描 · 已提交 %@%%（未确认）"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "支援原生欠掃描 · 已提交 %@%%（未確認）"
+          }
+        }
+      }
+    },
+    "Paused" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已暂停"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已暫停"
+          }
+        }
+      }
+    },
+    "Remember Underscan Value" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "记住欠扫描值"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "記住欠掃描值"
+          }
+        }
+      }
+    },
+    "Requested %@%%. Hardware confirmation is skipped on unsupported displays." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已请求 %@%%。在不受支持的显示器上会跳过硬件确认。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已請求 %@%%。在不支援的顯示器上會略過硬體確認。"
+          }
+        }
+      }
+    },
+    "Requested: %@%%" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已请求：%@%%"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已請求：%@%%"
+          }
+        }
+      }
+    },
+    "Required before sending the first forced native underscan call on this monitor." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在此显示器上发送首次强制原生欠扫描请求前需要确认。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在此顯示器上發送首次強制原生欠掃描請求前需要確認。"
+          }
+        }
+      }
+    },
+    "Required macOS framework unavailable (%@)." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "所需的 macOS 框架不可用（%@）。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "所需的 macOS 框架不可用（%@）。"
+          }
+        }
+      }
+    },
+    "Reset" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重置"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重設"
+          }
+        }
+      }
+    },
+    "Reset Underscan to 100%" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "将欠扫描重置为 100%"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "將欠掃描重設為 100%"
+          }
+        }
+      }
+    },
+    "Reset this display to 100% or stop automatic underscan restoration." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "将此显示器重置为 100%，或停止自动欠扫描恢复。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "將此顯示器重設為 100%，或停止自動欠掃描恢復。"
+          }
+        }
+      }
+    },
+    "Reset to 100%" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重置为 100%"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重設為 100%"
+          }
+        }
+      }
+    },
+    "Restore After Display Reconnection" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重新连接显示器后恢复"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重新連接顯示器後恢復"
+          }
+        }
+      }
+    },
+    "Restore After Resolution Changes" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "更改分辨率后恢复"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "更改解析度後恢復"
+          }
+        }
+      }
+    },
+    "Restore After Sleep" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "睡眠唤醒后恢复"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "睡眠喚醒後恢復"
+          }
+        }
+      }
+    },
+    "Resume Auto-Restore" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "恢复自动还原"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "恢復自動還原"
+          }
+        }
+      }
+    },
+    "Revert Now" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "立即还原"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "立即還原"
+          }
+        }
+      }
+    },
+    "Shrinks the visible desktop area with black borders while keeping native resolution and HiDPI scaling." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在保持原生分辨率和 HiDPI 缩放的同时，通过黑边缩小可见桌面区域。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在保持原生解析度與 HiDPI 縮放的同時，透過黑邊縮小可見桌面區域。"
+          }
+        }
+      }
+    },
+    "Stops automatic restoration on every monitor and resets active external displays back to 100%." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "停止所有显示器的自动恢复，并将活动的外接显示器重置为 100%。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "停止所有顯示器的自動恢復，並將活動的外接顯示器重設為 100%。"
+          }
+        }
+      }
+    },
+    "Submitted: %@%%" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已提交：%@%%"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已提交：%@%%"
+          }
+        }
+      }
+    },
+    "Superseded by a newer underscan request." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已被更新的欠扫描请求取代。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已被更新的欠掃描請求取代。"
+          }
+        }
+      }
+    },
+    "Underscan" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "欠扫描"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "欠掃描"
+          }
+        }
+      }
+    },
+    "Underscan restore did not complete." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "欠扫描恢复未完成。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "欠掃描恢復未完成。"
+          }
+        }
+      }
+    },
+    "Underscan value %@%% is outside the allowed %@%%–%@%% range." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "欠扫描值 %@%% 超出允许的 %@%%–%@%% 范围。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "欠掃描值 %@%% 超出允許的 %@%%–%@%% 範圍。"
+          }
+        }
+      }
+    },
+    "Unsupported" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "不支持"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "不支援"
+          }
+        }
+      }
+    },
+    "macOS does not expose native underscan for this display or connection." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "macOS 未为此显示器或连接提供原生欠扫描。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "macOS 未為此顯示器或連接提供原生欠掃描。"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"
