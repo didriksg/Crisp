@@ -316,7 +316,7 @@ struct AdvancedUnderscanSection: View {
         Section("Underscan") {
             CenteredRow(
                 title: "Hardware Status",
-                detail: Text(verbatim: [presentation.headline, presentation.detail].compactMap { $0 }.joined(separator: " "))
+                detail: Text(verbatim: [presentation.headline, presentation.detail].compactMap { $0 }.joined(separator: "\n"))
             ) {
                 Circle()
                     .fill(presentation.color)
@@ -456,8 +456,12 @@ struct AdvancedUnderscanSection: View {
                             Task { await underscan.disableUnderscan(for: display, among: displayManager.displays) }
                         }
                     }
+                    .fixedSize()
                 }
             }
+        }
+        .onAppear {
+            sliderValue = Double(liveState.requestedPercentage)
         }
         .task(id: display.displayID) {
             await underscan.refresh(display: display, among: displayManager.displays)
